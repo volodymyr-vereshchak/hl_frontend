@@ -3,6 +3,7 @@ import { AppShellLayout } from '@/components/AppShellLayout'
 import { Placeholder } from '@/components/Placeholder'
 import { OverviewPage } from '@/features/overview/OverviewPage'
 import { ArchivePage } from '@/features/archive/ArchivePage'
+import { AdminPage } from '@/features/admin/AdminPage'
 
 // Map old ?archiveType= deep links to the new routes (backward compatibility).
 const LEGACY_ROUTE: Record<string, string> = {
@@ -46,7 +47,7 @@ export const router = createBrowserRouter([
       { path: 'reports/night-consumption', element: <Placeholder title="Нічні витрати" /> },
       { path: 'reports/accidents', element: <Placeholder title="Звіт по аваріях" /> },
       { path: 'flow-calc', element: <Placeholder title="Розрахунок витрати" /> },
-      { path: 'admin', element: <Placeholder title="Адміністрування" /> },
+      { path: 'admin', element: <AdminPage /> },
       { path: '*', element: <Navigate to="/overview" replace /> },
     ],
   },
