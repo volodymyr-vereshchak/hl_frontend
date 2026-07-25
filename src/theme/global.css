@@ -1,0 +1,74 @@
+/* Base document + instrument-console polish, layered on top of Mantine. */
+
+:root {
+  --hlv-header-height: 56px;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Semantic surface tokens, theme-aware. Mantine stamps data-mantine-color-scheme. */
+:root,
+[data-mantine-color-scheme='light'] {
+  --hlv-page-bg: #f2f4f5;
+  --hlv-surface: #ffffff;
+  --hlv-surface-2: #e9edef;
+  --hlv-border: #d5dbde;
+  --hlv-grid-line: #eceff1;
+}
+
+[data-mantine-color-scheme='dark'] {
+  --hlv-page-bg: #12161b;
+  --hlv-surface: #1a2027;
+  --hlv-surface-2: #222b34;
+  --hlv-border: #2c353d;
+  --hlv-grid-line: #232c34;
+}
+
+body {
+  background: var(--hlv-page-bg);
+}
+
+/* Slim, unobtrusive instrument-style scrollbars. */
+* {
+  scrollbar-width: thin;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--mantine-color-steel-4);
+  border-radius: 6px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--mantine-color-steel-6);
+  background-clip: content-box;
+}
+
+/* Tabular numerics helper for data-dense cells. */
+.hlv-num {
+  font-family: 'JetBrains Mono Variable', ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
