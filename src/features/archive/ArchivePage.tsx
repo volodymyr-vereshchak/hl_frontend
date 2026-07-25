@@ -160,7 +160,7 @@ export function ArchivePage() {
         <Paper
           withBorder
           radius="md"
-          style={{ width: 320, flexShrink: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
+          style={{ width: 420, flexShrink: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
         >
           <Text fw={600} px="sm" pt="sm" size="sm" tt="uppercase" c="dimmed">
             {t('nodeListTitle')}

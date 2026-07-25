@@ -51,7 +51,14 @@ function LineRow({ line }: { line: TreeLine }) {
     >
       <Group gap={6} wrap="nowrap">
         <IconRipple size={13} color="var(--mantine-color-steel-6)" />
-        <Text size="sm" fw={active ? 600 : 400} c={active ? 'petrol' : undefined} lineClamp={1}>
+        {/* Clamped to one line; the full name shows on hover. */}
+        <Text
+          size="sm"
+          fw={active ? 600 : 400}
+          c={active ? 'petrol' : undefined}
+          lineClamp={1}
+          title={line.name}
+        >
           {line.name}
         </Text>
         {badge}
@@ -89,7 +96,7 @@ function TreeNode({ label, icon, depth, count, defaultOpen, forceOpen, children 
             style={{ transform: isOpen ? 'rotate(90deg)' : 'none', transition: 'transform 150ms' }}
           />
           {icon}
-          <Text size="sm" fw={600} lineClamp={1} style={{ flex: 1 }}>
+          <Text size="sm" fw={600} lineClamp={1} style={{ flex: 1 }} title={label}>
             {label}
           </Text>
           {count != null && (

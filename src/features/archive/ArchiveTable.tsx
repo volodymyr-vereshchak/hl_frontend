@@ -198,12 +198,24 @@ export function ArchiveTable({ rows, type, meta, overlay, onDrillDown }: Props) 
           ))}
         </Table.Tbody>
         {hasSummary && rows.length > 0 && (
+          /* Totals stay pinned to the bottom of the viewport while rows scroll. */
           <Table.Tfoot>
             <Table.Tr>
               {specs.map((spec, i) => {
                 const isNum = numericKeys.has(spec.key)
                 return (
-                  <Table.Td key={spec.key} style={{ textAlign: isNum ? 'right' : 'left', ...(isNum ? numericStyle : {}) }}>
+                  <Table.Td
+                    key={spec.key}
+                    style={{
+                      textAlign: isNum ? 'right' : 'left',
+                      ...(isNum ? numericStyle : {}),
+                      position: 'sticky',
+                      bottom: 0,
+                      zIndex: 2,
+                      background: 'var(--hlv-surface-2)',
+                      borderTop: '1px solid var(--hlv-border)',
+                    }}
+                  >
                     {i === 0 ? (
                       <Text fw={700} size="sm">
                         {t('total')}
