@@ -103,7 +103,11 @@ export function pairAccidents(
     (a, b) => new Date(a.period).getTime() - new Date(b.period).getTime(),
   )
   const accidents: Accident[] = []
-  const openAccidents = new Map<number, Accident[]>()
+  // Keyed by LINE + end code: an accident always starts and ends on the same
+  // line, so pairing globally would match a start on one line with an end on
+  // another, inventing long spans and inflating volumes.
+  const openAccidents = new Map<string, Accident[]>()
+  const openKey = (lineId: number | undefined, endCode: number) => `${lineId ?? 0}_${endCode}`
   const nameByTypeId = new Map(sorted.map((r) => [r.sys_type_id, r.sys_name]))
 
   const periodStart = new Date(range.fromDate)
@@ -124,9 +128,9 @@ export function pairAccidents(
         type: 'standalone',
       })
     } else if (isAccidentStart(id)) {
-      const endCode = getAccidentEndCode(id)
-      if (!openAccidents.has(endCode)) openAccidents.set(endCode, [])
-      openAccidents.get(endCode)!.push({
+      const key = openKey(record.line_id, getAccidentEndCode(id))
+      if (!openAccidents.has(key)) openAccidents.set(key, [])
+      openAccidents.get(key)!.push({
         sys_type_id: id,
         sys_name: record.sys_name,
         startTime: record.period,
@@ -137,7 +141,8 @@ export function pairAccidents(
       })
     } else {
       const endCode = id
-      const openList = openAccidents.get(endCode)
+      const key = openKey(record.line_id, endCode)
+      const openList = openAccidents.get(key)
       if (openList && openList.length > 0) {
         const open = openList.shift()!
         accidents.push({
@@ -150,7 +155,7 @@ export function pairAccidents(
           line_id: record.line_id,
           type: 'full',
         })
-        if (openList.length === 0) openAccidents.delete(endCode)
+        if (openList.length === 0) openAccidents.delete(key)
       } else {
         // Accident started before the selected period.
         const startTypeId = getAccidentStartCode(endCode)

@@ -66,6 +66,29 @@ describe('pairAccidents', () => {
   })
 })
 
+describe('pairing is per line', () => {
+  it('never matches a start on one line with an end on another', () => {
+    // Both lines run the same alarm code; interleaved so a global FIFO would
+    // pair line 1's start with line 2's end, inventing a long cross-line span.
+    const rows: SysRecord[] = [
+      { line_id: 1, period: '2026-04-01T08:00:00', sys_type_id: 130, volume: 10 },
+      { line_id: 2, period: '2026-04-01T09:00:00', sys_type_id: 130, volume: 100 },
+      { line_id: 1, period: '2026-04-01T10:00:00', sys_type_id: 2, volume: 30 },
+      { line_id: 2, period: '2026-04-01T20:00:00', sys_type_id: 2, volume: 900 },
+    ]
+    const accidents = pairAccidents(rows, CONTRACT)
+    expect(accidents).toHaveLength(2)
+    for (const a of accidents) expect(a.type).toBe('full')
+
+    const [group] = groupAccidentsByType(accidents)
+    const perLine = summarizeOccurrencesByLine(group.occurrences, false)
+    expect(perLine.find((l) => l.line_id === 1)?.volume).toBe(20) // 30 − 10
+    expect(perLine.find((l) => l.line_id === 2)?.volume).toBe(800) // 900 − 100
+    // Line 1's accident lasted 2h, not 12h.
+    expect(perLine.find((l) => l.line_id === 1)?.durationMs).toBe(2 * 3_600_000)
+  })
+})
+
 describe('overlapping unpaired accidents', () => {
   // Real case: type 405 on line Тернівка fired three times within 12 minutes
   // and never got its end code, so all three ran to the period end. Summing
