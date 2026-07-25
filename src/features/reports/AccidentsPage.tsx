@@ -25,6 +25,7 @@ import {
   type AccidentGroup,
   type SysRecord,
 } from '@/domain/accidentsCalculator'
+import { getContractHour, addDays } from '@/domain/commercialDay'
 import { PeriodPicker } from '@/features/archive/PeriodPicker'
 import { ReportShell } from './ReportShell'
 import { useTopologySelects } from './useTopologySelects'
@@ -146,9 +147,10 @@ export function AccidentsPage() {
   const [lineId, setLineId] = useState('')
   const { branches, calcs, lines, allLines } = useTopologySelects(branchId, calcId)
 
+  // Calendar dates only — the 07:00 contract-day window is derived in run().
   const initial = defaultRange()
-  const [from, setFrom] = useState(`${initial.from} 00:00:00`)
-  const [to, setTo] = useState(`${initial.to} 23:00:00`)
+  const [from, setFrom] = useState(initial.from)
+  const [to, setTo] = useState(initial.to)
   const [groups, setGroups] = useState<AccidentGroup[] | null>(null)
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -164,12 +166,29 @@ export function AccidentsPage() {
     setRunning(true)
     setError(null)
     try {
-      const rows = (await sysArchiveApi.getData(
+      // Accidents belong to the COMMERCIAL day (07:00 → 07:00), so the selected
+      // calendar range maps to the half-open interval
+      //   [from CONTRACT_HOUR:00 , (to + 1 day) CONTRACT_HOUR:00)
+      // Built as naive local datetimes: a bare "YYYY-MM-DD" parses as UTC
+      // midnight and shifts the hour in UTC+ zones.
+      const h = String(getContractHour()).padStart(2, '0')
+      const contractFrom = `${from}T${h}:00:00`
+      const contractEnd = `${addDays(to, 1)}T${h}:00:00`
+
+      const raw = (await sysArchiveApi.getData(
         ids,
-        from.replace(' ', 'T'),
-        to.replace(' ', 'T'),
+        contractFrom,
+        contractEnd,
       )) as unknown as SysRecord[]
-      const accidents = pairAccidents(rows, { fromDate: from, toDate: to })
+
+      // The backend filters period <= to_date, but the contract day ends at
+      // 07:00 EXCLUSIVE — an event at exactly 07:00 belongs to the next day.
+      const endMs = new Date(contractEnd).getTime()
+      const rows = (raw ?? []).filter((r) => new Date(r.period).getTime() < endMs)
+
+      // Contract bounds are passed on so accidents missing their start/end
+      // record snap to 07:00 rather than calendar midnight.
+      const accidents = pairAccidents(rows, { fromDate: contractFrom, toDate: contractEnd })
       setGroups(groupAccidentsByType(accidents))
     } catch (e) {
       setError((e as Error).message)
@@ -211,7 +230,7 @@ export function AccidentsPage() {
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summary), 'Зведення')
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(perLine), 'По лініях')
-    XLSX.writeFile(wb, `accidents_${from.slice(0, 10)}_${to.slice(0, 10)}.xlsx`)
+    XLSX.writeFile(wb, `accidents_${from}_${to}.xlsx`)
   }
 
   const totals = useMemo(() => {
@@ -274,7 +293,7 @@ export function AccidentsPage() {
             w={210}
           />
           <PeriodPicker
-            withTime
+            withTime={false}
             from={from}
             to={to}
             onChange={({ from: f, to: t2 }) => {
