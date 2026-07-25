@@ -7,6 +7,8 @@
  *   75–127, 201+ → standalone notification (no pair, no duration)
  */
 
+import { commercialDayOf, addDays } from './commercialDay'
+
 export function isAccidentStart(sysTypeId: number): boolean {
   const code = sysTypeId & 0xff
   return code >= 128 && code <= 200
@@ -176,18 +178,75 @@ export function pairAccidents(
   return accidents
 }
 
-/** Volume attributed to an accident. */
-export function calculateAccidentVolume(accident: Accident): number {
-  if (accident.type === 'full') return accident.startVolume || 0
-  if (accident.type === 'end_only') return accident.endVolume || 0
-  return 0
+/** Commercial day (YYYY-MM-DD) an instant belongs to. */
+function commercialDayOfInstant(iso: string): string {
+  const d = new Date(iso)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const date = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+  return commercialDayOf(date, d.getHours())
+}
+
+/** Daily volume for a line on a commercial day; undefined when unknown. */
+export type DailyVolumeLookup = (lineId: number | undefined, day: string) => number | undefined
+
+/**
+ * Gas that passed during an accident.
+ *
+ * `volume` on a sys record is the meter counter ACCUMULATED SINCE THE START OF
+ * THE COMMERCIAL DAY (it resets at the contract hour) — not a per-event amount.
+ * So within one day the accident's volume is simply end − start, which also
+ * resolves both open boundaries:
+ *   • accident started before the period → the counter began at 0 that day;
+ *   • accident still open at the end      → the remainder of the day is
+ *     (daily total − start reading), taken from the daily archive.
+ * When an accident spans several days the parts add up: rest of the first day,
+ * whole days in between, and the accumulated counter on the last day.
+ */
+export function calculateAccidentVolume(
+  accident: Accident,
+  dailyVolume: DailyVolumeLookup = () => undefined,
+): number | null {
+  const startDay = commercialDayOfInstant(accident.startTime)
+  // The upper bound is exclusive: an instant at exactly the contract hour closes
+  // the PREVIOUS commercial day, so step back before resolving its day.
+  const endDay = commercialDayOfInstant(
+    new Date(new Date(accident.endTime).getTime() - 1000).toISOString(),
+  )
+  // Accident began before the period ⇒ counter started the day at 0.
+  const startReading = accident.type === 'end_only' ? 0 : (accident.startVolume ?? null)
+  const endReading = accident.type === 'start_only' ? null : (accident.endVolume ?? null)
+
+  if (startDay === endDay) {
+    if (startReading == null) return null
+    if (endReading != null) return Math.max(0, endReading - startReading)
+    // Open at the period end: the rest of that day comes from the daily archive.
+    const daily = dailyVolume(accident.line_id, endDay)
+    return daily == null ? null : Math.max(0, daily - startReading)
+  }
+
+  // Spans day boundaries: rest of the first day + full days between + last day.
+  if (startReading == null) return null
+  const firstDayTotal = dailyVolume(accident.line_id, startDay)
+  if (firstDayTotal == null) return null
+  let total = Math.max(0, firstDayTotal - startReading)
+
+  for (let day = addDays(startDay, 1); day < endDay; day = addDays(day, 1)) {
+    const v = dailyVolume(accident.line_id, day)
+    if (v == null) return null
+    total += v
+  }
+
+  if (endReading != null) return total + Math.max(0, endReading)
+  const lastDay = dailyVolume(accident.line_id, endDay)
+  return lastDay == null ? null : total + lastDay
 }
 
 export interface AccidentOccurrence {
   startTime: string
   endTime: string
   duration: string
-  volume: number
+  /** null when a counter reading is missing (open at a period boundary). */
+  volume: number | null
   type: AccidentKind
   line_id?: number
 }
@@ -204,7 +263,10 @@ export interface AccidentGroup {
 }
 
 /** Group accidents by event type with counts, total duration and volume. */
-export function groupAccidentsByType(accidents: Accident[]): AccidentGroup[] {
+export function groupAccidentsByType(
+  accidents: Accident[],
+  dailyVolume: DailyVolumeLookup = () => undefined,
+): AccidentGroup[] {
   const grouped = new Map<number, AccidentGroup>()
 
   for (const accident of accidents) {
@@ -223,7 +285,7 @@ export function groupAccidentsByType(accidents: Accident[]): AccidentGroup[] {
       })
     }
     const group = grouped.get(key)!
-    const volume = calculateAccidentVolume(accident)
+    const volume = calculateAccidentVolume(accident, dailyVolume)
 
     group.occurrences.push({
       startTime: accident.startTime,
@@ -234,7 +296,7 @@ export function groupAccidentsByType(accidents: Accident[]): AccidentGroup[] {
       line_id: accident.line_id,
     })
     group.totalCount++
-    group.totalVolume += volume
+    group.totalVolume += volume ?? 0
   }
 
   const out = [...grouped.values()]
@@ -293,7 +355,7 @@ export function summarizeOccurrencesByLine(
         count: occs.length,
         durationMs: totalMs,
         durationFormatted: isStandalone ? '—' : formatMs(totalMs),
-        volume: occs.reduce((s, o) => s + o.volume, 0),
+        volume: occs.reduce((s, o) => s + (o.volume ?? 0), 0),
       }
     })
     .sort((a, b) => b.count - a.count)

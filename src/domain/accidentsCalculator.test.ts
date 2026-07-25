@@ -98,18 +98,60 @@ describe('overlapping unpaired accidents', () => {
   })
 })
 
+describe('accident volume (counter accumulates from the start of the day)', () => {
+  it('uses end − start within one commercial day', () => {
+    const rows: SysRecord[] = [
+      { line_id: 1, period: '2026-04-01T10:00:00', sys_type_id: 130, volume: 120 },
+      { line_id: 1, period: '2026-04-01T12:00:00', sys_type_id: 2, volume: 175 },
+    ]
+    const [group] = groupAccidentsByType(pairAccidents(rows, CONTRACT))
+    expect(group.totalVolume).toBe(55)
+  })
+
+  it('treats a missing start as 0 — the counter resets at the contract hour', () => {
+    // Only the END is inside the period, so the accident ran from the day start.
+    const rows: SysRecord[] = [
+      { line_id: 1, period: '2026-04-01T09:00:00', sys_type_id: 2, volume: 42 },
+    ]
+    const [group] = groupAccidentsByType(pairAccidents(rows, CONTRACT))
+    expect(group.occurrences[0].type).toBe('end_only')
+    expect(group.totalVolume).toBe(42)
+  })
+
+  it('closes an open accident with the daily total from the daily archive', () => {
+    const rows: SysRecord[] = [
+      { line_id: 1, period: '2026-04-02T10:00:00', sys_type_id: 130, volume: 30 },
+    ]
+    // Period ends 03.04 07:00, so the accident stays open on commercial day 02.04.
+    const daily = (lineId: number | undefined, day: string) =>
+      lineId === 1 && day === '2026-04-02' ? 200 : undefined
+    const [group] = groupAccidentsByType(pairAccidents(rows, CONTRACT), daily)
+    expect(group.occurrences[0].type).toBe('start_only')
+    expect(group.totalVolume).toBe(170) // 200 − 30
+  })
+
+  it('reports unknown (0 contribution) when the daily total is unavailable', () => {
+    const rows: SysRecord[] = [
+      { line_id: 1, period: '2026-04-02T10:00:00', sys_type_id: 130, volume: 30 },
+    ]
+    const [group] = groupAccidentsByType(pairAccidents(rows, CONTRACT))
+    expect(group.occurrences[0].volume).toBeNull()
+    expect(group.totalVolume).toBe(0)
+  })
+})
+
 describe('summarizeOccurrencesByLine', () => {
   it('rolls occurrences up per line with first/last bounds and counts', () => {
     const rows: SysRecord[] = [
       { line_id: 1, period: '2026-04-01T10:00:00', sys_type_id: 130, sys_name: 'dP > max', volume: 5 },
       { line_id: 1, period: '2026-04-01T11:00:00', sys_type_id: 2, sys_name: 'dP норма', volume: 1 },
       { line_id: 2, period: '2026-04-02T10:00:00', sys_type_id: 130, sys_name: 'dP > max', volume: 7 },
-      { line_id: 2, period: '2026-04-02T12:00:00', sys_type_id: 2, sys_name: 'dP норма', volume: 2 },
+      { line_id: 2, period: '2026-04-02T12:00:00', sys_type_id: 2, sys_name: 'dP норма', volume: 19 },
     ]
     const [group] = groupAccidentsByType(pairAccidents(rows, CONTRACT))
     const perLine = summarizeOccurrencesByLine(group.occurrences, false)
     expect(perLine).toHaveLength(2)
     expect(perLine.every((l) => l.count === 1)).toBe(true)
-    expect(perLine.find((l) => l.line_id === 2)?.volume).toBe(7)
+    expect(perLine.find((l) => l.line_id === 2)?.volume).toBe(12) // 19 − 7
   })
 })

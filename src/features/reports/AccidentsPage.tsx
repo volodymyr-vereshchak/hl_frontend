@@ -14,7 +14,7 @@ import {
 } from '@mantine/core'
 import { IconChevronRight, IconAlertTriangle, IconList, IconGauge } from '@tabler/icons-react'
 import * as XLSX from 'xlsx'
-import { sysArchiveApi } from '@/api/entities'
+import { sysArchiveApi, archiveDataApi } from '@/api/entities'
 import { useLanguage } from '@/locales/LanguageContext'
 import { numericStyle } from '@/theme/theme'
 import {
@@ -24,6 +24,7 @@ import {
   groupBounds,
   type AccidentGroup,
   type SysRecord,
+  type DailyVolumeLookup,
 } from '@/domain/accidentsCalculator'
 import { getContractHour, addDays } from '@/domain/commercialDay'
 import { PeriodPicker } from '@/features/archive/PeriodPicker'
@@ -175,11 +176,19 @@ export function AccidentsPage() {
       const contractFrom = `${from}T${h}:00:00`
       const contractEnd = `${addDays(to, 1)}T${h}:00:00`
 
-      const raw = (await sysArchiveApi.getData(
-        ids,
-        contractFrom,
-        contractEnd,
-      )) as unknown as SysRecord[]
+      // The daily archive supplies each commercial day's total, needed to close
+      // accidents that are still open when the period (or a day) ends.
+      const [raw, daily] = await Promise.all([
+        sysArchiveApi.getData(ids, contractFrom, contractEnd) as unknown as Promise<SysRecord[]>,
+        archiveDataApi.getDailyData(ids, from, to).catch(() => []),
+      ])
+      const dailyByLineDay = new Map<string, number>()
+      for (const row of daily) {
+        const day = String(row.period).slice(0, 10)
+        dailyByLineDay.set(`${row.line_id}_${day}`, Number(row.volume) || 0)
+      }
+      const dailyVolume: DailyVolumeLookup = (lineId, day) =>
+        dailyByLineDay.get(`${lineId}_${day}`)
 
       // The backend filters period <= to_date, but the contract day ends at
       // 07:00 EXCLUSIVE — an event at exactly 07:00 belongs to the next day.
@@ -189,7 +198,7 @@ export function AccidentsPage() {
       // Contract bounds are passed on so accidents missing their start/end
       // record snap to 07:00 rather than calendar midnight.
       const accidents = pairAccidents(rows, { fromDate: contractFrom, toDate: contractEnd })
-      setGroups(groupAccidentsByType(accidents))
+      setGroups(groupAccidentsByType(accidents, dailyVolume))
     } catch (e) {
       setError((e as Error).message)
       setGroups(null)
