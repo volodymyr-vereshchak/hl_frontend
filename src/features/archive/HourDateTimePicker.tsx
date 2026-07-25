@@ -1,8 +1,7 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Popover, Button, Group, Text, Divider, Box, Stack, ScrollArea } from '@mantine/core'
 import { DatePicker, TimeGrid } from '@mantine/dates'
 import { IconCalendar } from '@tabler/icons-react'
-import { useDisclosure } from '@mantine/hooks'
 import { useLanguage } from '@/locales/LanguageContext'
 
 interface Props {
@@ -36,7 +35,9 @@ function fmt(value: string): string {
  */
 export function HourDateTimePicker({ value, onChange, todayValue, ariaLabel, width = 185 }: Props) {
   const { t } = useLanguage()
-  const [opened, { toggle, close, open }] = useDisclosure(false)
+  const [opened, setOpened] = useState(false)
+  const close = () => setOpened(false)
+  const toggle = () => setOpened((o) => !o)
   const { date, time } = split(value)
   const scrollRef = useRef<HTMLDivElement>(null)
   const selectedRef = useRef<HTMLButtonElement | null>(null)
@@ -61,11 +62,12 @@ export function HourDateTimePicker({ value, onChange, todayValue, ariaLabel, wid
   return (
     <Popover
       opened={opened}
-      onChange={(o) => (o ? open() : close())}
+      onChange={setOpened}
       position="bottom-start"
       withinPortal
       zIndex={500}
       shadow="md"
+      transitionProps={{ duration: 0 }}
     >
       <Popover.Target>
         <Button
@@ -98,7 +100,15 @@ export function HourDateTimePicker({ value, onChange, todayValue, ariaLabel, wid
             >
               {t('today')}
             </Button>
-            <DatePicker value={date} onChange={(v) => v && commit(v, time)} size="sm" />
+            <DatePicker
+              value={date}
+              onChange={(v) => {
+                if (!v) return
+                commit(v, time)
+                close()
+              }}
+              size="sm"
+            />
           </Stack>
           <Divider orientation="vertical" />
           {/* Compact scrolling hour column — keeps the popover narrow. */}
