@@ -50,13 +50,22 @@ const fmtTime = (iso: string) => {
 
 const fmtNum = (n: number) => n.toLocaleString('uk-UA', { maximumFractionDigits: 2 })
 
-function GroupRow({ group, lineNames }: { group: AccidentGroup; lineNames: Map<number, string> }) {
+function GroupRow({
+  group,
+  lineNames,
+  dailyVolume,
+}: {
+  group: AccidentGroup
+  lineNames: Map<number, string>
+  dailyVolume: DailyVolumeLookup
+}) {
   const [open, setOpen] = useState(false)
   const bounds = groupBounds(group)
   // Expanded view rolls occurrences up per line rather than listing each event.
+  // The same daily lookup is used as for the totals, so the rows add up.
   const perLine = useMemo(
-    () => summarizeOccurrencesByLine(group.occurrences, group.isStandalone),
-    [group],
+    () => summarizeOccurrencesByLine(group.occurrences, group.isStandalone, dailyVolume),
+    [group, dailyVolume],
   )
 
   return (
@@ -155,6 +164,8 @@ export function AccidentsPage() {
   const [to, setTo] = useState(initial.to)
   const [groups, setGroups] = useState<AccidentGroup[] | null>(null)
   const [unionVolume, setUnionVolume] = useState(0)
+  // Kept so the expandable rows use the same daily totals as the summary.
+  const [dailyLookup, setDailyLookup] = useState<DailyVolumeLookup>(() => () => undefined)
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -191,6 +202,7 @@ export function AccidentsPage() {
       }
       const dailyVolume: DailyVolumeLookup = (lineId, day) =>
         dailyByLineDay.get(`${lineId}_${day}`)
+      setDailyLookup(() => dailyVolume)
 
       // The backend filters period <= to_date, but the contract day ends at
       // 07:00 EXCLUSIVE — an event at exactly 07:00 belongs to the next day.
@@ -242,7 +254,7 @@ export function AccidentsPage() {
         g.totalDurationFormatted,
         String(g.totalVolume),
       ])
-      for (const l of summarizeOccurrencesByLine(g.occurrences, g.isStandalone)) {
+      for (const l of summarizeOccurrencesByLine(g.occurrences, g.isStandalone, dailyLookup)) {
         perLine.push([
           name,
           lineNames.get(l.line_id) ?? `Лінія ${l.line_id}`,
@@ -395,7 +407,12 @@ export function AccidentsPage() {
             </Table.Thead>
             <Table.Tbody>
               {groups.map((g) => (
-                <GroupRow key={g.sys_type_id} group={g} lineNames={lineNames} />
+                <GroupRow
+                  key={g.sys_type_id}
+                  group={g}
+                  lineNames={lineNames}
+                  dailyVolume={dailyLookup}
+                />
               ))}
             </Table.Tbody>
           </Table>
