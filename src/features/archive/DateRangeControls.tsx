@@ -25,6 +25,7 @@ export function DateRangeControls({ onExport, canExport }: { onExport: () => voi
         valueFormat="DD.MM.YYYY"
         w={150}
         size="sm"
+        popoverProps={{ zIndex: 500, withinPortal: true }}
       />
       <DatePickerInput
         label={t('to')}
@@ -34,6 +35,7 @@ export function DateRangeControls({ onExport, canExport }: { onExport: () => voi
         valueFormat="DD.MM.YYYY"
         w={150}
         size="sm"
+        popoverProps={{ zIndex: 500, withinPortal: true }}
       />
       <Button
         variant="light"

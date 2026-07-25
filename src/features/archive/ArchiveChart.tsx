@@ -68,7 +68,6 @@ function getSeries(type: ArchiveType, meta: LineMeta, t: (k: string) => string):
         ? [{ key: 'output_pressure', label: `${t('outputPressure')}, ${pUnit}`, color: '#e6407a', axis: 'right' as const }]
         : []),
       { key: 'temperature', label: t('temperatureLabel'), color: '#f97316', axis: 'right' },
-      { key: 'density', label: t('densityLabel'), color: '#38bdf8', axis: 'right' },
     ]
   }
   if (type === 'param') {
@@ -158,8 +157,8 @@ export function ArchiveChart({ rows, type, meta }: Props) {
   }
 
   if (data.length === 0) return null
-  const grid = dark ? '#232c34' : '#eceff1'
-  const axis = dark ? '#84959f' : '#7b8e99'
+  const grid = dark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)'
+  const axis = dark ? '#9aa7ad' : '#5a6b75'
 
   return (
     <Paper p="md" radius="md" withBorder>
@@ -191,10 +190,16 @@ export function ArchiveChart({ rows, type, meta }: Props) {
         </Group>
       </Group>
 
-      <ResponsiveContainer width="100%" height={340}>
+      <ResponsiveContainer width="100%" height={480}>
         <LineChart data={data} margin={{ top: 8, right: 16, bottom: 8, left: 8 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke={grid} />
-          <XAxis dataKey="period" tickFormatter={fmtX} tick={{ fontSize: 11, fill: axis }} minTickGap={28} />
+          <CartesianGrid stroke={grid} strokeDasharray="4 4" horizontal vertical />
+          <XAxis
+            dataKey="period"
+            tickFormatter={fmtX}
+            tick={{ fontSize: 11, fill: axis }}
+            minTickGap={28}
+            stroke={grid}
+          />
           <YAxis
             yAxisId="left"
             tick={{ fontSize: 11, fill: axis }}

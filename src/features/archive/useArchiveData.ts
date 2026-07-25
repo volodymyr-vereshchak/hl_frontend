@@ -9,8 +9,26 @@ import {
   type ArchiveRow,
 } from '@/api/entities'
 import { commercialHourlyRange } from '@/domain/commercialDay'
+import { convertPressureValue, PRESSURE_UNIT_DEFAULT, DP_UNIT_DEFAULT } from '@/domain/pressureUnits'
 import type { ArchiveType } from '@/types'
 import type { LineMeta, DateRange } from '@/store/selectionStore'
+
+/**
+ * Output pressure is not stored by the backend — it is derived like in the old
+ * app: for low-pressure non-meter lines, P_out = P − dP (dP converted from its
+ * own unit into the pressure unit before subtracting).
+ */
+function withOutputPressure(rows: ArchiveRow[], meta: LineMeta): ArchiveRow[] {
+  if (meta.kind !== 'physical' || meta.is_high_pressure || meta.meter) return rows
+  const pUnit = meta.pressure_unit || PRESSURE_UNIT_DEFAULT
+  const dpUnit = meta.dp_unit || DP_UNIT_DEFAULT
+  return rows.map((r) => {
+    const p = Number(r.pressure)
+    const dp = Number(r.w_volume_dp)
+    if (!isFinite(p) || !isFinite(dp)) return r
+    return { ...r, output_pressure: p - convertPressureValue(dp, dpUnit, pUnit) }
+  })
+}
 
 interface ArchiveQuery {
   lineId: number | null
@@ -46,9 +64,11 @@ async function fetchArchive(
         ? dpdLineApi.getDailyData(ids, win.from, win.to)
         : dpdLineApi.getHourlyData(ids, win.from, win.to)
     }
-    return type === 'daily'
-      ? archiveDataApi.getDailyData(ids, win.from, win.to)
-      : archiveDataApi.getHourlyData(ids, win.from, win.to)
+    const physRows =
+      type === 'daily'
+        ? await archiveDataApi.getDailyData(ids, win.from, win.to)
+        : await archiveDataApi.getHourlyData(ids, win.from, win.to)
+    return withOutputPressure(physRows, meta)
   }
 
   // sys / edit / param — physical lines only.
