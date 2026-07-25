@@ -23,22 +23,26 @@ export interface GasVolumeCalc {
   id: number
   name: string
   lumg_id: number
-  calc_type_id?: number | null
-  address?: string | null
+  type_id?: number | null
+  address?: string | number | null
 }
 
 export interface CalcType {
   id: number
-  name: string
+  type_id: number
+  type_name: string
 }
 
 /** A physical metering line. Virtual/DPD lines reuse the same id space via flags. */
 export interface Line {
   id: number
   name: string
+  line?: number
   gas_volume_calc_id?: number | null
   lumg_id?: number | null
   meter?: boolean
+  include_in_report?: boolean
+  include_in_trends?: boolean
   is_high_pressure?: boolean
   pressure_unit?: string | null
   dp_unit?: string | null

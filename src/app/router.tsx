@@ -1,0 +1,53 @@
+import { createBrowserRouter, Navigate, useSearchParams } from 'react-router-dom'
+import { AppShellLayout } from '@/components/AppShellLayout'
+import { Placeholder } from '@/components/Placeholder'
+import { OverviewPage } from '@/features/overview/OverviewPage'
+import { ArchivePage } from '@/features/archive/ArchivePage'
+
+// Map old ?archiveType= deep links to the new routes (backward compatibility).
+const LEGACY_ROUTE: Record<string, string> = {
+  overview: '/overview',
+  daily: '/archive/daily',
+  hourly: '/archive/hourly',
+  sys: '/archive/sys',
+  edit: '/archive/edit',
+  param: '/archive/param',
+  poll: '/enterprise-poll',
+  admin: '/admin',
+  'grs-trends': '/reports/grs-trends',
+  'night-consumption': '/reports/night-consumption',
+  accidents: '/reports/accidents',
+  'flow-calc': '/flow-calc',
+}
+
+/** Entry redirect that honors legacy ?archiveType= / ?lineId= query params. */
+function RootRedirect() {
+  const [params] = useSearchParams()
+  const archiveType = params.get('archiveType')
+  const target = archiveType ? LEGACY_ROUTE[archiveType] : undefined
+  if (target) {
+    const lineId = params.get('lineId')
+    const suffix = lineId ? `?lineId=${lineId}` : ''
+    return <Navigate to={`${target}${suffix}`} replace />
+  }
+  return <Navigate to="/overview" replace />
+}
+
+export const router = createBrowserRouter([
+  {
+    path: '/',
+    element: <AppShellLayout />,
+    children: [
+      { index: true, element: <RootRedirect /> },
+      { path: 'overview', element: <OverviewPage /> },
+      { path: 'archive/:type', element: <ArchivePage /> },
+      { path: 'enterprise-poll', element: <Placeholder title="Опитування підприємств" /> },
+      { path: 'reports/grs-trends', element: <Placeholder title="Тренди ГРС" /> },
+      { path: 'reports/night-consumption', element: <Placeholder title="Нічні витрати" /> },
+      { path: 'reports/accidents', element: <Placeholder title="Звіт по аваріях" /> },
+      { path: 'flow-calc', element: <Placeholder title="Розрахунок витрати" /> },
+      { path: 'admin', element: <Placeholder title="Адміністрування" /> },
+      { path: '*', element: <Navigate to="/overview" replace /> },
+    ],
+  },
+])

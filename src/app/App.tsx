@@ -1,8 +1,9 @@
 import { Center, Loader, Stack, Text } from '@mantine/core'
+import { RouterProvider } from 'react-router-dom'
 import { useUser } from '@/features/auth/UserContext'
 import { useLanguage } from '@/locales/LanguageContext'
 import { LoginPage } from '@/features/auth/LoginPage'
-import { AuthedLanding } from './AuthedLanding'
+import { router } from './router'
 
 /** Auth gate: loading → login → authenticated app. */
 export function App() {
@@ -24,5 +25,5 @@ export function App() {
 
   if (!user) return <LoginPage />
 
-  return <AuthedLanding />
+  return <RouterProvider router={router} />
 }
