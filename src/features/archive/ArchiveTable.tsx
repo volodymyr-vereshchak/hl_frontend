@@ -41,9 +41,11 @@ function fmtPeriod(period: string, type: ArchiveType): string {
   return date
 }
 
-/** Two decimals everywhere; density keeps four. */
+/** Two decimals everywhere; density keeps four, event counters are integers. */
 function decimalsFor(key: string): number {
-  return key === 'density' ? 4 : 2
+  if (key === 'density') return 4
+  if (key === 'edit_counts' || key === 'sys_counts') return 0
+  return 2
 }
 
 function fmtNumber(v: unknown, digits = 2): string {
@@ -158,19 +160,20 @@ export function ArchiveTable({ rows, type, meta, overlay, onDrillDown }: Props) 
               {hg.headers.map((header) => {
                 const spec = specs.find((s) => s.key === header.id)
                 const sorted = header.column.getIsSorted()
-                const isNum = numericKeys.has(header.id)
                 return (
+                  /* Headers wrap onto several lines instead of stretching the table. */
                   <Table.Th
                     key={header.id}
                     onClick={header.column.getToggleSortingHandler()}
                     style={{
                       cursor: spec?.sortable ? 'pointer' : 'default',
-                      textAlign: isNum ? 'right' : 'left',
-                      whiteSpace: 'nowrap',
+                      textAlign: 'center',
+                      whiteSpace: 'normal',
+                      verticalAlign: 'bottom',
                     }}
                   >
-                    <Group gap={4} justify={isNum ? 'flex-end' : 'flex-start'} wrap="nowrap">
-                      {flexRender(header.column.columnDef.header, header.getContext())}
+                    <Group gap={4} justify="center" wrap="nowrap" align="flex-end">
+                      <span>{flexRender(header.column.columnDef.header, header.getContext())}</span>
                       {sorted === 'asc' && <IconArrowUp size={13} />}
                       {sorted === 'desc' && <IconArrowDown size={13} />}
                     </Group>
@@ -188,7 +191,7 @@ export function ArchiveTable({ rows, type, meta, overlay, onDrillDown }: Props) 
                 return (
                   <Table.Td
                     key={cell.id}
-                    style={{ textAlign: isNum ? 'right' : 'left', ...(isNum ? numericStyle : {}) }}
+                    style={{ textAlign: 'center', ...(isNum ? numericStyle : {}) }}
                   >
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}
                   </Table.Td>
@@ -207,7 +210,7 @@ export function ArchiveTable({ rows, type, meta, overlay, onDrillDown }: Props) 
                   <Table.Td
                     key={spec.key}
                     style={{
-                      textAlign: isNum ? 'right' : 'left',
+                      textAlign: 'center',
                       ...(isNum ? numericStyle : {}),
                       position: 'sticky',
                       bottom: 0,
