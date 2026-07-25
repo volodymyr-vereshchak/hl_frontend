@@ -1,14 +1,16 @@
 import { Group, Switch, Button, Title, Badge, Loader, Text } from '@mantine/core'
-import { DatePickerInput } from '@mantine/dates'
-import { IconCalendar, IconFileSpreadsheet } from '@tabler/icons-react'
+import { IconFileSpreadsheet } from '@tabler/icons-react'
 import { useSelectionStore } from '@/store/selectionStore'
 import { useLanguage } from '@/locales/LanguageContext'
+import { PeriodPicker } from './PeriodPicker'
 
 interface Props {
   title: string
   kindBadge?: 'virtual' | 'dpd' | null
   onExport: () => void
   canExport: boolean
+  /** Hourly / sys / edit archives select a time of day, not just a date. */
+  withTime?: boolean
   /** Enterprise overlay toggle — daily/hourly only. */
   overlay?: {
     enabled: boolean
@@ -22,7 +24,14 @@ interface Props {
  * Single-line archive toolbar: title · date pickers · filter switch · Excel
  * (pushed to the right edge). Mantine v9 dates are strings ('YYYY-MM-DD').
  */
-export function DateRangeControls({ title, kindBadge, onExport, canExport, overlay }: Props) {
+export function DateRangeControls({
+  title,
+  kindBadge,
+  onExport,
+  canExport,
+  withTime = false,
+  overlay,
+}: Props) {
   const { t } = useLanguage()
   const { dateRange, setDateRange, dateFilterEnabled, setDateFilterEnabled } = useSelectionStore()
   const prog = overlay?.progress
@@ -40,25 +49,11 @@ export function DateRangeControls({ title, kindBadge, onExport, canExport, overl
         )}
       </Group>
 
-      <DatePickerInput
-        aria-label={t('from')}
-        leftSection={<IconCalendar size={15} />}
-        value={dateRange.fromDate}
-        onChange={(v) => v && setDateRange({ ...dateRange, fromDate: v })}
-        valueFormat="DD.MM.YYYY"
-        w={140}
-        size="xs"
-        popoverProps={{ zIndex: 500, withinPortal: true }}
-      />
-      <DatePickerInput
-        aria-label={t('to')}
-        leftSection={<IconCalendar size={15} />}
-        value={dateRange.toDate}
-        onChange={(v) => v && setDateRange({ ...dateRange, toDate: v })}
-        valueFormat="DD.MM.YYYY"
-        w={140}
-        size="xs"
-        popoverProps={{ zIndex: 500, withinPortal: true }}
+      <PeriodPicker
+        withTime={withTime}
+        from={dateRange.fromDate}
+        to={dateRange.toDate}
+        onChange={({ from, to }) => setDateRange({ fromDate: from, toDate: to })}
       />
 
       <Switch

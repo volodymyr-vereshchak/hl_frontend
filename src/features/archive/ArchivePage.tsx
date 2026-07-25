@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Navigate, useParams } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { Navigate, useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { Paper, Stack, Text, Loader, Center, Alert, Box, Divider } from '@mantine/core'
 import { IconAlertTriangle, IconInfoCircle } from '@tabler/icons-react'
 import { useSelectionStore } from '@/store/selectionStore'
@@ -23,7 +23,19 @@ const SPLIT_HEIGHT = 'calc(100dvh - 150px)'
 export function ArchivePage() {
   const { type } = useParams<{ type: string }>()
   const { t } = useLanguage()
-  const { lineId, lineMeta, dateRange, dateFilterEnabled } = useSelectionStore()
+  const { lineId, lineMeta, dateRange, dateFilterEnabled, setDateRange, setDateFilterEnabled } =
+    useSelectionStore()
+  const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+
+  // Deep links: ?fromDate=&toDate=(&filter=1) preselect the period.
+  const qsFrom = searchParams.get('fromDate')
+  const qsTo = searchParams.get('toDate')
+  const qsFilter = searchParams.get('filter')
+  useEffect(() => {
+    if (qsFrom && qsTo) setDateRange({ fromDate: qsFrom, toDate: qsTo })
+    if (qsFilter === '1') setDateFilterEnabled(true)
+  }, [qsFrom, qsTo, qsFilter, setDateRange, setDateFilterEnabled])
 
   if (!type || !VALID.includes(type as ArchiveType)) {
     return <Navigate to="/overview" replace />
@@ -97,6 +109,12 @@ export function ArchivePage() {
     exportArchiveToExcel(data, columns, archiveType, `${archiveType}_${lineId}`)
   }
 
+  // Clicking a daily volume opens that commercial day in the hourly archive.
+  const drillToHourly = (day: string) => {
+    setDateRange({ fromDate: day, toDate: day })
+    navigate('/archive/hourly')
+  }
+
   const titleMap: Record<ArchiveType, string> = {
     daily: t('dailyArchive'),
     hourly: t('hourlyArchive'),
@@ -115,6 +133,7 @@ export function ArchivePage() {
         kindBadge={lineMeta && lineMeta.kind !== 'physical' ? lineMeta.kind : null}
         onExport={handleExport}
         canExport={canExport}
+        withTime={archiveType === 'hourly' || archiveType === 'sys' || archiveType === 'edit'}
         overlay={canOverlay && lineId ? overlay : undefined}
       />
 
@@ -161,7 +180,13 @@ export function ArchivePage() {
           ) : rows && lineMeta ? (
             <>
               <Box style={{ flex: 1, minHeight: 0 }}>
-                <ArchiveTable rows={rows} type={archiveType} meta={lineMeta} />
+                <ArchiveTable
+                  rows={rows}
+                  type={archiveType}
+                  meta={lineMeta}
+                  overlay={canOverlay && overlay.enabled && !!overlay.byPeriod}
+                  onDrillDown={drillToHourly}
+                />
               </Box>
               {paged && total > 0 && (
                 <>

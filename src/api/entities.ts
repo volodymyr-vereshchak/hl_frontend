@@ -126,6 +126,21 @@ function pagedParams(lineIds: number[], fromDate: string, toDate: string, o: Pag
   }
 }
 
+export interface CountRow {
+  line_id?: number
+  period?: string
+  hour_group?: string
+  record_count?: number
+}
+
+/** Hourly counts of interventions (И) and alarms (А) for the archive table. */
+export const archiveCountsApi = {
+  getEditCounts: (lineIds: number[], fromDate: string, toDate: string) =>
+    api.get<CountRow[]>('/edit_counts/', { line_id: lineIds, from_date: fromDate, to_date: toDate }),
+  getSysCounts: (lineIds: number[], fromDate: string, toDate: string) =>
+    api.get<CountRow[]>('/sys_counts/', { line_id: lineIds, from_date: fromDate, to_date: toDate }),
+}
+
 export const sysArchiveApi = {
   getData: (lineIds: number[], fromDate: string, toDate: string) =>
     api.get<ArchiveRow[]>('/sys/', { line_id: lineIds, from_date: fromDate, to_date: toDate }),

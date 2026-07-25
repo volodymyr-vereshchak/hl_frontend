@@ -167,6 +167,8 @@ export function ArchiveChart({ rows, type, meta, overlay }: Props) {
   }
 
   if (data.length === 0) return null
+  // Aim for ~24 evenly spaced labels regardless of range length.
+  const tickInterval = Math.max(0, Math.ceil(data.length / 24) - 1)
   const grid = dark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.14)'
   const gridStrong = dark ? 'rgba(255,255,255,0.28)' : 'rgba(0,0,0,0.28)'
   const axis = dark ? '#9aa7ad' : '#5a6b75'
@@ -205,11 +207,16 @@ export function ArchiveChart({ rows, type, meta, overlay }: Props) {
         <LineChart data={data} margin={{ top: 8, right: 16, bottom: 8, left: 8 }}>
           {/* Dense grid: minor lines everywhere, both axes get many ticks. */}
           <CartesianGrid stroke={grid} strokeDasharray="3 3" horizontal vertical />
+          {/* Angled labels at a fixed interval: even spacing beats recharts'
+              auto-thinning, which clumps ticks in the middle of the range. */}
           <XAxis
             dataKey="period"
             tickFormatter={fmtX}
             tick={{ fontSize: 11, fill: axis }}
-            minTickGap={12}
+            interval={tickInterval}
+            angle={-45}
+            textAnchor="end"
+            height={type === 'hourly' ? 78 : 62}
             stroke={gridStrong}
           />
           <YAxis

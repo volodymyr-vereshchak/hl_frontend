@@ -6,9 +6,11 @@ import {
   sysArchiveApi,
   editArchiveApi,
   paramArchiveApi,
+  archiveCountsApi,
   type ArchiveRow,
+  type CountRow,
 } from '@/api/entities'
-import { commercialHourlyRange } from '@/domain/commercialDay'
+import { commercialHourlyRange, commercialDayOf } from '@/domain/commercialDay'
 import { convertPressureValue, PRESSURE_UNIT_DEFAULT, DP_UNIT_DEFAULT } from '@/domain/pressureUnits'
 import type { ArchiveType } from '@/types'
 import type { LineMeta, DateRange } from '@/store/selectionStore'
@@ -38,6 +40,11 @@ interface ArchiveQuery {
   enabled: boolean
 }
 
+/** Pickers emit 'YYYY-MM-DD' or 'YYYY-MM-DD HH:mm:ss'. */
+const hasTime = (s: string) => /\d{2}:\d{2}/.test(s)
+const toIso = (s: string) => s.replace(' ', 'T')
+const dateOnly = (s: string) => s.slice(0, 10)
+
 async function fetchArchive(
   lineId: number,
   meta: LineMeta,
@@ -48,11 +55,14 @@ async function fetchArchive(
   const { fromDate, toDate } = range
 
   if (type === 'daily' || type === 'hourly') {
-    // Hourly uses the commercial-day datetime window (07:00 → next-day 06:00).
+    // Hourly defaults to the commercial-day window (07:00 → next-day 06:00),
+    // unless the user picked explicit times — then honour them verbatim.
     const win =
       type === 'hourly'
-        ? commercialHourlyRange(fromDate, toDate)
-        : { from: fromDate, to: toDate }
+        ? hasTime(fromDate) || hasTime(toDate)
+          ? { from: toIso(fromDate), to: toIso(toDate) }
+          : commercialHourlyRange(fromDate, toDate)
+        : { from: dateOnly(fromDate), to: dateOnly(toDate) }
 
     if (meta.kind === 'virtual') {
       return type === 'daily'
@@ -64,17 +74,70 @@ async function fetchArchive(
         ? dpdLineApi.getDailyData(ids, win.from, win.to)
         : dpdLineApi.getHourlyData(ids, win.from, win.to)
     }
-    const physRows =
+    // Physical lines also carry intervention (И) and alarm (А) counters, which
+    // come from separate endpoints and are merged onto each row by period.
+    const [physRows, editCounts, sysCounts] = await Promise.all([
       type === 'daily'
-        ? await archiveDataApi.getDailyData(ids, win.from, win.to)
-        : await archiveDataApi.getHourlyData(ids, win.from, win.to)
-    return withOutputPressure(physRows, meta)
+        ? archiveDataApi.getDailyData(ids, win.from, win.to)
+        : archiveDataApi.getHourlyData(ids, win.from, win.to),
+      archiveCountsApi.getEditCounts(ids, dateOnly(fromDate), dateOnly(toDate)).catch(() => []),
+      archiveCountsApi.getSysCounts(ids, dateOnly(fromDate), dateOnly(toDate)).catch(() => []),
+    ])
+    const withCounts = mergeCounts(physRows, editCounts, sysCounts, type, lineId)
+    return withOutputPressure(withCounts, meta)
   }
 
   // sys / edit / param — physical lines only.
-  if (type === 'sys') return sysArchiveApi.getData(ids, fromDate, toDate)
-  if (type === 'edit') return editArchiveApi.getData(ids, fromDate, toDate)
+  if (type === 'sys') return sysArchiveApi.getData(ids, toIso(fromDate), toIso(toDate))
+  if (type === 'edit') return editArchiveApi.getData(ids, toIso(fromDate), toIso(toDate))
   return paramArchiveApi.getParamsForLines(ids) as Promise<ArchiveRow[]>
+}
+
+/**
+ * Bucket a counts row into the period key its archive row uses: for the daily
+ * archive that is the COMMERCIAL day (hours before the contract hour belong to
+ * the previous day); for hourly it is the raw hour period.
+ */
+function countKey(row: CountRow, type: ArchiveType): string | null {
+  const raw = row.period || row.hour_group
+  if (!raw) return null
+  const d = new Date(raw)
+  if (isNaN(d.getTime())) return null
+  if (type === 'hourly') return String(raw)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const date = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+  return commercialDayOf(date, d.getHours())
+}
+
+/** Merge И/А counters onto archive rows, summing per (line, period). */
+function mergeCounts(
+  rows: ArchiveRow[],
+  editCounts: CountRow[],
+  sysCounts: CountRow[],
+  type: ArchiveType,
+  lineId: number,
+): ArchiveRow[] {
+  const bucket = (list: CountRow[]) => {
+    const map = new Map<string, number>()
+    for (const c of list ?? []) {
+      const key = countKey(c, type)
+      if (!key) continue
+      const id = c.line_id ?? lineId
+      const k = `${id}_${key}`
+      map.set(k, (map.get(k) ?? 0) + (c.record_count ?? 0))
+    }
+    return map
+  }
+  const edits = bucket(editCounts)
+  const alarms = bucket(sysCounts)
+
+  return rows.map((r) => {
+    const id = r.line_id ?? lineId
+    // Archive periods may carry a time part the counters' key does not.
+    const key = type === 'hourly' ? String(r.period) : String(r.period).slice(0, 10)
+    const k = `${id}_${key}`
+    return { ...r, edit_counts: edits.get(k) ?? 0, sys_counts: alarms.get(k) ?? 0 }
+  })
 }
 
 /** sys/edit are server-paginated; everything else loads the full range. */
@@ -102,9 +165,11 @@ export function useArchivePage({ lineId, meta, type, range, enabled, page, pageS
     queryFn: () => {
       const opts = { skip: (page - 1) * pageSize, limit: pageSize }
       const ids = [lineId!]
+      const from = toIso(range.fromDate)
+      const to = toIso(range.toDate)
       return type === 'sys'
-        ? sysArchiveApi.getPaged(ids, range.fromDate, range.toDate, opts)
-        : editArchiveApi.getPaged(ids, range.fromDate, range.toDate, opts)
+        ? sysArchiveApi.getPaged(ids, from, to, opts)
+        : editArchiveApi.getPaged(ids, from, to, opts)
     },
   })
 }
@@ -117,6 +182,6 @@ export async function fetchFullArchive(
 ): Promise<ArchiveRow[]> {
   const ids = [lineId]
   return type === 'sys'
-    ? sysArchiveApi.getData(ids, range.fromDate, range.toDate)
-    : editArchiveApi.getData(ids, range.fromDate, range.toDate)
+    ? sysArchiveApi.getData(ids, toIso(range.fromDate), toIso(range.toDate))
+    : editArchiveApi.getData(ids, toIso(range.fromDate), toIso(range.toDate))
 }
