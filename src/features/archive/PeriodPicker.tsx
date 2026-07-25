@@ -1,7 +1,8 @@
-import { Button, Group } from '@mantine/core'
+import { Group } from '@mantine/core'
 import { DateTimePicker, DatePickerInput } from '@mantine/dates'
 import { IconCalendar } from '@tabler/icons-react'
 import { useLanguage } from '@/locales/LanguageContext'
+import { getContractHour } from '@/domain/commercialDay'
 
 interface Props {
   /** Daily/param archives pick whole days; hourly and event archives need time. */
@@ -13,32 +14,30 @@ interface Props {
 
 const pad = (n: number) => String(n).padStart(2, '0')
 
-function nowLocal(endOfDay = false): string {
-  const d = new Date()
-  const date = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
-  return endOfDay ? `${date} 23:59:00` : `${date} 00:00:00`
-}
-
 function todayDate(): string {
   const d = new Date()
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 }
 
+function addDaysStr(date: string, delta: number): string {
+  const [y, m, d] = date.split('-').map(Number)
+  const dt = new Date(Date.UTC(y, m - 1, d + delta))
+  return `${dt.getUTCFullYear()}-${pad(dt.getUTCMonth() + 1)}-${pad(dt.getUTCDate())}`
+}
+
 /**
- * Period selector. Mantine v9 dates are strings; the time-enabled variant uses
- * "YYYY-MM-DD HH:mm:ss", the date-only one "YYYY-MM-DD". Locale (labels, month
- * names, week start) comes from DatesProvider in app/providers.
+ * Period selector. Mantine v9 dates are strings: "YYYY-MM-DD HH:mm:ss" with
+ * time, "YYYY-MM-DD" without. Locale comes from DatesProvider.
+ *
+ * The "today" preset is inside each picker's dropdown (not a separate button):
+ * for time-enabled archives it lands on the commercial-day bounds — the start
+ * picker on today CONTRACT_HOUR:00, the end picker on the next day's
+ * (CONTRACT_HOUR-1):00, i.e. the default 07:00 → 06:00 window.
  */
 export function PeriodPicker({ withTime, from, to, onChange }: Props) {
   const { t } = useLanguage()
-
-  const setToday = () => {
-    onChange(
-      withTime
-        ? { from: nowLocal(false), to: nowLocal(true) }
-        : { from: todayDate(), to: todayDate() },
-    )
-  }
+  const h = getContractHour()
+  const today = todayDate()
 
   const common = {
     leftSection: <IconCalendar size={15} />,
@@ -46,52 +45,61 @@ export function PeriodPicker({ withTime, from, to, onChange }: Props) {
     popoverProps: { zIndex: 500, withinPortal: true },
   }
 
+  if (!withTime) {
+    const preset = [{ value: today, label: t('today') }]
+    return (
+      <Group gap="xs" wrap="nowrap">
+        <DatePickerInput
+          {...common}
+          aria-label={t('from')}
+          value={from}
+          onChange={(v) => v && onChange({ from: v, to })}
+          valueFormat="DD.MM.YYYY"
+          presets={preset}
+          w={150}
+        />
+        <DatePickerInput
+          {...common}
+          aria-label={t('to')}
+          value={to}
+          onChange={(v) => v && onChange({ from, to: v })}
+          valueFormat="DD.MM.YYYY"
+          presets={preset}
+          w={150}
+        />
+      </Group>
+    )
+  }
+
+  // Hour-granularity time entry — minutes/seconds are meaningless for these archives.
+  const timePickerProps = { hoursStep: 1, minutesStep: 60, withDropdown: true }
+
   return (
     <Group gap="xs" wrap="nowrap">
-      {withTime ? (
-        <>
-          <DateTimePicker
-            {...common}
-            aria-label={t('from')}
-            value={from}
-            onChange={(v) => v && onChange({ from: v, to })}
-            valueFormat="DD.MM.YYYY HH:mm"
-            withSeconds={false}
-            w={185}
-          />
-          <DateTimePicker
-            {...common}
-            aria-label={t('to')}
-            value={to}
-            onChange={(v) => v && onChange({ from, to: v })}
-            valueFormat="DD.MM.YYYY HH:mm"
-            withSeconds={false}
-            w={185}
-          />
-        </>
-      ) : (
-        <>
-          <DatePickerInput
-            {...common}
-            aria-label={t('from')}
-            value={from}
-            onChange={(v) => v && onChange({ from: v, to })}
-            valueFormat="DD.MM.YYYY"
-            w={150}
-          />
-          <DatePickerInput
-            {...common}
-            aria-label={t('to')}
-            value={to}
-            onChange={(v) => v && onChange({ from, to: v })}
-            valueFormat="DD.MM.YYYY"
-            w={150}
-          />
-        </>
-      )}
-      <Button variant="default" size="xs" onClick={setToday} style={{ flexShrink: 0 }}>
-        {t('today')}
-      </Button>
+      <DateTimePicker
+        {...common}
+        aria-label={t('from')}
+        value={from}
+        onChange={(v) => v && onChange({ from: v, to })}
+        valueFormat="DD.MM.YYYY HH:mm"
+        withSeconds={false}
+        defaultTimeValue={`${pad(h)}:00:00`}
+        timePickerProps={timePickerProps}
+        presets={[{ value: `${today} ${pad(h)}:00:00`, label: t('today') }]}
+        w={185}
+      />
+      <DateTimePicker
+        {...common}
+        aria-label={t('to')}
+        value={to}
+        onChange={(v) => v && onChange({ from, to: v })}
+        valueFormat="DD.MM.YYYY HH:mm"
+        withSeconds={false}
+        defaultTimeValue={`${pad(h - 1)}:00:00`}
+        timePickerProps={timePickerProps}
+        presets={[{ value: `${addDaysStr(today, 1)} ${pad(h - 1)}:00:00`, label: t('today') }]}
+        w={185}
+      />
     </Group>
   )
 }

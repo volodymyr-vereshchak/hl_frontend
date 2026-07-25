@@ -5,6 +5,7 @@ import { IconAlertTriangle, IconInfoCircle } from '@tabler/icons-react'
 import { useSelectionStore } from '@/store/selectionStore'
 import { useLanguage } from '@/locales/LanguageContext'
 import { getArchiveColumns } from '@/domain/archiveColumns'
+import { commercialHourlyRange } from '@/domain/commercialDay'
 import { TablePagination } from '@/components/TablePagination'
 import type { ArchiveType } from '@/types'
 import { TreeView } from './TreeView'
@@ -16,6 +17,14 @@ import { useEnterpriseOverlay, applyOverlay } from './useEnterpriseOverlay'
 import { exportArchiveToExcel, exportWithEnterpriseBreakdown } from './exportArchive'
 
 const VALID: ArchiveType[] = ['daily', 'hourly', 'sys', 'edit', 'param']
+
+const hasTimePart = (s: string) => /\d{2}:\d{2}/.test(s)
+
+/** Expand a date-only range to the commercial day window: D 07:00 → (D+1) 06:00. */
+function commercialWindow(fromDate: string, toDate: string) {
+  const win = commercialHourlyRange(fromDate.slice(0, 10), toDate.slice(0, 10))
+  return { fromDate: win.from.replace('T', ' '), toDate: win.to.replace('T', ' ') }
+}
 
 // Height reserved for app header (56) + main padding + the single-line toolbar.
 const SPLIT_HEIGHT = 'calc(100dvh - 150px)'
@@ -36,6 +45,15 @@ export function ArchivePage() {
     if (qsFrom && qsTo) setDateRange({ fromDate: qsFrom, toDate: qsTo })
     if (qsFilter === '1') setDateFilterEnabled(true)
   }, [qsFrom, qsTo, qsFilter, setDateRange, setDateFilterEnabled])
+
+  // Time-based archives default to the commercial day window (07:00 → 06:00):
+  // widen a date-only range to those bounds when entering such a view.
+  const needsTime = type === 'hourly' || type === 'sys' || type === 'edit'
+  useEffect(() => {
+    if (!needsTime || qsFrom) return
+    if (hasTimePart(dateRange.fromDate) || hasTimePart(dateRange.toDate)) return
+    setDateRange(commercialWindow(dateRange.fromDate, dateRange.toDate))
+  }, [needsTime, qsFrom, dateRange.fromDate, dateRange.toDate, setDateRange])
 
   if (!type || !VALID.includes(type as ArchiveType)) {
     return <Navigate to="/overview" replace />
