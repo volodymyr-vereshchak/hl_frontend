@@ -100,12 +100,16 @@ export function GrsTrendsPage() {
           : archiveDataApi.getHourlyData(ids, win.from, win.to)
       }
 
-      const [p, v, d] = await Promise.all([
-        fetchFor(phys, 'physical').catch(() => []),
-        fetchFor(virt, 'virtual').catch(() => []),
-        fetchFor(dpd, 'dpd').catch(() => []),
+      // Collect failures instead of swallowing them, so an empty result can
+      // report its cause (e.g. the backend rejecting an over-long range).
+      const settled = await Promise.allSettled([
+        fetchFor(phys, 'physical'),
+        fetchFor(virt, 'virtual'),
+        fetchFor(dpd, 'dpd'),
       ])
-      const rows = [...p, ...v, ...d]
+      const rows = settled.flatMap((r) => (r.status === 'fulfilled' ? r.value : []))
+      const failure = settled.find((r) => r.status === 'rejected') as PromiseRejectedResult | undefined
+      if (rows.length === 0 && failure) throw failure.reason
 
       let enterprise: Awaited<ReturnType<ReturnType<typeof getEnterpriseFetchFn>>> = []
       if (withEnterprise) {
