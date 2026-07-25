@@ -11,17 +11,30 @@ import {
 import type { LineKind } from '@/types'
 import type { LineMeta } from '@/store/selectionStore'
 
+/** Context shown in the tree's selection panel. */
+export interface LineInfo {
+  branchName?: string
+  lumgName?: string
+  calcName?: string
+  typeName?: string | null
+  address?: string | number | null
+  lineNo?: number | null
+}
+
 export interface TreeLine {
   id: number
   name: string
   kind: LineKind
   meta: LineMeta
+  lineNo?: number | null
+  info?: LineInfo
 }
 
 export interface TreeCalc {
   id: number
   name: string
   typeName: string | null
+  address?: string | number | null
   lines: TreeLine[]
 }
 
@@ -62,6 +75,7 @@ export function useTreeData() {
           id: l.id,
           name: l.name || `l${l.line ?? l.id}`,
           kind: 'physical',
+          lineNo: l.line ?? null,
           meta: {
             kind: 'physical',
             meter: l.meter,
@@ -80,6 +94,7 @@ export function useTreeData() {
           id: c.id,
           name: c.name,
           typeName: c.type_id != null ? typeNameById.get(c.type_id) ?? null : null,
+          address: c.address ?? null,
           lines: (linesByCalc.get(c.id) ?? []).sort((a, b) => a.name.localeCompare(b.name)),
         }
         if (!calcsByLumg.has(c.lumg_id)) calcsByLumg.set(c.lumg_id, [])
@@ -112,7 +127,7 @@ export function useTreeData() {
       }
 
       const lumgById = new Map(lumgs.map((l) => [l.id, l]))
-      return branches
+      const tree = branches
         .map((b) => ({
           id: b.id,
           name: b.name,
@@ -129,6 +144,26 @@ export function useTreeData() {
             ),
         }))
         .filter((b) => b.lumgs.length > 0)
+
+      // Attach the branch/lumg/calc context each line shows in the info panel.
+      for (const branch of tree) {
+        for (const lumg of branch.lumgs) {
+          const base = { branchName: branch.name, lumgName: lumg.name }
+          for (const calc of lumg.calcs) {
+            for (const line of calc.lines) {
+              line.info = {
+                ...base,
+                calcName: calc.name,
+                typeName: calc.typeName,
+                address: calc.address,
+                lineNo: line.lineNo,
+              }
+            }
+          }
+          for (const line of [...lumg.virtualLines, ...lumg.dpdLines]) line.info = { ...base }
+        }
+      }
+      return tree
     },
   })
 }

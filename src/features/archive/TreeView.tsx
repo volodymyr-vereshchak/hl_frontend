@@ -21,6 +21,7 @@ import {
   IconRipple,
 } from '@tabler/icons-react'
 import { useSelectionStore } from '@/store/selectionStore'
+import { useLanguage } from '@/locales/LanguageContext'
 import { useTreeData, type TreeLine } from './useTreeData'
 
 function LineRow({ line }: { line: TreeLine }) {
@@ -64,6 +65,56 @@ function LineRow({ line }: { line: TreeLine }) {
         {badge}
       </Group>
     </UnstyledButton>
+  )
+}
+
+/** Details of the currently selected line, pinned under the tree. */
+function SelectionInfo({ line }: { line: TreeLine | null }) {
+  const { t } = useLanguage()
+  if (!line) return null
+  const info = line.info ?? {}
+  const chips: { label: string; value: string }[] = []
+  if (info.branchName) chips.push({ label: t('branch'), value: info.branchName })
+  if (info.calcName) chips.push({ label: t('calcObject'), value: info.calcName })
+  if (info.typeName) chips.push({ label: t('calculator'), value: info.typeName })
+  if (info.address != null) chips.push({ label: t('calcAddress'), value: String(info.address) })
+  if (info.lineNo != null) chips.push({ label: t('calcLine'), value: String(info.lineNo) })
+
+  return (
+    <Box
+      pt="xs"
+      mt="xs"
+      style={{ borderTop: '1px solid var(--hlv-border)', flexShrink: 0 }}
+    >
+      <Group gap={6} wrap="nowrap" mb={6}>
+        {line.kind === 'virtual' && (
+          <Badge size="xs" color="grape" variant="light">
+            V
+          </Badge>
+        )}
+        {line.kind === 'dpd' && (
+          <Badge size="xs" color="blue" variant="light">
+            D
+          </Badge>
+        )}
+        <Text size="sm" fw={600} c="petrol" lineClamp={2} title={line.name}>
+          {line.name}
+        </Text>
+      </Group>
+      <Group gap={4} wrap="wrap">
+        {chips.map((c) => (
+          <Badge key={c.label} variant="default" size="xs" tt="none" style={{ fontWeight: 400 }}>
+            <Text component="span" size="9px" c="dimmed">
+              {c.label}:
+            </Text>{' '}
+            {c.value}
+          </Badge>
+        ))}
+        <Badge variant="light" color="steel" size="xs" tt="none">
+          ID: {line.id}
+        </Badge>
+      </Group>
+    </Box>
   )
 }
 
@@ -115,6 +166,23 @@ export function TreeView({ fill = false }: { fill?: boolean } = {}) {
   const { data, isLoading } = useTreeData()
   const [search, setSearch] = useState('')
   const q = search.trim().toLowerCase()
+  const { lineId } = useSelectionStore()
+
+  // Locate the selected line in the (unfiltered) tree for the info panel.
+  const selectedLine = useMemo(() => {
+    if (lineId == null || !data) return null
+    for (const branch of data) {
+      for (const lumg of branch.lumgs) {
+        for (const calc of lumg.calcs) {
+          const hit = calc.lines.find((l) => l.id === lineId)
+          if (hit) return hit
+        }
+        const other = [...lumg.virtualLines, ...lumg.dpdLines].find((l) => l.id === lineId)
+        if (other) return other
+      }
+    }
+    return null
+  }, [data, lineId])
 
   const filtered = useMemo(() => {
     if (!data) return []
@@ -220,6 +288,7 @@ export function TreeView({ fill = false }: { fill?: boolean } = {}) {
         <ScrollArea style={{ flex: 1, minHeight: 0 }} type="hover">
           {list}
         </ScrollArea>
+        <SelectionInfo line={selectedLine} />
       </Box>
     )
   }
