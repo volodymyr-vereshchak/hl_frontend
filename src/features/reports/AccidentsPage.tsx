@@ -8,30 +8,30 @@ import {
   Collapse,
   UnstyledButton,
   Box,
-  ScrollArea,
-  MultiSelect,
+  Select,
   SimpleGrid,
   Card,
 } from '@mantine/core'
-import { IconChevronRight, IconAlertTriangle, IconClockHour4, IconList } from '@tabler/icons-react'
+import { IconChevronRight, IconAlertTriangle, IconList, IconGauge } from '@tabler/icons-react'
 import * as XLSX from 'xlsx'
 import { sysArchiveApi } from '@/api/entities'
 import { useLanguage } from '@/locales/LanguageContext'
-import { useSelectionStore } from '@/store/selectionStore'
 import { numericStyle } from '@/theme/theme'
 import {
   pairAccidents,
   groupAccidentsByType,
+  summarizeOccurrencesByLine,
+  groupBounds,
   type AccidentGroup,
   type SysRecord,
 } from '@/domain/accidentsCalculator'
 import { PeriodPicker } from '@/features/archive/PeriodPicker'
 import { ReportShell } from './ReportShell'
-import { useBranchLines } from './useBranchLines'
+import { useTopologySelects } from './useTopologySelects'
 
 const pad = (n: number) => String(n).padStart(2, '0')
 
-function todayRange() {
+function defaultRange() {
   const now = new Date()
   const to = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
   const prev = new Date(now.getTime() - 7 * 864e5)
@@ -45,8 +45,17 @@ const fmtTime = (iso: string) => {
   return `${d.toLocaleDateString('uk-UA')} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
 
+const fmtNum = (n: number) => n.toLocaleString('uk-UA', { maximumFractionDigits: 2 })
+
 function GroupRow({ group, lineNames }: { group: AccidentGroup; lineNames: Map<number, string> }) {
   const [open, setOpen] = useState(false)
+  const bounds = groupBounds(group)
+  // Expanded view rolls occurrences up per line rather than listing each event.
+  const perLine = useMemo(
+    () => summarizeOccurrencesByLine(group.occurrences, group.isStandalone),
+    [group],
+  )
+
   return (
     <>
       <Table.Tr>
@@ -67,45 +76,55 @@ function GroupRow({ group, lineNames }: { group: AccidentGroup; lineNames: Map<n
           </UnstyledButton>
         </Table.Td>
         <Table.Td ta="center" style={numericStyle}>
+          {fmtTime(bounds.firstStart)}
+        </Table.Td>
+        <Table.Td ta="center" style={numericStyle}>
+          {group.isStandalone ? '—' : fmtTime(bounds.lastEnd)}
+        </Table.Td>
+        <Table.Td ta="center" style={numericStyle}>
           {group.totalCount}
         </Table.Td>
         <Table.Td ta="center" style={numericStyle}>
           {group.totalDurationFormatted}
         </Table.Td>
         <Table.Td ta="center" style={numericStyle}>
-          {group.totalVolume.toLocaleString('uk-UA', { maximumFractionDigits: 2 })}
+          {fmtNum(group.totalVolume)}
         </Table.Td>
       </Table.Tr>
       {open && (
         <Table.Tr>
-          <Table.Td colSpan={4} p={0}>
+          <Table.Td colSpan={6} p={0}>
             <Collapse expanded={open}>
               <Box px="md" py="xs" style={{ background: 'var(--hlv-surface-2)' }}>
-                <Table striped={false} verticalSpacing={4} fz="xs">
+                <Table verticalSpacing={4} fz="xs">
                   <Table.Thead>
                     <Table.Tr>
                       <Table.Th>Лінія</Table.Th>
-                      <Table.Th ta="center">Початок</Table.Th>
-                      <Table.Th ta="center">Кінець</Table.Th>
+                      <Table.Th ta="center">Перша поява</Table.Th>
+                      <Table.Th ta="center">Остання поява</Table.Th>
+                      <Table.Th ta="center">Кількість</Table.Th>
                       <Table.Th ta="center">Тривалість</Table.Th>
                       <Table.Th ta="center">Обʼєм</Table.Th>
                     </Table.Tr>
                   </Table.Thead>
                   <Table.Tbody>
-                    {group.occurrences.map((o, i) => (
-                      <Table.Tr key={i}>
-                        <Table.Td>{o.line_id ? (lineNames.get(o.line_id) ?? o.line_id) : '—'}</Table.Td>
+                    {perLine.map((l) => (
+                      <Table.Tr key={l.line_id}>
+                        <Table.Td>{lineNames.get(l.line_id) ?? `Лінія ${l.line_id}`}</Table.Td>
                         <Table.Td ta="center" style={numericStyle}>
-                          {fmtTime(o.startTime)}
+                          {fmtTime(l.firstStart)}
                         </Table.Td>
                         <Table.Td ta="center" style={numericStyle}>
-                          {o.type === 'standalone' ? '—' : fmtTime(o.endTime)}
+                          {group.isStandalone ? '—' : fmtTime(l.lastEnd)}
                         </Table.Td>
                         <Table.Td ta="center" style={numericStyle}>
-                          {o.duration}
+                          {l.count}
                         </Table.Td>
                         <Table.Td ta="center" style={numericStyle}>
-                          {o.volume.toLocaleString('uk-UA', { maximumFractionDigits: 2 })}
+                          {l.durationFormatted}
+                        </Table.Td>
+                        <Table.Td ta="center" style={numericStyle}>
+                          {fmtNum(l.volume)}
                         </Table.Td>
                       </Table.Tr>
                     ))}
@@ -122,31 +141,22 @@ function GroupRow({ group, lineNames }: { group: AccidentGroup; lineNames: Map<n
 
 export function AccidentsPage() {
   const { t } = useLanguage()
-  const { branchId } = useSelectionStore()
-  const { data: lines } = useBranchLines(branchId)
-  const initial = todayRange()
+  const [branchId, setBranchId] = useState('')
+  const [calcId, setCalcId] = useState('')
+  const [lineId, setLineId] = useState('')
+  const { branches, calcs, lines, allLines } = useTopologySelects(branchId, calcId)
+
+  const initial = defaultRange()
   const [from, setFrom] = useState(`${initial.from} 00:00:00`)
   const [to, setTo] = useState(`${initial.to} 23:00:00`)
-  const [selectedLines, setSelectedLines] = useState<string[]>([])
   const [groups, setGroups] = useState<AccidentGroup[] | null>(null)
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Accidents live in the sys archive, so only physical lines apply. Default to
-  // the report-flagged ones — a branch can hold 300+ lines and querying them all
-  // is far too heavy; the picker still exposes every line.
-  const physicalLines = useMemo(() => (lines ?? []).filter((l) => l.kind === 'physical'), [lines])
-  const defaultLines = useMemo(() => {
-    const flagged = physicalLines.filter((l) => l.include_in_report)
-    return flagged.length > 0 ? flagged : physicalLines
-  }, [physicalLines])
-  const lineNames = useMemo(
-    () => new Map((lines ?? []).map((l) => [l.id, l.name])),
-    [lines],
-  )
+  const lineNames = useMemo(() => new Map(allLines.map((l) => [l.id, l.name])), [allLines])
 
   const run = async () => {
-    const ids = selectedLines.length ? selectedLines.map(Number) : defaultLines.map((l) => l.id)
+    const ids = lineId ? [Number(lineId)] : lines.map((l) => l.id)
     if (ids.length === 0) {
       setError('Немає ліній для аналізу')
       return
@@ -171,29 +181,36 @@ export function AccidentsPage() {
 
   const exportExcel = () => {
     if (!groups) return
-    const header = ['Тип аварії', 'Кількість', 'Загальна тривалість', 'Загальний обʼєм']
-    const body = groups.map((g) => [
-      g.sys_name ?? `#${g.sys_type_id}`,
-      g.totalCount,
-      g.totalDurationFormatted,
-      g.totalVolume,
-    ])
-    const detail = [['Тип', 'Лінія', 'Початок', 'Кінець', 'Тривалість', 'Обʼєм']]
-    groups.forEach((g) =>
-      g.occurrences.forEach((o) =>
-        detail.push([
-          g.sys_name ?? `#${g.sys_type_id}`,
-          String(o.line_id ? (lineNames.get(o.line_id) ?? o.line_id) : '—'),
-          fmtTime(o.startTime),
-          o.type === 'standalone' ? '—' : fmtTime(o.endTime),
-          o.duration,
-          String(o.volume),
-        ]),
-      ),
-    )
+    const summary = [['Тип аварії', 'Перша поява', 'Остання поява', 'Кількість', 'Тривалість', 'Обʼєм']]
+    const perLine = [
+      ['Тип аварії', 'Лінія', 'Перша поява', 'Остання поява', 'Кількість', 'Тривалість', 'Обʼєм'],
+    ]
+    for (const g of groups) {
+      const b = groupBounds(g)
+      const name = g.sys_name ?? `#${g.sys_type_id}`
+      summary.push([
+        name,
+        fmtTime(b.firstStart),
+        g.isStandalone ? '—' : fmtTime(b.lastEnd),
+        String(g.totalCount),
+        g.totalDurationFormatted,
+        String(g.totalVolume),
+      ])
+      for (const l of summarizeOccurrencesByLine(g.occurrences, g.isStandalone)) {
+        perLine.push([
+          name,
+          lineNames.get(l.line_id) ?? `Лінія ${l.line_id}`,
+          fmtTime(l.firstStart),
+          g.isStandalone ? '—' : fmtTime(l.lastEnd),
+          String(l.count),
+          l.durationFormatted,
+          String(l.volume),
+        ])
+      }
+    }
     const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([header, ...body]), 'Зведення')
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(detail), 'Деталі')
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summary), 'Зведення')
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(perLine), 'По лініях')
     XLSX.writeFile(wb, `accidents_${from.slice(0, 10)}_${to.slice(0, 10)}.xlsx`)
   }
 
@@ -215,8 +232,47 @@ export function AccidentsPage() {
       onExport={exportExcel}
       canExport={!!groups?.length}
       error={error}
+      withBranchPicker={false}
       controls={
         <>
+          {/* Cascading scope: branch → calc → line, each with an "all" option. */}
+          <Select
+            placeholder="Всі філії"
+            data={branches.map((b) => ({ value: String(b.id), label: b.name }))}
+            value={branchId || null}
+            onChange={(v) => {
+              setBranchId(v ?? '')
+              setCalcId('')
+              setLineId('')
+            }}
+            clearable
+            searchable
+            size="xs"
+            w={210}
+          />
+          <Select
+            placeholder="Всі обчислювачі"
+            data={calcs.map((c) => ({ value: String(c.id), label: c.name }))}
+            value={calcId || null}
+            onChange={(v) => {
+              setCalcId(v ?? '')
+              setLineId('')
+            }}
+            clearable
+            searchable
+            size="xs"
+            w={230}
+          />
+          <Select
+            placeholder={`Всі лінії (${lines.length})`}
+            data={lines.map((l) => ({ value: String(l.id), label: l.name }))}
+            value={lineId || null}
+            onChange={(v) => setLineId(v ?? '')}
+            clearable
+            searchable
+            size="xs"
+            w={210}
+          />
           <PeriodPicker
             withTime
             from={from}
@@ -225,17 +281,6 @@ export function AccidentsPage() {
               setFrom(f)
               setTo(t2)
             }}
-          />
-          <MultiSelect
-            placeholder={`Звітні лінії (${defaultLines.length})`}
-            data={physicalLines.map((l) => ({ value: String(l.id), label: l.name }))}
-            value={selectedLines}
-            onChange={setSelectedLines}
-            searchable
-            clearable
-            size="xs"
-            w={280}
-            maxDropdownHeight={280}
           />
         </>
       }
@@ -266,43 +311,48 @@ export function AccidentsPage() {
           </Card>
           <Card padding="sm" radius="md">
             <Group gap="xs">
-              <IconClockHour4 size={16} color="var(--mantine-color-steel-5)" />
+              <IconGauge size={16} color="var(--mantine-color-steel-5)" />
               <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
                 {t('totalVolume')}
               </Text>
             </Group>
             <Text fz={24} fw={700} style={numericStyle}>
-              {totals.volume.toLocaleString('uk-UA', { maximumFractionDigits: 2 })}
+              {fmtNum(totals.volume)}
             </Text>
           </Card>
         </SimpleGrid>
       )}
 
       {groups && groups.length > 0 && (
+        /* Height follows the content; the page scrolls, not the table. */
         <Paper withBorder radius="md">
-          <ScrollArea.Autosize mah="calc(100dvh - 380px)" type="auto">
-            <Table striped highlightOnHover stickyHeader verticalSpacing={6}>
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th>{t('accidentType')}</Table.Th>
-                  <Table.Th ta="center" w={140}>
-                    {t('occurrenceCount')}
-                  </Table.Th>
-                  <Table.Th ta="center" w={180}>
-                    {t('totalDuration')}
-                  </Table.Th>
-                  <Table.Th ta="center" w={160}>
-                    {t('totalVolume')}
-                  </Table.Th>
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {groups.map((g) => (
-                  <GroupRow key={g.sys_type_id} group={g} lineNames={lineNames} />
-                ))}
-              </Table.Tbody>
-            </Table>
-          </ScrollArea.Autosize>
+          <Table striped highlightOnHover verticalSpacing={6}>
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th>{t('accidentType')}</Table.Th>
+                <Table.Th ta="center" w={170}>
+                  {t('startTime')}
+                </Table.Th>
+                <Table.Th ta="center" w={170}>
+                  {t('endTime')}
+                </Table.Th>
+                <Table.Th ta="center" w={120}>
+                  {t('occurrenceCount')}
+                </Table.Th>
+                <Table.Th ta="center" w={150}>
+                  {t('totalDuration')}
+                </Table.Th>
+                <Table.Th ta="center" w={150}>
+                  {t('totalVolume')}
+                </Table.Th>
+              </Table.Tr>
+            </Table.Thead>
+            <Table.Tbody>
+              {groups.map((g) => (
+                <GroupRow key={g.sys_type_id} group={g} lineNames={lineNames} />
+              ))}
+            </Table.Tbody>
+          </Table>
         </Paper>
       )}
 

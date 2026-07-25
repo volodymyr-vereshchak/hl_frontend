@@ -219,6 +219,61 @@ export function groupAccidentsByType(accidents: Accident[]): AccidentGroup[] {
   return out.sort((a, b) => b.totalCount - a.totalCount)
 }
 
+export interface LineSummary {
+  line_id: number
+  firstStart: string
+  lastEnd: string
+  count: number
+  durationFormatted: string
+  volume: number
+}
+
+/**
+ * Per-line rollup of one accident type: when it first started, when it last
+ * ended, how many times it fired, and the total duration/volume.
+ */
+export function summarizeOccurrencesByLine(
+  occurrences: AccidentOccurrence[],
+  isStandalone: boolean,
+): LineSummary[] {
+  const byLine = new Map<number, AccidentOccurrence[]>()
+  for (const occ of occurrences) {
+    const lid = occ.line_id ?? 0
+    if (!byLine.has(lid)) byLine.set(lid, [])
+    byLine.get(lid)!.push(occ)
+  }
+  return [...byLine.entries()]
+    .map(([lineId, occs]) => {
+      const starts = occs.map((o) => new Date(o.startTime).getTime())
+      const ends = occs.map((o) => new Date(o.endTime).getTime())
+      const totalMs = isStandalone
+        ? 0
+        : occs.reduce(
+            (s, o) => s + Math.max(0, new Date(o.endTime).getTime() - new Date(o.startTime).getTime()),
+            0,
+          )
+      return {
+        line_id: lineId,
+        firstStart: new Date(Math.min(...starts)).toISOString(),
+        lastEnd: new Date(Math.max(...ends)).toISOString(),
+        count: occs.length,
+        durationFormatted: isStandalone ? '—' : formatMs(totalMs),
+        volume: occs.reduce((s, o) => s + o.volume, 0),
+      }
+    })
+    .sort((a, b) => b.count - a.count)
+}
+
+/** First start / last end across every occurrence of a group. */
+export function groupBounds(group: AccidentGroup): { firstStart: string; lastEnd: string } {
+  const starts = group.occurrences.map((o) => new Date(o.startTime).getTime())
+  const ends = group.occurrences.map((o) => new Date(o.endTime).getTime())
+  return {
+    firstStart: new Date(Math.min(...starts)).toISOString(),
+    lastEnd: new Date(Math.max(...ends)).toISOString(),
+  }
+}
+
 export function filterAccidentsByLine(accidents: Accident[], lineId: number | null): Accident[] {
   if (!lineId) return accidents
   return accidents.filter((a) => a.line_id === lineId)

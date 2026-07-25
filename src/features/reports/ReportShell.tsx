@@ -15,6 +15,8 @@ interface Props {
   onExport?: () => void
   canExport?: boolean
   error?: string | null
+  /** Reports with their own cascading branch selector opt out of the header one. */
+  withBranchPicker?: boolean
   children: ReactNode
 }
 
@@ -28,6 +30,7 @@ export function ReportShell({
   onExport,
   canExport,
   error,
+  withBranchPicker = true,
   children,
 }: Props) {
   const { t } = useLanguage()
@@ -45,15 +48,17 @@ export function ReportShell({
             </Text>
           )}
         </div>
-        <Select
-          placeholder={t('branch')}
-          data={(branches ?? []).map((b) => ({ value: String(b.id), label: b.name }))}
-          value={branchId != null ? String(branchId) : null}
-          onChange={(v) => setBranchId(v ? Number(v) : null)}
-          searchable
-          size="xs"
-          w={260}
-        />
+        {withBranchPicker && (
+          <Select
+            placeholder={t('branch')}
+            data={(branches ?? []).map((b) => ({ value: String(b.id), label: b.name }))}
+            value={branchId != null ? String(branchId) : null}
+            onChange={(v) => setBranchId(v ? Number(v) : null)}
+            searchable
+            size="xs"
+            w={260}
+          />
+        )}
       </Group>
 
       <Group gap="sm" align="flex-end" wrap="wrap">
@@ -63,7 +68,7 @@ export function ReportShell({
           leftSection={<IconPlayerPlay size={15} />}
           onClick={onRun}
           loading={running}
-          disabled={branchId == null}
+          disabled={withBranchPicker && branchId == null}
         >
           {t('loadAccidentsData')}
         </Button>
