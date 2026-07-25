@@ -32,6 +32,35 @@ export function calculateDuration(startTime: string | Date, endTime: string | Da
   return formatMs(diffMs)
 }
 
+/**
+ * Total wall-clock time covered by a set of intervals, merging overlaps.
+ *
+ * Repeated start events without a matching end all stretch to the end of the
+ * period, so naively summing their durations counts the same hours many times
+ * (three alarms 11 minutes apart reported 349h over a 117h span). The union is
+ * the real time the line spent in that state.
+ */
+export function mergeIntervalsMs(intervals: { start: number; end: number }[]): number {
+  const valid = intervals.filter((i) => i.end > i.start).sort((a, b) => a.start - b.start)
+  let total = 0
+  let curStart: number | null = null
+  let curEnd = 0
+  for (const iv of valid) {
+    if (curStart === null) {
+      curStart = iv.start
+      curEnd = iv.end
+    } else if (iv.start <= curEnd) {
+      curEnd = Math.max(curEnd, iv.end)
+    } else {
+      total += curEnd - curStart
+      curStart = iv.start
+      curEnd = iv.end
+    }
+  }
+  if (curStart !== null) total += curEnd - curStart
+  return total
+}
+
 function formatMs(ms: number): string {
   const h = Math.floor(ms / 3_600_000)
   const m = Math.floor((ms % 3_600_000) / 60_000)
@@ -194,9 +223,6 @@ export function groupAccidentsByType(accidents: Accident[]): AccidentGroup[] {
       })
     }
     const group = grouped.get(key)!
-    const durationMs = standalone
-      ? 0
-      : new Date(accident.endTime).getTime() - new Date(accident.startTime).getTime()
     const volume = calculateAccidentVolume(accident)
 
     group.occurrences.push({
@@ -208,12 +234,16 @@ export function groupAccidentsByType(accidents: Accident[]): AccidentGroup[] {
       line_id: accident.line_id,
     })
     group.totalCount++
-    group.totalDuration += Math.max(0, durationMs)
     group.totalVolume += volume
   }
 
   const out = [...grouped.values()]
   for (const group of out) {
+    // Per line the overlapping intervals are merged; the type total is the sum
+    // of those per-line durations (two lines in alarm at once really is 2× time).
+    group.totalDuration = group.isStandalone
+      ? 0
+      : summarizeOccurrencesByLine(group.occurrences, false).reduce((s, l) => s + l.durationMs, 0)
     group.totalDurationFormatted = group.isStandalone ? '—' : formatMs(group.totalDuration)
   }
   return out.sort((a, b) => b.totalCount - a.totalCount)
@@ -224,6 +254,8 @@ export interface LineSummary {
   firstStart: string
   lastEnd: string
   count: number
+  /** Union of the occurrence intervals — overlaps counted once. */
+  durationMs: number
   durationFormatted: string
   volume: number
 }
@@ -248,15 +280,18 @@ export function summarizeOccurrencesByLine(
       const ends = occs.map((o) => new Date(o.endTime).getTime())
       const totalMs = isStandalone
         ? 0
-        : occs.reduce(
-            (s, o) => s + Math.max(0, new Date(o.endTime).getTime() - new Date(o.startTime).getTime()),
-            0,
+        : mergeIntervalsMs(
+            occs.map((o) => ({
+              start: new Date(o.startTime).getTime(),
+              end: new Date(o.endTime).getTime(),
+            })),
           )
       return {
         line_id: lineId,
         firstStart: new Date(Math.min(...starts)).toISOString(),
         lastEnd: new Date(Math.max(...ends)).toISOString(),
         count: occs.length,
+        durationMs: totalMs,
         durationFormatted: isStandalone ? '—' : formatMs(totalMs),
         volume: occs.reduce((s, o) => s + o.volume, 0),
       }

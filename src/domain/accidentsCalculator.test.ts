@@ -65,6 +65,39 @@ describe('pairAccidents', () => {
   })
 })
 
+describe('overlapping unpaired accidents', () => {
+  // Real case: type 405 on line Тернівка fired three times within 12 minutes
+  // and never got its end code, so all three ran to the period end. Summing
+  // them reported 349h over a 117h span; the union is the real time in alarm.
+  it('counts overlapping intervals once', () => {
+    const rows: SysRecord[] = [
+      { line_id: 86, period: '2026-05-04T10:21:53', sys_type_id: 405, sys_name: 'Темп. заміна', volume: 0 },
+      { line_id: 86, period: '2026-05-04T10:32:56', sys_type_id: 405, sys_name: 'Темп. заміна', volume: 0 },
+      { line_id: 86, period: '2026-05-04T10:33:19', sys_type_id: 405, sys_name: 'Темп. заміна', volume: 0 },
+    ]
+    const period = { fromDate: '2026-05-01T07:00:00', toDate: '2026-05-09T07:00:00' }
+    const [group] = groupAccidentsByType(pairAccidents(rows, period))
+
+    expect(group.totalCount).toBe(3)
+    const spanMs =
+      new Date('2026-05-09T07:00:00').getTime() - new Date('2026-05-04T10:21:53').getTime()
+    // Union == the earliest start to the period end, not 3x that.
+    expect(group.totalDuration).toBe(spanMs)
+    expect(group.totalDuration / 3_600_000).toBeCloseTo(116.6, 1)
+  })
+
+  it('still adds up intervals that do not overlap', () => {
+    const rows: SysRecord[] = [
+      { line_id: 1, period: '2026-04-01T08:00:00', sys_type_id: 130, volume: 0 },
+      { line_id: 1, period: '2026-04-01T09:00:00', sys_type_id: 2, volume: 0 },
+      { line_id: 1, period: '2026-04-01T12:00:00', sys_type_id: 130, volume: 0 },
+      { line_id: 1, period: '2026-04-01T14:00:00', sys_type_id: 2, volume: 0 },
+    ]
+    const [group] = groupAccidentsByType(pairAccidents(rows, CONTRACT))
+    expect(group.totalDuration / 3_600_000).toBe(3) // 1h + 2h
+  })
+})
+
 describe('summarizeOccurrencesByLine', () => {
   it('rolls occurrences up per line with first/last bounds and counts', () => {
     const rows: SysRecord[] = [
