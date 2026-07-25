@@ -1,4 +1,4 @@
-import { Group, Switch, Button, Title, Badge } from '@mantine/core'
+import { Group, Switch, Button, Title, Badge, Loader, Text } from '@mantine/core'
 import { DatePickerInput } from '@mantine/dates'
 import { IconCalendar, IconFileSpreadsheet } from '@tabler/icons-react'
 import { useSelectionStore } from '@/store/selectionStore'
@@ -9,15 +9,23 @@ interface Props {
   kindBadge?: 'virtual' | 'dpd' | null
   onExport: () => void
   canExport: boolean
+  /** Enterprise overlay toggle — daily/hourly only. */
+  overlay?: {
+    enabled: boolean
+    setEnabled: (v: boolean) => void
+    loading: boolean
+    progress: { done?: number; total?: number; phase?: string } | null
+  }
 }
 
 /**
  * Single-line archive toolbar: title · date pickers · filter switch · Excel
  * (pushed to the right edge). Mantine v9 dates are strings ('YYYY-MM-DD').
  */
-export function DateRangeControls({ title, kindBadge, onExport, canExport }: Props) {
+export function DateRangeControls({ title, kindBadge, onExport, canExport, overlay }: Props) {
   const { t } = useLanguage()
   const { dateRange, setDateRange, dateFilterEnabled, setDateFilterEnabled } = useSelectionStore()
+  const prog = overlay?.progress
 
   return (
     <Group gap="md" wrap="nowrap" align="center">
@@ -61,6 +69,27 @@ export function DateRangeControls({ title, kindBadge, onExport, canExport }: Pro
         size="sm"
         styles={{ label: { whiteSpace: 'nowrap' } }}
       />
+
+      {overlay && (
+        <Group gap={6} wrap="nowrap">
+          <Switch
+            checked={overlay.enabled}
+            onChange={(e) => overlay.setEnabled(e.currentTarget.checked)}
+            label={t('enterpriseOverlay')}
+            color="grape"
+            size="sm"
+            styles={{ label: { whiteSpace: 'nowrap' } }}
+          />
+          {overlay.loading && (
+            <Group gap={4} wrap="nowrap">
+              <Loader size={14} color="grape" />
+              <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
+                {prog?.total ? `${prog.done ?? 0}/${prog.total}` : (prog?.phase ?? '...')}
+              </Text>
+            </Group>
+          )}
+        </Group>
+      )}
 
       <Button
         variant="light"

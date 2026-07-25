@@ -12,7 +12,8 @@ import { DateRangeControls } from './DateRangeControls'
 import { ArchiveTable } from './ArchiveTable'
 import { ArchiveChart } from './ArchiveChart'
 import { useArchiveData, useArchivePage, isPagedArchive, fetchFullArchive } from './useArchiveData'
-import { exportArchiveToExcel } from './exportArchive'
+import { useEnterpriseOverlay, applyOverlay } from './useEnterpriseOverlay'
+import { exportArchiveToExcel, exportWithEnterpriseBreakdown } from './exportArchive'
 
 const VALID: ArchiveType[] = ['daily', 'hourly', 'sys', 'edit', 'param']
 
@@ -54,10 +55,16 @@ export function ArchivePage() {
     pageSize,
   })
 
-  const rows = paged ? pageQuery.data?.items : full.data
-  const total = paged ? (pageQuery.data?.total ?? 0) : (rows?.length ?? 0)
+  const rawRows = paged ? pageQuery.data?.items : full.data
+  const total = paged ? (pageQuery.data?.total ?? 0) : (rawRows?.length ?? 0)
   const isLoading = paged ? pageQuery.isLoading : full.isLoading
   const error = paged ? pageQuery.error : full.error
+
+  // Enterprise (промисловість) overlay — daily/hourly only.
+  const canOverlay = archiveType === 'daily' || archiveType === 'hourly'
+  const overlay = useEnterpriseOverlay(canOverlay ? lineId : null, lineMeta, archiveType, dateRange)
+  const rows =
+    canOverlay && overlay.enabled && rawRows ? applyOverlay(rawRows, overlay.byPeriod, archiveType) : rawRows
 
   const canExport = !!rows && rows.length > 0
   const handleExport = async () => {
@@ -74,6 +81,19 @@ export function ArchivePage() {
     })
     // Paged archives export the whole range, not just the visible page.
     const data = paged ? await fetchFullArchive(lineId, archiveType, dateRange) : rows
+    // With the overlay on, export a per-enterprise breakdown instead.
+    if (canOverlay && overlay.enabled) {
+      await exportWithEnterpriseBreakdown(
+        data,
+        columns,
+        archiveType,
+        `${archiveType}_${lineId}_enterprise`,
+        lineId,
+        lineMeta.kind === 'virtual',
+        dateRange,
+      )
+      return
+    }
     exportArchiveToExcel(data, columns, archiveType, `${archiveType}_${lineId}`)
   }
 
@@ -95,6 +115,7 @@ export function ArchivePage() {
         kindBadge={lineMeta && lineMeta.kind !== 'physical' ? lineMeta.kind : null}
         onExport={handleExport}
         canExport={canExport}
+        overlay={canOverlay && lineId ? overlay : undefined}
       />
 
       {/* Tree + table row: full viewport height, each scrolls internally. */}
@@ -161,7 +182,14 @@ export function ArchivePage() {
       </Box>
 
       {/* Chart: full width, below the split — revealed on page scroll. */}
-      {showChart && <ArchiveChart rows={rows} type={archiveType} meta={lineMeta} />}
+      {showChart && (
+        <ArchiveChart
+          rows={rows}
+          type={archiveType}
+          meta={lineMeta}
+          overlay={overlay.enabled && !!overlay.byPeriod}
+        />
+      )}
     </Stack>
   )
 }

@@ -4,6 +4,7 @@ import { Placeholder } from '@/components/Placeholder'
 import { OverviewPage } from '@/features/overview/OverviewPage'
 import { ArchivePage } from '@/features/archive/ArchivePage'
 import { AdminPage } from '@/features/admin/AdminPage'
+import { EnterprisePollPage } from '@/features/enterprise-poll/EnterprisePollPage'
 
 // Map old ?archiveType= deep links to the new routes (backward compatibility).
 const LEGACY_ROUTE: Record<string, string> = {
@@ -42,7 +43,7 @@ export const router = createBrowserRouter([
       { index: true, element: <RootRedirect /> },
       { path: 'overview', element: <OverviewPage /> },
       { path: 'archive/:type', element: <ArchivePage /> },
-      { path: 'enterprise-poll', element: <Placeholder title="Опитування підприємств" /> },
+      { path: 'enterprise-poll', element: <EnterprisePollPage /> },
       { path: 'reports/grs-trends', element: <Placeholder title="Тренди ГРС" /> },
       { path: 'reports/night-consumption', element: <Placeholder title="Нічні витрати" /> },
       { path: 'reports/accidents', element: <Placeholder title="Звіт по аваріях" /> },

@@ -19,6 +19,8 @@ interface Props {
   rows: ArchiveRow[]
   type: ArchiveType
   meta: LineMeta
+  /** Enterprise overlay active → add Net / Total-enterprise series. */
+  overlay?: boolean
 }
 
 interface Series {
@@ -91,13 +93,21 @@ function getSeries(type: ArchiveType, meta: LineMeta, t: (k: string) => string):
   return []
 }
 
-export function ArchiveChart({ rows, type, meta }: Props) {
+export function ArchiveChart({ rows, type, meta, overlay }: Props) {
   const { t, getLocale } = useLanguage()
   const { colorScheme } = useMantineColorScheme()
   const dark = colorScheme === 'dark'
   const locale = getLocale()
 
-  const series = useMemo(() => getSeries(type, meta, t), [type, meta, t])
+  const series = useMemo(() => {
+    const base = getSeries(type, meta, t)
+    if (!overlay) return base
+    return [
+      ...base,
+      { key: 'netVolume', label: t('netVolume'), color: '#22c55e', axis: 'left' as const },
+      { key: 'totalEnterprise', label: t('totalEnterpriseVolume'), color: '#a855f7', axis: 'left' as const },
+    ]
+  }, [type, meta, t, overlay])
 
   // Per-archive-type curve visibility; a key missing from storage defaults to visible.
   const [hidden, setHidden] = useLocalStorage<Record<string, boolean>>({
