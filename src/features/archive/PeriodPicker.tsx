@@ -1,8 +1,9 @@
 import { Group } from '@mantine/core'
-import { DateTimePicker, DatePickerInput } from '@mantine/dates'
+import { DatePickerInput } from '@mantine/dates'
 import { IconCalendar } from '@tabler/icons-react'
 import { useLanguage } from '@/locales/LanguageContext'
 import { getContractHour } from '@/domain/commercialDay'
+import { HourDateTimePicker } from './HourDateTimePicker'
 
 interface Props {
   /** Daily/param archives pick whole days; hourly and event archives need time. */
@@ -71,34 +72,20 @@ export function PeriodPicker({ withTime, from, to, onChange }: Props) {
     )
   }
 
-  // Hour-granularity time entry — minutes/seconds are meaningless for these archives.
-  const timePickerProps = { hoursStep: 1, minutesStep: 60, withDropdown: true }
-
+  // Hour-granular archives: a 24-cell hour grid beats scrolling a time list.
   return (
     <Group gap="xs" wrap="nowrap">
-      <DateTimePicker
-        {...common}
-        aria-label={t('from')}
+      <HourDateTimePicker
+        ariaLabel={t('from')}
         value={from}
-        onChange={(v) => v && onChange({ from: v, to })}
-        valueFormat="DD.MM.YYYY HH:mm"
-        withSeconds={false}
-        defaultTimeValue={`${pad(h)}:00:00`}
-        timePickerProps={timePickerProps}
-        presets={[{ value: `${today} ${pad(h)}:00:00`, label: t('today') }]}
-        w={185}
+        onChange={(v) => onChange({ from: v, to })}
+        todayValue={`${today} ${pad(h)}:00:00`}
       />
-      <DateTimePicker
-        {...common}
-        aria-label={t('to')}
+      <HourDateTimePicker
+        ariaLabel={t('to')}
         value={to}
-        onChange={(v) => v && onChange({ from, to: v })}
-        valueFormat="DD.MM.YYYY HH:mm"
-        withSeconds={false}
-        defaultTimeValue={`${pad(h - 1)}:00:00`}
-        timePickerProps={timePickerProps}
-        presets={[{ value: `${addDaysStr(today, 1)} ${pad(h - 1)}:00:00`, label: t('today') }]}
-        w={185}
+        onChange={(v) => onChange({ from, to: v })}
+        todayValue={`${addDaysStr(today, 1)} ${pad(h - 1)}:00:00`}
       />
     </Group>
   )
