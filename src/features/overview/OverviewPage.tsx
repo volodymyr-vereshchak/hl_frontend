@@ -11,11 +11,14 @@ import {
   Loader,
   Center,
   Alert,
-  Table,
   Box,
   Paper,
   ThemeIcon,
+  Collapse,
+  UnstyledButton,
+  Button,
 } from '@mantine/core'
+import { useLocalStorage } from '@mantine/hooks'
 import {
   IconArrowUpRight,
   IconArrowDownRight,
@@ -23,31 +26,16 @@ import {
   IconGauge,
   IconClockHour4,
   IconActivity,
+  IconChevronRight,
 } from '@tabler/icons-react'
 import { useSelectionStore } from '@/store/selectionStore'
 import { useLanguage } from '@/locales/LanguageContext'
 import { numericStyle } from '@/theme/theme'
-import { OverviewCalculator } from '@/domain/overviewCalculator'
-import { PressureGauge } from './PressureGauge'
-import { useOverviewData, type OverviewData } from './useOverviewData'
+import { LineCard } from './LineCard'
+import { useOverviewData, type OverviewData, type LumgGroup } from './useOverviewData'
 
 function fmtNum(n: number, digits = 0) {
   return n.toLocaleString('uk-UA', { maximumFractionDigits: digits, minimumFractionDigits: digits })
-}
-
-function ChangeBadge({ percent, up }: { percent: number; up: boolean }) {
-  if (Math.abs(percent) < 0.05) return <Badge variant="light" color="gray" size="sm">0%</Badge>
-  return (
-    <Badge
-      variant="light"
-      color={up ? 'teal' : 'red'}
-      size="sm"
-      leftSection={up ? <IconArrowUpRight size={12} /> : <IconArrowDownRight size={12} />}
-    >
-      {up ? '+' : ''}
-      {percent.toFixed(1)}%
-    </Badge>
-  )
 }
 
 function MetricCard({
@@ -55,12 +43,14 @@ function MetricCard({
   value,
   unit,
   icon,
+  color = 'petrol',
   extra,
 }: {
   label: string
   value: string
   unit?: string
   icon: React.ReactNode
+  color?: string
   extra?: React.ReactNode
 }) {
   return (
@@ -69,7 +59,7 @@ function MetricCard({
         <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
           {label}
         </Text>
-        <ThemeIcon variant="light" color="petrol" size="md" radius="md">
+        <ThemeIcon variant="light" color={color} size="md" radius="md">
           {icon}
         </ThemeIcon>
       </Group>
@@ -88,18 +78,30 @@ function MetricCard({
   )
 }
 
-function LumgSection({ data, group }: { data: OverviewData; group: OverviewData['lumgGroups'][number] }) {
+function LumgSection({
+  data,
+  group,
+  collapsed,
+  onToggle,
+}: {
+  data: OverviewData
+  group: LumgGroup
+  collapsed: boolean
+  onToggle: () => void
+}) {
   const { t } = useLanguage()
+  const flowById = new Map(data.flowComparisons.map((f) => [f.lineId, f]))
   const volById = new Map(data.volumeComparisons.map((v) => [v.lineId, v]))
-
-  const gauges = group.lineIds
-    .map((id) => ({ id, p: data.pressures[id] }))
-    .filter((x) => x.p)
+  const cards = group.lineIds.filter((id) => data.pressures[id])
 
   return (
-    <Paper p="md" radius="md" withBorder>
-      <Group justify="space-between" mb="sm">
+    <Paper radius="md" withBorder>
+      <UnstyledButton onClick={onToggle} p="sm" w="100%">
         <Group gap="xs">
+          <IconChevronRight
+            size={16}
+            style={{ transform: collapsed ? 'none' : 'rotate(90deg)', transition: 'transform 150ms' }}
+          />
           <Text fw={600} fz="lg" ff="'Space Grotesk Variable', sans-serif">
             {group.lumgName}
           </Text>
@@ -107,66 +109,29 @@ function LumgSection({ data, group }: { data: OverviewData; group: OverviewData[
             {group.lineIds.length} {t('linesCount')}
           </Badge>
         </Group>
-      </Group>
-
-      {gauges.length > 0 && (
-        <SimpleGrid cols={{ base: 2, sm: 3, md: 4, lg: 6 }} spacing="md" mb="md">
-          {gauges.map(({ id, p }) => {
-            const range = OverviewCalculator.getPressureRange(p!.isHighPressure)
-            return (
-              <PressureGauge
-                key={id}
-                label={data.lineNames[id] ?? String(id)}
-                value={p!.pressure}
-                min={range.min}
-                max={range.max}
-                unit={p!.pressureUnit}
-                min24h={p!.minPressure24h}
-                max24h={p!.maxPressure24h}
-              />
-            )
-          })}
-        </SimpleGrid>
-      )}
-
-      <Table.ScrollContainer minWidth={420}>
-        <Table striped highlightOnHover verticalSpacing="xs" style={numericStyle}>
-          <Table.Thead>
-            <Table.Tr>
-              <Table.Th style={{ fontFamily: 'var(--mantine-font-family)' }}>{t('lineName')}</Table.Th>
-              <Table.Th ta="right" style={{ fontFamily: 'var(--mantine-font-family)' }}>
-                {t('current24hShort')}
-              </Table.Th>
-              <Table.Th ta="right" style={{ fontFamily: 'var(--mantine-font-family)' }}>
-                {t('previous24hShort')}
-              </Table.Th>
-              <Table.Th ta="right" style={{ fontFamily: 'var(--mantine-font-family)' }}>
-                {t('changeShort')}
-              </Table.Th>
-            </Table.Tr>
-          </Table.Thead>
-          <Table.Tbody>
-            {group.lineIds.map((id) => {
-              const v = volById.get(id)
-              if (!v) return null
-              return (
-                <Table.Tr key={id}>
-                  <Table.Td style={{ fontFamily: 'var(--mantine-font-family)' }}>
-                    {data.lineNames[id] ?? id}
-                  </Table.Td>
-                  <Table.Td ta="right">{fmtNum(v.current24h)}</Table.Td>
-                  <Table.Td ta="right" c="dimmed">
-                    {fmtNum(v.previous24h)}
-                  </Table.Td>
-                  <Table.Td ta="right">
-                    <ChangeBadge percent={v.changePercent} up={v.change >= 0} />
-                  </Table.Td>
-                </Table.Tr>
-              )
-            })}
-          </Table.Tbody>
-        </Table>
-      </Table.ScrollContainer>
+      </UnstyledButton>
+      <Collapse expanded={!collapsed}>
+        <Box px="sm" pb="sm">
+          {cards.length > 0 ? (
+            <SimpleGrid cols={{ base: 1, xs: 2, sm: 3, md: 4, xl: 5 }} spacing="sm">
+              {cards.map((id) => (
+                <LineCard
+                  key={id}
+                  lineName={data.lineNames[id] ?? String(id)}
+                  pressure={data.pressures[id]}
+                  flow={flowById.get(id)}
+                  volume={volById.get(id)}
+                  referenceTime={data.currentPeriod.end}
+                />
+              ))}
+            </SimpleGrid>
+          ) : (
+            <Text c="dimmed" size="sm" ta="center" py="md">
+              {t('noLinesInLumg')}
+            </Text>
+          )}
+        </Box>
+      </Collapse>
     </Paper>
   )
 }
@@ -175,13 +140,26 @@ export function OverviewPage() {
   const { t } = useLanguage()
   const { branchId, setBranchId } = useSelectionStore()
   const { topology, data, isLoading, error } = useOverviewData(branchId)
+  const [collapsed, setCollapsed] = useLocalStorage<Record<number, boolean>>({
+    key: 'hlv-overview-collapsed-lumgs',
+    defaultValue: {},
+  })
 
   const branches = topology.data?.branches ?? []
 
-  // Auto-select the first branch once topology loads.
   useEffect(() => {
     if (branchId == null && branches.length > 0) setBranchId(branches[0].id)
   }, [branchId, branches, setBranchId])
+
+  const setAll = (value: boolean) => {
+    if (!data) return
+    const next: Record<number, boolean> = {}
+    data.lumgGroups.forEach((g) => (next[g.lumgId] = value))
+    setCollapsed(next)
+  }
+
+  const vc = data?.volumeComparison
+  const allActive = !!data && data.activeLines === data.totalLines && data.totalLines > 0
 
   return (
     <Stack gap="lg">
@@ -195,12 +173,11 @@ export function OverviewPage() {
           )}
         </Box>
         <Select
-          label={undefined}
           data={branches.map((b) => ({ value: String(b.id), label: b.name }))}
           value={branchId != null ? String(branchId) : null}
           onChange={(v) => setBranchId(v ? Number(v) : null)}
           w={280}
-          placeholder="Філія"
+          placeholder={t('branch')}
           searchable
         />
       </Group>
@@ -219,46 +196,67 @@ export function OverviewPage() {
 
       {data && (
         <>
-          <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }}>
+          <SimpleGrid cols={{ base: 1, sm: 3 }}>
             <MetricCard
               label={t('total24hVolume')}
               value={fmtNum(data.totalVolume24h)}
               unit="м³"
               icon={<IconGauge size={18} />}
               extra={
-                <Group gap={6}>
-                  <ChangeBadge
-                    percent={data.volumeComparison.changePercent}
-                    up={!data.volumeComparison.isDecrease}
-                  />
-                  <Text size="xs" c="dimmed">
-                    {t('comparedToPrevious')}
-                  </Text>
-                </Group>
+                vc && (
+                  <Group gap={6}>
+                    <Badge
+                      variant="light"
+                      color={vc.isDecrease ? 'red' : vc.isIncrease ? 'teal' : 'gray'}
+                      size="sm"
+                      leftSection={
+                        vc.isDecrease ? <IconArrowDownRight size={12} /> : <IconArrowUpRight size={12} />
+                      }
+                    >
+                      {vc.changePercent > 0 ? '+' : ''}
+                      {vc.changePercent}%
+                    </Badge>
+                    <Text size="xs" c="dimmed">
+                      {t('comparedToPrevious')}
+                    </Text>
+                  </Group>
+                )
               }
+            />
+            <MetricCard
+              label={t('lastUpdate')}
+              value={data.currentPeriod.end.toLocaleDateString('uk-UA')}
+              unit={data.currentPeriod.end.toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' })}
+              icon={<IconClockHour4 size={18} />}
             />
             <MetricCard
               label={t('activeLines')}
               value={`${data.activeLines} / ${data.totalLines}`}
+              color={allActive ? 'teal' : 'amber'}
               icon={<IconActivity size={18} />}
-            />
-            <MetricCard
-              label={t('current24h')}
-              value={fmtNum(data.volumeComparison.current)}
-              unit="м³"
-              icon={<IconGauge size={18} />}
-            />
-            <MetricCard
-              label={t('previous24h')}
-              value={fmtNum(data.volumeComparison.previous)}
-              unit="м³"
-              icon={<IconClockHour4 size={18} />}
             />
           </SimpleGrid>
 
+          {data.lumgGroups.length > 1 && (
+            <Group gap="xs">
+              <Button size="xs" variant="default" onClick={() => setAll(false)}>
+                {t('expandAll')}
+              </Button>
+              <Button size="xs" variant="default" onClick={() => setAll(true)}>
+                {t('collapseAll')}
+              </Button>
+            </Group>
+          )}
+
           <Stack gap="md">
             {data.lumgGroups.map((g) => (
-              <LumgSection key={g.lumgId} data={data} group={g} />
+              <LumgSection
+                key={g.lumgId}
+                data={data}
+                group={g}
+                collapsed={!!collapsed[g.lumgId]}
+                onToggle={() => setCollapsed({ ...collapsed, [g.lumgId]: !collapsed[g.lumgId] })}
+              />
             ))}
           </Stack>
         </>

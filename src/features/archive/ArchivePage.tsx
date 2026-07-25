@@ -1,17 +1,5 @@
 import { Navigate, useParams } from 'react-router-dom'
-import {
-  Grid,
-  Paper,
-  Stack,
-  Title,
-  Text,
-  Group,
-  Loader,
-  Center,
-  Alert,
-  Badge,
-  Box,
-} from '@mantine/core'
+import { Paper, Stack, Title, Text, Group, Loader, Center, Alert, Badge, Box } from '@mantine/core'
 import { IconAlertTriangle, IconInfoCircle } from '@tabler/icons-react'
 import { useSelectionStore } from '@/store/selectionStore'
 import { useLanguage } from '@/locales/LanguageContext'
@@ -26,6 +14,9 @@ import { exportArchiveToExcel } from './exportArchive'
 
 const VALID: ArchiveType[] = ['daily', 'hourly', 'sys', 'edit', 'param']
 
+// Height reserved for header (56) + main padding + title + controls.
+const SPLIT_HEIGHT = 'calc(100dvh - 210px)'
+
 export function ArchivePage() {
   const { type } = useParams<{ type: string }>()
   const { t } = useLanguage()
@@ -36,7 +27,6 @@ export function ArchivePage() {
   }
   const archiveType = type as ArchiveType
 
-  // Virtual/DPD lines only carry daily/hourly.
   const restricted =
     lineMeta && lineMeta.kind !== 'physical' && !['daily', 'hourly'].includes(archiveType)
 
@@ -65,12 +55,6 @@ export function ArchivePage() {
     exportArchiveToExcel(rows, columns, archiveType, `${archiveType}_${lineId}`)
   }
 
-  const titleKey = archiveType as
-    | 'dailyArchive'
-    | 'hourlyArchive'
-    | 'editArchive'
-    | 'systemArchive'
-    | 'parameters'
   const titleMap: Record<ArchiveType, string> = {
     daily: t('dailyArchive'),
     hourly: t('hourlyArchive'),
@@ -78,78 +62,75 @@ export function ArchivePage() {
     sys: t('systemArchive'),
     param: t('parameters'),
   }
-  void titleKey
+
+  const showChart =
+    rows && rows.length > 0 && lineMeta && (archiveType === 'daily' || archiveType === 'hourly')
 
   return (
-    <Grid gap="lg">
-      <Grid.Col span={{ base: 12, md: 3 }}>
-        <Paper p="sm" radius="md" withBorder>
-          <Text fw={600} mb="xs" size="sm" tt="uppercase" c="dimmed">
+    <Stack gap="md">
+      <Group justify="space-between" align="center">
+        <Group gap="sm">
+          <Title order={3}>{titleMap[archiveType]}</Title>
+          {lineMeta && lineMeta.kind !== 'physical' && (
+            <Badge variant="light" color={lineMeta.kind === 'virtual' ? 'grape' : 'blue'}>
+              {lineMeta.kind === 'virtual' ? 'Virtual' : 'DPD'}
+            </Badge>
+          )}
+        </Group>
+      </Group>
+
+      <DateRangeControls onExport={handleExport} canExport={canExport} />
+
+      {/* Tree + table row: full viewport height, each scrolls internally. */}
+      <Box style={{ display: 'flex', gap: 'var(--mantine-spacing-md)', height: SPLIT_HEIGHT, minHeight: 360 }}>
+        <Paper
+          withBorder
+          radius="md"
+          style={{ width: 320, flexShrink: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
+        >
+          <Text fw={600} px="sm" pt="sm" size="sm" tt="uppercase" c="dimmed">
             {t('nodeListTitle')}
           </Text>
-          <TreeView />
+          <Box style={{ flex: 1, minHeight: 0, padding: 'var(--mantine-spacing-sm)' }}>
+            <TreeView fill />
+          </Box>
         </Paper>
-      </Grid.Col>
 
-      <Grid.Col span={{ base: 12, md: 9 }}>
-        <Stack gap="md">
-          <Group justify="space-between" align="center">
-            <Group gap="sm">
-              <Title order={3}>{titleMap[archiveType]}</Title>
-              {lineMeta && lineMeta.kind !== 'physical' && (
-                <Badge variant="light" color={lineMeta.kind === 'virtual' ? 'grape' : 'blue'}>
-                  {lineMeta.kind === 'virtual' ? 'Virtual' : 'DPD'}
-                </Badge>
-              )}
-            </Group>
-          </Group>
-
-          <DateRangeControls onExport={handleExport} canExport={canExport} />
-
-          {restricted && (
-            <Alert color="amber" variant="light" icon={<IconInfoCircle size={16} />}>
+        <Paper
+          withBorder
+          radius="md"
+          style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
+        >
+          {restricted ? (
+            <Alert color="amber" variant="light" icon={<IconInfoCircle size={16} />} m="sm">
               {t('virtualLinesSupportOnlyDailyHourly')}
             </Alert>
-          )}
-
-          {!lineId && (
-            <Alert color="petrol" variant="light" icon={<IconInfoCircle size={16} />}>
-              {t('selectLines')}
-            </Alert>
-          )}
-
-          {lineId && !dateFilterEnabled && !restricted && (
-            <Alert color="petrol" variant="light" icon={<IconInfoCircle size={16} />}>
-              {t('activateDate')}
-            </Alert>
-          )}
-
-          {error && (
-            <Alert color="red" variant="light" icon={<IconAlertTriangle size={16} />}>
+          ) : !lineId ? (
+            <Center style={{ flex: 1 }}>
+              <Text c="dimmed">{t('selectLines')}</Text>
+            </Center>
+          ) : !dateFilterEnabled ? (
+            <Center style={{ flex: 1 }}>
+              <Text c="dimmed">{t('activateDate')}</Text>
+            </Center>
+          ) : error ? (
+            <Alert color="red" variant="light" icon={<IconAlertTriangle size={16} />} m="sm">
               {(error as Error).message}
             </Alert>
-          )}
-
-          {isLoading && (
-            <Center py={60}>
+          ) : isLoading ? (
+            <Center style={{ flex: 1 }}>
               <Loader color="petrol" />
             </Center>
-          )}
+          ) : rows && lineMeta ? (
+            <Box style={{ flex: 1, minHeight: 0 }}>
+              <ArchiveTable rows={rows} type={archiveType} meta={lineMeta} />
+            </Box>
+          ) : null}
+        </Paper>
+      </Box>
 
-          {rows && lineMeta && (
-            <>
-              {(archiveType === 'daily' || archiveType === 'hourly') && rows.length > 0 && (
-                <ArchiveChart rows={rows} type={archiveType} meta={lineMeta} />
-              )}
-              <Paper p={0} radius="md" withBorder>
-                <Box p="xs">
-                  <ArchiveTable rows={rows} type={archiveType} meta={lineMeta} />
-                </Box>
-              </Paper>
-            </>
-          )}
-        </Stack>
-      </Grid.Col>
-    </Grid>
+      {/* Chart: full width, below the split — revealed on page scroll. */}
+      {showChart && <ArchiveChart rows={rows} type={archiveType} meta={lineMeta} />}
+    </Stack>
   )
 }

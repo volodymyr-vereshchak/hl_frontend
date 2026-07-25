@@ -110,8 +110,8 @@ export function ArchiveTable({ rows, type, meta }: Props) {
   const hasSummary = specs.some((s) => s.isSummable || s.isAveragable)
 
   return (
-    <ScrollArea type="auto">
-      <Table striped highlightOnHover stickyHeader withTableBorder verticalSpacing={6}>
+    <ScrollArea type="auto" style={{ height: '100%' }}>
+      <Table striped highlightOnHover stickyHeader verticalSpacing={6}>
         <Table.Thead>
           {table.getHeaderGroups().map((hg) => (
             <Table.Tr key={hg.id}>

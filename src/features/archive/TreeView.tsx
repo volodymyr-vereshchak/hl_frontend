@@ -104,7 +104,7 @@ function TreeNode({ label, icon, depth, count, defaultOpen, forceOpen, children 
   )
 }
 
-export function TreeView() {
+export function TreeView({ fill = false }: { fill?: boolean } = {}) {
   const { data, isLoading } = useTreeData()
   const [search, setSearch] = useState('')
   const q = search.trim().toLowerCase()
@@ -136,23 +136,9 @@ export function TreeView() {
       .filter((b) => b.lumgs.length > 0 || b.name.toLowerCase().includes(q))
   }, [data, q])
 
-  return (
-    <Box>
-      <TextInput
-        placeholder="Пошук лінії..."
-        leftSection={<IconSearch size={15} />}
-        value={search}
-        onChange={(e) => setSearch(e.currentTarget.value)}
-        size="sm"
-        mb="xs"
-      />
-      {isLoading ? (
-        <Center py={40}>
-          <Loader size="sm" color="petrol" />
-        </Center>
-      ) : (
-        <ScrollArea.Autosize mah="calc(100dvh - 200px)" type="hover">
-          {filtered.map((branch) => (
+  const list = (
+    <>
+      {filtered.map((branch) => (
             <TreeNode
               key={branch.id}
               label={branch.name}
@@ -197,8 +183,46 @@ export function TreeView() {
               ))}
             </TreeNode>
           ))}
-        </ScrollArea.Autosize>
-      )}
+    </>
+  )
+
+  const search_input = (
+    <TextInput
+      placeholder="Пошук лінії..."
+      leftSection={<IconSearch size={15} />}
+      value={search}
+      onChange={(e) => setSearch(e.currentTarget.value)}
+      size="sm"
+      mb="xs"
+    />
+  )
+
+  if (isLoading) {
+    return (
+      <Center py={40}>
+        <Loader size="sm" color="petrol" />
+      </Center>
+    )
+  }
+
+  // fill: occupy the parent's height with the list scrolling internally.
+  if (fill) {
+    return (
+      <Box style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+        {search_input}
+        <ScrollArea style={{ flex: 1, minHeight: 0 }} type="hover">
+          {list}
+        </ScrollArea>
+      </Box>
+    )
+  }
+
+  return (
+    <Box>
+      {search_input}
+      <ScrollArea.Autosize mah="calc(100dvh - 200px)" type="hover">
+        {list}
+      </ScrollArea.Autosize>
     </Box>
   )
 }
