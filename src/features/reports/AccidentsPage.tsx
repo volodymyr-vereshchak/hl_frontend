@@ -21,6 +21,7 @@ import {
   pairAccidents,
   groupAccidentsByType,
   summarizeOccurrencesByLine,
+  volumeOverOccurrences,
   groupBounds,
   type AccidentGroup,
   type SysRecord,
@@ -153,6 +154,7 @@ export function AccidentsPage() {
   const [from, setFrom] = useState(initial.from)
   const [to, setTo] = useState(initial.to)
   const [groups, setGroups] = useState<AccidentGroup[] | null>(null)
+  const [unionVolume, setUnionVolume] = useState(0)
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -198,7 +200,23 @@ export function AccidentsPage() {
       // Contract bounds are passed on so accidents missing their start/end
       // record snap to 07:00 rather than calendar midnight.
       const accidents = pairAccidents(rows, { fromDate: contractFrom, toDate: contractEnd })
-      setGroups(groupAccidentsByType(accidents, dailyVolume))
+      const byType = groupAccidentsByType(accidents, dailyVolume)
+      setGroups(byType)
+
+      // Overall volume is the union across ALL types per line: alarms of
+      // different types overlap in time, so summing their volumes would count
+      // the same gas twice and could exceed what the line actually passed.
+      const byLine = new Map<number, typeof byType[number]['occurrences']>()
+      for (const g of byType) {
+        for (const o of g.occurrences) {
+          const lid = o.line_id ?? 0
+          if (!byLine.has(lid)) byLine.set(lid, [])
+          byLine.get(lid)!.push(o)
+        }
+      }
+      let union = 0
+      for (const occs of byLine.values()) union += volumeOverOccurrences(occs, dailyVolume)
+      setUnionVolume(union)
     } catch (e) {
       setError((e as Error).message)
       setGroups(null)
@@ -247,9 +265,9 @@ export function AccidentsPage() {
     return {
       types: groups.length,
       count: groups.reduce((s, g) => s + g.totalCount, 0),
-      volume: groups.reduce((s, g) => s + g.totalVolume, 0),
+      volume: unionVolume,
     }
-  }, [groups])
+  }, [groups, unionVolume])
 
   return (
     <ReportShell

@@ -6,6 +6,7 @@ import {
   pairAccidents,
   groupAccidentsByType,
   summarizeOccurrencesByLine,
+  volumeOverOccurrences,
   type SysRecord,
 } from './accidentsCalculator'
 
@@ -137,6 +138,37 @@ describe('accident volume (counter accumulates from the start of the day)', () =
     const [group] = groupAccidentsByType(pairAccidents(rows, CONTRACT))
     expect(group.occurrences[0].volume).toBeNull()
     expect(group.totalVolume).toBe(0)
+  })
+})
+
+describe('volume never exceeds what the line passed', () => {
+  it('counts overlapping alarms of different types only once', () => {
+    // Two different alarm types cover the same window on the same line.
+    const rows: SysRecord[] = [
+      { line_id: 1, period: '2026-04-01T08:00:00', sys_type_id: 130, volume: 10 },
+      { line_id: 1, period: '2026-04-01T18:00:00', sys_type_id: 2, volume: 90 },
+      { line_id: 1, period: '2026-04-01T09:00:00', sys_type_id: 175, volume: 20 },
+      { line_id: 1, period: '2026-04-01T17:00:00', sys_type_id: 47, volume: 80 },
+    ]
+    const groups = groupAccidentsByType(pairAccidents(rows, CONTRACT))
+    const naiveSum = groups.reduce((s, g) => s + g.totalVolume, 0)
+    expect(naiveSum).toBe(80 + 60) // per type: 90−10 and 80−20
+
+    // The union across types is the outer window only.
+    const all = groups.flatMap((g) => g.occurrences)
+    expect(volumeOverOccurrences(all, () => undefined)).toBe(80)
+  })
+
+  it('collapses repeats of one type that overlap', () => {
+    const rows: SysRecord[] = [
+      { line_id: 1, period: '2026-04-01T08:00:00', sys_type_id: 130, volume: 10 },
+      { line_id: 1, period: '2026-04-01T09:00:00', sys_type_id: 130, volume: 25 },
+      { line_id: 1, period: '2026-04-01T18:00:00', sys_type_id: 2, volume: 90 },
+      { line_id: 1, period: '2026-04-01T19:00:00', sys_type_id: 2, volume: 95 },
+    ]
+    const [group] = groupAccidentsByType(pairAccidents(rows, CONTRACT))
+    // FIFO pairs 08→18 and 09→19; the spans overlap, so the union is 10→95.
+    expect(group.totalVolume).toBe(85)
   })
 })
 

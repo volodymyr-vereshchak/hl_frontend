@@ -206,15 +206,35 @@ export function calculateAccidentVolume(
   accident: Accident,
   dailyVolume: DailyVolumeLookup = () => undefined,
 ): number | null {
+  return volumeBetween(
+    accident.line_id,
+    accident.startTime,
+    accident.type === 'end_only' ? 0 : (accident.startVolume ?? null),
+    accident.endTime,
+    accident.type === 'start_only' ? null : (accident.endVolume ?? null),
+    dailyVolume,
+  )
+}
+
+/**
+ * Gas that passed between two instants, given the counter readings at each
+ * (null = unknown, to be taken from the daily archive).
+ */
+function volumeBetween(
+  lineId: number | undefined,
+  startTime: string,
+  startReading: number | null,
+  endTime: string,
+  endReading: number | null,
+  dailyVolume: DailyVolumeLookup,
+): number | null {
+  const accident = { line_id: lineId, startTime, endTime }
   const startDay = commercialDayOfInstant(accident.startTime)
   // The upper bound is exclusive: an instant at exactly the contract hour closes
   // the PREVIOUS commercial day, so step back before resolving its day.
   const endDay = commercialDayOfInstant(
     new Date(new Date(accident.endTime).getTime() - 1000).toISOString(),
   )
-  // Accident began before the period ⇒ counter started the day at 0.
-  const startReading = accident.type === 'end_only' ? 0 : (accident.startVolume ?? null)
-  const endReading = accident.type === 'start_only' ? null : (accident.endVolume ?? null)
 
   if (startDay === endDay) {
     if (startReading == null) return null
@@ -249,6 +269,64 @@ export interface AccidentOccurrence {
   volume: number | null
   type: AccidentKind
   line_id?: number
+  /** Raw counter readings, kept so overlapping occurrences can be merged. */
+  startReading: number | null
+  endReading: number | null
+}
+
+/**
+ * Gas that passed while ANY of these occurrences was active, on one line.
+ *
+ * Overlapping alarms (repeats of one type, or different types at once) cover the
+ * same gas, so their volumes must not be added — the intervals are merged first
+ * and each merged span is measured once. Without this a line could report more
+ * accident volume than it physically passed.
+ */
+export function volumeOverOccurrences(
+  occs: AccidentOccurrence[],
+  dailyVolume: DailyVolumeLookup,
+): number {
+  const spans = occs
+    .filter((o) => o.type !== 'standalone')
+    .map((o) => ({
+      start: new Date(o.startTime).getTime(),
+      end: new Date(o.endTime).getTime(),
+      occ: o,
+    }))
+    .filter((s) => s.end > s.start)
+    .sort((a, b) => a.start - b.start)
+
+  let total = 0
+  let cur: { startOcc: AccidentOccurrence; endOcc: AccidentOccurrence; end: number } | null = null
+
+  const flush = () => {
+    if (!cur) return
+    const v = volumeBetween(
+      cur.startOcc.line_id,
+      cur.startOcc.startTime,
+      cur.startOcc.startReading,
+      cur.endOcc.endTime,
+      cur.endOcc.endReading,
+      dailyVolume,
+    )
+    total += v ?? 0
+  }
+
+  for (const s of spans) {
+    if (!cur) {
+      cur = { startOcc: s.occ, endOcc: s.occ, end: s.end }
+    } else if (s.start <= cur.end) {
+      if (s.end > cur.end) {
+        cur.end = s.end
+        cur.endOcc = s.occ
+      }
+    } else {
+      flush()
+      cur = { startOcc: s.occ, endOcc: s.occ, end: s.end }
+    }
+  }
+  flush()
+  return total
 }
 
 export interface AccidentGroup {
@@ -294,18 +372,21 @@ export function groupAccidentsByType(
       volume,
       type: accident.type,
       line_id: accident.line_id,
+      startReading: accident.type === 'end_only' ? 0 : (accident.startVolume ?? null),
+      endReading: accident.type === 'start_only' ? null : (accident.endVolume ?? null),
     })
     group.totalCount++
-    group.totalVolume += volume ?? 0
   }
 
   const out = [...grouped.values()]
   for (const group of out) {
     // Per line the overlapping intervals are merged; the type total is the sum
     // of those per-line durations (two lines in alarm at once really is 2× time).
-    group.totalDuration = group.isStandalone
-      ? 0
-      : summarizeOccurrencesByLine(group.occurrences, false).reduce((s, l) => s + l.durationMs, 0)
+    const perLine = group.isStandalone
+      ? []
+      : summarizeOccurrencesByLine(group.occurrences, false, dailyVolume)
+    group.totalDuration = perLine.reduce((s, l) => s + l.durationMs, 0)
+    group.totalVolume = perLine.reduce((s, l) => s + l.volume, 0)
     group.totalDurationFormatted = group.isStandalone ? '—' : formatMs(group.totalDuration)
   }
   return out.sort((a, b) => b.totalCount - a.totalCount)
@@ -329,6 +410,7 @@ export interface LineSummary {
 export function summarizeOccurrencesByLine(
   occurrences: AccidentOccurrence[],
   isStandalone: boolean,
+  dailyVolume: DailyVolumeLookup = () => undefined,
 ): LineSummary[] {
   const byLine = new Map<number, AccidentOccurrence[]>()
   for (const occ of occurrences) {
@@ -355,7 +437,8 @@ export function summarizeOccurrencesByLine(
         count: occs.length,
         durationMs: totalMs,
         durationFormatted: isStandalone ? '—' : formatMs(totalMs),
-        volume: occs.reduce((s, o) => s + (o.volume ?? 0), 0),
+        // Merged, so simultaneous alarms never count the same gas twice.
+        volume: isStandalone ? 0 : volumeOverOccurrences(occs, dailyVolume),
       }
     })
     .sort((a, b) => b.count - a.count)
