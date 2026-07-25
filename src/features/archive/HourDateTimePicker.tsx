@@ -1,4 +1,5 @@
-import { Popover, Button, Group, Text, Divider, Box, Stack } from '@mantine/core'
+import { useEffect, useRef } from 'react'
+import { Popover, Button, Group, Text, Divider, Box, Stack, ScrollArea } from '@mantine/core'
 import { DatePicker, TimeGrid } from '@mantine/dates'
 import { IconCalendar } from '@tabler/icons-react'
 import { useDisclosure } from '@mantine/hooks'
@@ -37,6 +38,21 @@ export function HourDateTimePicker({ value, onChange, todayValue, ariaLabel, wid
   const { t } = useLanguage()
   const [opened, { toggle, close, open }] = useDisclosure(false)
   const { date, time } = split(value)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const selectedRef = useRef<HTMLButtonElement | null>(null)
+
+  // Bring the current hour into view when the popover opens.
+  useEffect(() => {
+    if (!opened) return
+    const id = requestAnimationFrame(() => {
+      const el = selectedRef.current
+      const viewport = scrollRef.current
+      if (el && viewport) {
+        viewport.scrollTop = el.offsetTop - viewport.clientHeight / 2 + el.clientHeight / 2
+      }
+    })
+    return () => cancelAnimationFrame(id)
+  }, [opened])
 
   const commit = (nextDate: string, nextTime: string) => {
     onChange(`${nextDate} ${nextTime}:00`)
@@ -85,21 +101,33 @@ export function HourDateTimePicker({ value, onChange, todayValue, ariaLabel, wid
             <DatePicker value={date} onChange={(v) => v && commit(v, time)} size="sm" />
           </Stack>
           <Divider orientation="vertical" />
+          {/* Compact scrolling hour column — keeps the popover narrow. */}
           <Box>
-            <Text size="xs" c="dimmed" fw={600} tt="uppercase" mb={6}>
+            <Text size="xs" c="dimmed" fw={600} tt="uppercase" mb={6} ta="center">
               {t('time')}
             </Text>
-            <TimeGrid
-              data={HOURS}
-              value={time}
-              onChange={(v) => {
-                if (!v) return
-                commit(date, v)
-                close()
-              }}
-              simpleGridProps={{ cols: 4, spacing: 4 }}
-              size="xs"
-            />
+            <ScrollArea h={248} w={78} type="auto" viewportRef={scrollRef} offsetScrollbars>
+              <TimeGrid
+                data={HOURS}
+                value={time}
+                onChange={(v) => {
+                  if (!v) return
+                  commit(date, v)
+                  close()
+                }}
+                simpleGridProps={{ cols: 1, spacing: 4 }}
+                size="xs"
+                getControlProps={(hour) => ({
+                  'data-hour': hour,
+                  ref:
+                    hour === time
+                      ? (node: HTMLButtonElement | null) => {
+                          selectedRef.current = node
+                        }
+                      : undefined,
+                })}
+              />
+            </ScrollArea>
           </Box>
         </Group>
       </Popover.Dropdown>
