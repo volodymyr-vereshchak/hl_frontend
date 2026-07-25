@@ -1,21 +1,23 @@
+import { useState } from 'react'
 import { Navigate, useParams } from 'react-router-dom'
-import { Paper, Stack, Title, Text, Group, Loader, Center, Alert, Badge, Box } from '@mantine/core'
+import { Paper, Stack, Text, Loader, Center, Alert, Box, Divider } from '@mantine/core'
 import { IconAlertTriangle, IconInfoCircle } from '@tabler/icons-react'
 import { useSelectionStore } from '@/store/selectionStore'
 import { useLanguage } from '@/locales/LanguageContext'
 import { getArchiveColumns } from '@/domain/archiveColumns'
+import { TablePagination } from '@/components/TablePagination'
 import type { ArchiveType } from '@/types'
 import { TreeView } from './TreeView'
 import { DateRangeControls } from './DateRangeControls'
 import { ArchiveTable } from './ArchiveTable'
 import { ArchiveChart } from './ArchiveChart'
-import { useArchiveData } from './useArchiveData'
+import { useArchiveData, useArchivePage, isPagedArchive, fetchFullArchive } from './useArchiveData'
 import { exportArchiveToExcel } from './exportArchive'
 
 const VALID: ArchiveType[] = ['daily', 'hourly', 'sys', 'edit', 'param']
 
-// Height reserved for header (56) + main padding + title + controls.
-const SPLIT_HEIGHT = 'calc(100dvh - 210px)'
+// Height reserved for app header (56) + main padding + the single-line toolbar.
+const SPLIT_HEIGHT = 'calc(100dvh - 150px)'
 
 export function ArchivePage() {
   const { type } = useParams<{ type: string }>()
@@ -31,17 +33,35 @@ export function ArchivePage() {
     lineMeta && lineMeta.kind !== 'physical' && !['daily', 'hourly'].includes(archiveType)
 
   const enabled = !!lineId && !!lineMeta && dateFilterEnabled && !restricted
-  const { data: rows, isLoading, error } = useArchiveData({
+  const paged = isPagedArchive(archiveType)
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(50)
+
+  const full = useArchiveData({
     lineId,
     meta: lineMeta,
     type: archiveType,
     range: dateRange,
     enabled,
   })
+  const pageQuery = useArchivePage({
+    lineId,
+    meta: lineMeta,
+    type: archiveType,
+    range: dateRange,
+    enabled,
+    page,
+    pageSize,
+  })
+
+  const rows = paged ? pageQuery.data?.items : full.data
+  const total = paged ? (pageQuery.data?.total ?? 0) : (rows?.length ?? 0)
+  const isLoading = paged ? pageQuery.isLoading : full.isLoading
+  const error = paged ? pageQuery.error : full.error
 
   const canExport = !!rows && rows.length > 0
-  const handleExport = () => {
-    if (!rows || !lineMeta) return
+  const handleExport = async () => {
+    if (!rows || !lineMeta || !lineId) return
     const columns = getArchiveColumns({
       archiveType,
       isVirtualLine: lineMeta.kind === 'virtual',
@@ -52,7 +72,9 @@ export function ArchivePage() {
       dpUnit: lineMeta.dp_unit || 'кгс/м²',
       t,
     })
-    exportArchiveToExcel(rows, columns, archiveType, `${archiveType}_${lineId}`)
+    // Paged archives export the whole range, not just the visible page.
+    const data = paged ? await fetchFullArchive(lineId, archiveType, dateRange) : rows
+    exportArchiveToExcel(data, columns, archiveType, `${archiveType}_${lineId}`)
   }
 
   const titleMap: Record<ArchiveType, string> = {
@@ -67,19 +89,13 @@ export function ArchivePage() {
     rows && rows.length > 0 && lineMeta && (archiveType === 'daily' || archiveType === 'hourly')
 
   return (
-    <Stack gap="md">
-      <Group justify="space-between" align="center">
-        <Group gap="sm">
-          <Title order={3}>{titleMap[archiveType]}</Title>
-          {lineMeta && lineMeta.kind !== 'physical' && (
-            <Badge variant="light" color={lineMeta.kind === 'virtual' ? 'grape' : 'blue'}>
-              {lineMeta.kind === 'virtual' ? 'Virtual' : 'DPD'}
-            </Badge>
-          )}
-        </Group>
-      </Group>
-
-      <DateRangeControls onExport={handleExport} canExport={canExport} />
+    <Stack gap="sm">
+      <DateRangeControls
+        title={titleMap[archiveType]}
+        kindBadge={lineMeta && lineMeta.kind !== 'physical' ? lineMeta.kind : null}
+        onExport={handleExport}
+        canExport={canExport}
+      />
 
       {/* Tree + table row: full viewport height, each scrolls internally. */}
       <Box style={{ display: 'flex', gap: 'var(--mantine-spacing-md)', height: SPLIT_HEIGHT, minHeight: 360 }}>
@@ -122,9 +138,24 @@ export function ArchivePage() {
               <Loader color="petrol" />
             </Center>
           ) : rows && lineMeta ? (
-            <Box style={{ flex: 1, minHeight: 0 }}>
-              <ArchiveTable rows={rows} type={archiveType} meta={lineMeta} />
-            </Box>
+            <>
+              <Box style={{ flex: 1, minHeight: 0 }}>
+                <ArchiveTable rows={rows} type={archiveType} meta={lineMeta} />
+              </Box>
+              {paged && total > 0 && (
+                <>
+                  <Divider />
+                  <TablePagination
+                    page={page}
+                    pageSize={pageSize}
+                    total={total}
+                    onPageChange={setPage}
+                    onPageSizeChange={setPageSize}
+                    shownLabel={`${t('records')}: ${total.toLocaleString('uk-UA')}`}
+                  />
+                </>
+              )}
+            </>
           ) : null}
         </Paper>
       </Box>

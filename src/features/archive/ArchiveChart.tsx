@@ -157,7 +157,8 @@ export function ArchiveChart({ rows, type, meta }: Props) {
   }
 
   if (data.length === 0) return null
-  const grid = dark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)'
+  const grid = dark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.14)'
+  const gridStrong = dark ? 'rgba(255,255,255,0.28)' : 'rgba(0,0,0,0.28)'
   const axis = dark ? '#9aa7ad' : '#5a6b75'
 
   return (
@@ -190,24 +191,34 @@ export function ArchiveChart({ rows, type, meta }: Props) {
         </Group>
       </Group>
 
-      <ResponsiveContainer width="100%" height={480}>
+      <ResponsiveContainer width="100%" height={620}>
         <LineChart data={data} margin={{ top: 8, right: 16, bottom: 8, left: 8 }}>
-          <CartesianGrid stroke={grid} strokeDasharray="4 4" horizontal vertical />
+          {/* Dense grid: minor lines everywhere, both axes get many ticks. */}
+          <CartesianGrid stroke={grid} strokeDasharray="3 3" horizontal vertical />
           <XAxis
             dataKey="period"
             tickFormatter={fmtX}
             tick={{ fontSize: 11, fill: axis }}
-            minTickGap={28}
-            stroke={grid}
+            minTickGap={12}
+            stroke={gridStrong}
           />
           <YAxis
             yAxisId="left"
             tick={{ fontSize: 11, fill: axis }}
             width={70}
+            tickCount={12}
+            stroke={gridStrong}
             tickFormatter={(v) => Number(v).toLocaleString('uk-UA')}
           />
           {hasRight && (
-            <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11, fill: axis }} width={52} />
+            <YAxis
+              yAxisId="right"
+              orientation="right"
+              tick={{ fontSize: 11, fill: axis }}
+              width={52}
+              tickCount={12}
+              stroke={gridStrong}
+            />
           )}
           <Tooltip content={<CustomTooltip />} />
           {series

@@ -77,10 +77,46 @@ async function fetchArchive(
   return paramArchiveApi.getParamsForLines(ids) as Promise<ArchiveRow[]>
 }
 
+/** sys/edit are server-paginated; everything else loads the full range. */
+export const isPagedArchive = (type: ArchiveType) => type === 'sys' || type === 'edit'
+
 export function useArchiveData({ lineId, meta, type, range, enabled }: ArchiveQuery) {
   return useQuery({
     queryKey: ['archive', type, lineId, meta?.kind, range.fromDate, range.toDate],
-    enabled: enabled && lineId != null && meta != null,
+    enabled: enabled && lineId != null && meta != null && !isPagedArchive(type),
     queryFn: () => fetchArchive(lineId!, meta!, type, range),
   })
+}
+
+interface PagedQuery extends ArchiveQuery {
+  page: number
+  pageSize: number
+}
+
+/** Server-paginated sys/edit page — returns { total, items }. */
+export function useArchivePage({ lineId, meta, type, range, enabled, page, pageSize }: PagedQuery) {
+  return useQuery({
+    queryKey: ['archive-page', type, lineId, range.fromDate, range.toDate, page, pageSize],
+    enabled: enabled && lineId != null && meta != null && isPagedArchive(type),
+    placeholderData: (prev) => prev,
+    queryFn: () => {
+      const opts = { skip: (page - 1) * pageSize, limit: pageSize }
+      const ids = [lineId!]
+      return type === 'sys'
+        ? sysArchiveApi.getPaged(ids, range.fromDate, range.toDate, opts)
+        : editArchiveApi.getPaged(ids, range.fromDate, range.toDate, opts)
+    },
+  })
+}
+
+/** Full sys/edit dataset, fetched on demand for Excel export. */
+export async function fetchFullArchive(
+  lineId: number,
+  type: ArchiveType,
+  range: DateRange,
+): Promise<ArchiveRow[]> {
+  const ids = [lineId]
+  return type === 'sys'
+    ? sysArchiveApi.getData(ids, range.fromDate, range.toDate)
+    : editArchiveApi.getData(ids, range.fromDate, range.toDate)
 }

@@ -102,14 +102,42 @@ export interface ArchiveRow {
   [key: string]: number | string | null | undefined
 }
 
+export interface PagedResult {
+  total: number
+  items: ArchiveRow[]
+}
+
+export interface PageOptions {
+  skip?: number
+  limit?: number
+  orderBy?: string
+  orderDir?: 'asc' | 'desc'
+}
+
+function pagedParams(lineIds: number[], fromDate: string, toDate: string, o: PageOptions = {}) {
+  return {
+    line_id: lineIds,
+    from_date: fromDate,
+    to_date: toDate,
+    skip: o.skip ?? 0,
+    limit: o.limit ?? 50,
+    order_by: o.orderBy ?? 'period',
+    order_dir: o.orderDir ?? 'asc',
+  }
+}
+
 export const sysArchiveApi = {
   getData: (lineIds: number[], fromDate: string, toDate: string) =>
     api.get<ArchiveRow[]>('/sys/', { line_id: lineIds, from_date: fromDate, to_date: toDate }),
+  getPaged: (lineIds: number[], fromDate: string, toDate: string, o?: PageOptions) =>
+    api.get<PagedResult>('/sys/paged/', pagedParams(lineIds, fromDate, toDate, o)),
 }
 
 export const editArchiveApi = {
   getData: (lineIds: number[], fromDate: string, toDate: string) =>
     api.get<ArchiveRow[]>('/edit/', { line_id: lineIds, from_date: fromDate, to_date: toDate }),
+  getPaged: (lineIds: number[], fromDate: string, toDate: string, o?: PageOptions) =>
+    api.get<PagedResult>('/edit/paged/', pagedParams(lineIds, fromDate, toDate, o)),
 }
 
 export interface ParamRecord {
