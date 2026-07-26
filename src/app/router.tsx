@@ -1,6 +1,5 @@
 import { createBrowserRouter, Navigate, useSearchParams } from 'react-router-dom'
 import { AppShellLayout } from '@/components/AppShellLayout'
-import { Placeholder } from '@/components/Placeholder'
 import { OverviewPage } from '@/features/overview/OverviewPage'
 import { ArchivePage } from '@/features/archive/ArchivePage'
 import { AdminPage } from '@/features/admin/AdminPage'
@@ -8,6 +7,7 @@ import { EnterprisePollPage } from '@/features/enterprise-poll/EnterprisePollPag
 import { AccidentsPage } from '@/features/reports/AccidentsPage'
 import { GrsTrendsPage } from '@/features/reports/GrsTrendsPage'
 import { NightConsumptionPage } from '@/features/reports/NightConsumptionPage'
+import { FlowCalcPage } from '@/features/flow-calc/FlowCalcPage'
 
 // Map old ?archiveType= deep links to the new routes (backward compatibility).
 const LEGACY_ROUTE: Record<string, string> = {
@@ -50,7 +50,7 @@ export const router = createBrowserRouter([
       { path: 'reports/grs-trends', element: <GrsTrendsPage /> },
       { path: 'reports/night-consumption', element: <NightConsumptionPage /> },
       { path: 'reports/accidents', element: <AccidentsPage /> },
-      { path: 'flow-calc', element: <Placeholder title="Розрахунок витрати" /> },
+      { path: 'flow-calc', element: <FlowCalcPage /> },
       { path: 'admin', element: <AdminPage /> },
       { path: '*', element: <Navigate to="/overview" replace /> },
     ],
