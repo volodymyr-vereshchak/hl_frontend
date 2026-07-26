@@ -45,6 +45,22 @@ const hasTime = (s: string) => /\d{2}:\d{2}/.test(s)
 const toIso = (s: string) => s.replace(' ', 'T')
 const dateOnly = (s: string) => s.slice(0, 10)
 
+/**
+ * Chronological order, oldest first. Endpoint ordering is not part of any
+ * contract — it depends on the query plan and has been observed to come back
+ * shuffled — so the table never relies on it. Rows without a period sink to the
+ * end rather than scrambling the rest.
+ */
+function byPeriod(rows: ArchiveRow[]): ArchiveRow[] {
+  return [...rows].sort((a, b) => {
+    const x = a.period ? String(a.period) : ''
+    const y = b.period ? String(b.period) : ''
+    if (!x) return 1
+    if (!y) return -1
+    return x < y ? -1 : x > y ? 1 : 0
+  })
+}
+
 async function fetchArchive(
   lineId: number,
   meta: LineMeta,
@@ -65,14 +81,18 @@ async function fetchArchive(
         : { from: dateOnly(fromDate), to: dateOnly(toDate) }
 
     if (meta.kind === 'virtual') {
-      return type === 'daily'
-        ? archiveDataVirtualApi.getDailyData(ids, win.from, win.to)
-        : archiveDataVirtualApi.getHourlyData(ids, win.from, win.to)
+      return byPeriod(
+        type === 'daily'
+          ? await archiveDataVirtualApi.getDailyData(ids, win.from, win.to)
+          : await archiveDataVirtualApi.getHourlyData(ids, win.from, win.to),
+      )
     }
     if (meta.kind === 'dpd') {
-      return type === 'daily'
-        ? dpdLineApi.getDailyData(ids, win.from, win.to)
-        : dpdLineApi.getHourlyData(ids, win.from, win.to)
+      return byPeriod(
+        type === 'daily'
+          ? await dpdLineApi.getDailyData(ids, win.from, win.to)
+          : await dpdLineApi.getHourlyData(ids, win.from, win.to),
+      )
     }
     // Physical lines also carry intervention (И) and alarm (А) counters, which
     // come from separate endpoints and are merged onto each row by period.
@@ -84,12 +104,12 @@ async function fetchArchive(
       archiveCountsApi.getSysCounts(ids, dateOnly(fromDate), dateOnly(toDate)).catch(() => []),
     ])
     const withCounts = mergeCounts(physRows, editCounts, sysCounts, type, lineId)
-    return withOutputPressure(withCounts, meta)
+    return byPeriod(withOutputPressure(withCounts, meta))
   }
 
   // sys / edit / param — physical lines only.
-  if (type === 'sys') return sysArchiveApi.getData(ids, toIso(fromDate), toIso(toDate))
-  if (type === 'edit') return editArchiveApi.getData(ids, toIso(fromDate), toIso(toDate))
+  if (type === 'sys') return byPeriod(await sysArchiveApi.getData(ids, toIso(fromDate), toIso(toDate)))
+  if (type === 'edit') return byPeriod(await editArchiveApi.getData(ids, toIso(fromDate), toIso(toDate)))
   return paramArchiveApi.getParamsForLines(ids) as Promise<ArchiveRow[]>
 }
 
@@ -181,7 +201,9 @@ export async function fetchFullArchive(
   range: DateRange,
 ): Promise<ArchiveRow[]> {
   const ids = [lineId]
-  return type === 'sys'
-    ? sysArchiveApi.getData(ids, toIso(range.fromDate), toIso(range.toDate))
-    : editArchiveApi.getData(ids, toIso(range.fromDate), toIso(range.toDate))
+  return byPeriod(
+    type === 'sys'
+      ? await sysArchiveApi.getData(ids, toIso(range.fromDate), toIso(range.toDate))
+      : await editArchiveApi.getData(ids, toIso(range.fromDate), toIso(range.toDate)),
+  )
 }

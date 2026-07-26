@@ -75,9 +75,14 @@ const NO_LINE = '__no_line__'
 const fmtNum = (v: number | null | undefined, digits = 2) =>
   v == null || isNaN(v) ? '—' : v.toLocaleString('uk-UA', { maximumFractionDigits: digits })
 
-function today(offsetDays = 0) {
-  const d = new Date(Date.now() + offsetDays * 864e5)
-  return d.toISOString().split('T')[0]
+const pad = (n: number) => String(n).padStart(2, '0')
+
+/** Opens on the current month: 1st -> today, like the reports. */
+function defaultRange() {
+  const now = new Date()
+  const y = now.getFullYear()
+  const m = pad(now.getMonth() + 1)
+  return { from: `${y}-${m}-01`, to: `${y}-${m}-${pad(now.getDate())}` }
 }
 
 /**
@@ -97,8 +102,9 @@ export function EnterprisePollPage() {
   })
   const toggleGroup = (key: string) => setCollapsed((p) => ({ ...p, [key]: !p[key] }))
   const [periodType, setPeriodType] = useState<PeriodType>('daily')
-  const [from, setFrom] = useState(today(-7))
-  const [to, setTo] = useState(today())
+  const initialRange = defaultRange()
+  const [from, setFrom] = useState(initialRange.from)
+  const [to, setTo] = useState(initialRange.to)
   const [records, setRecords] = useState<EnterpriseRecord[] | null>(null)
   const [loading, setLoading] = useState(false)
   const [progress, setProgress] = useState<{ done?: number; total?: number; phase?: string } | null>(null)
