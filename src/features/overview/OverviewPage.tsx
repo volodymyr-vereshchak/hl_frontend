@@ -221,12 +221,18 @@ export function OverviewPage() {
                       variant="light"
                       color={vc.isDecrease ? 'red' : vc.isIncrease ? 'teal' : 'gray'}
                       size="sm"
+                      tt="none" // Badge uppercases by default, which mangles "м³"
                       leftSection={
                         vc.isDecrease ? <IconArrowDownRight size={12} /> : <IconArrowUpRight size={12} />
                       }
                     >
-                      {vc.changePercent > 0 ? '+' : ''}
-                      {vc.changePercent}%
+                      {/* Absolute change as well as the share — a percent alone
+                          says nothing about how much gas that actually is. */}
+                      <Text span style={numericStyle} inherit>
+                        {fmtNum(Math.abs(vc.change))} {t('volumeUnit')} (
+                        {vc.changePercent > 0 ? '+' : ''}
+                        {vc.changePercent}%)
+                      </Text>
                     </Badge>
                     <Text size="xs" c="dimmed">
                       {t('comparedToPrevious')}
