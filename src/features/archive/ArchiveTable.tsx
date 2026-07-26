@@ -9,7 +9,7 @@ import {
   createColumnHelper,
   type SortingState,
 } from '@tanstack/react-table'
-import { useElementHeight } from '@/components/useElementHeight'
+import { useStickyRowHeights } from '@/components/useMeasuredHeight'
 import { numericStyle } from '@/theme/theme'
 import { useLanguage } from '@/locales/LanguageContext'
 import { getArchiveColumns, resolveEditName } from '@/domain/archiveColumns'
@@ -163,26 +163,26 @@ export const ArchiveTable = memo(function ArchiveTable({
   const numericKeys = new Set(specs.filter((s) => s.key !== 'period' && s.key !== 'edit_name' && s.key !== 'sys_name').map((s) => s.key))
   // Parameters are a snapshot list — a totals row is meaningless there.
   const hasSummary = type !== 'param' && specs.some((s) => s.isSummable || s.isAveragable)
-  // Feeds the scrollbars, which must stop above the totals row. 0 when the
-  // table has no totals row and the scrollbar can run to the bottom.
-  const [tfootRef, tfootHeight] = useElementHeight<HTMLTableSectionElement>()
+  // Both feed the scrollbars, which run between the sticky header and the
+  // sticky totals row. Measured rather than assumed: the header takes one line
+  // wide and two lines narrow, and the totals row is absent in `param`.
+  const { containerRef, theadRef, tfootRef, theadHeight, tfootHeight } = useStickyRowHeights()
 
   return (
-    /* Archive headers wrap onto two lines, so the scrollbar starts lower; it
-       stops above the totals row, whose height is measured below. */
     <ScrollArea
+      ref={containerRef}
       className="hlv-table-scroll"
       type="auto"
       style={
         {
           height: '100%',
-          '--hlv-thead-h': '58px',
+          '--hlv-thead-h': `${theadHeight}px`,
           '--hlv-tfoot-h': `${tfootHeight}px`,
         } as React.CSSProperties
       }
     >
       <Table striped highlightOnHover stickyHeader verticalSpacing={6}>
-        <Table.Thead>
+        <Table.Thead ref={theadRef}>
           {table.getHeaderGroups().map((hg) => (
             <Table.Tr key={hg.id}>
               {hg.headers.map((header) => {

@@ -43,7 +43,7 @@ import {
   type EnterpriseRecord,
 } from '@/api/enterprise'
 import { PollProgress } from '@/components/PollProgress'
-import { useElementHeight } from '@/components/useElementHeight'
+import { useStickyRowHeights } from '@/components/useMeasuredHeight'
 import { enterpriseRecordTotal } from '@/domain/enterpriseVolumes'
 import { useLanguage } from '@/locales/LanguageContext'
 import { useSelectionStore } from '@/store/selectionStore'
@@ -90,8 +90,8 @@ export function EnterprisePollPage() {
   const { branchId, setBranchId } = useSelectionStore()
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<number | null>(null)
-  // Feeds the scrollbars, which must stop above the sticky totals row.
-  const [tfootRef, tfootHeight] = useElementHeight<HTMLTableSectionElement>()
+  // Feed the scrollbars, which run between the sticky header and totals row.
+  const { containerRef, theadRef, tfootRef, theadHeight, tfootHeight } = useStickyRowHeights()
   // Collapsed groups survive reloads; the tree is long and reopening it every
   // time would be busywork.
   const [view, setView] = useLocalStorage<'table' | 'chart'>({
@@ -602,14 +602,21 @@ export function EnterprisePollPage() {
           ) : (
             <>
               <Box style={{ flex: 1, minHeight: 0, display: view === 'chart' ? 'none' : 'block' }}>
-                {/* Scrollbars stop above the totals row — see global.css. */}
+                {/* Scrollbars keep clear of the sticky rows — see global.css. */}
                 <ScrollArea
+                  ref={containerRef}
                   className="hlv-table-scroll"
-                  style={{ height: '100%', '--hlv-tfoot-h': `${tfootHeight}px` } as React.CSSProperties}
+                  style={
+                    {
+                      height: '100%',
+                      '--hlv-thead-h': `${theadHeight}px`,
+                      '--hlv-tfoot-h': `${tfootHeight}px`,
+                    } as React.CSSProperties
+                  }
                   type="auto"
                 >
                   <Table striped highlightOnHover stickyHeader verticalSpacing={6}>
-                    <Table.Thead>
+                    <Table.Thead ref={theadRef}>
                       <Table.Tr>
                         <Table.Th ta="center">Період</Table.Th>
                         <Table.Th ta="center">Обʼєм, м³</Table.Th>
