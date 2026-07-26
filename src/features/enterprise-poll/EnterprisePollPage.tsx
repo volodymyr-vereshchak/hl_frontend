@@ -9,9 +9,9 @@ import {
   Paper,
   Text,
   Table,
-  Progress,
   Alert,
   Badge,
+  UnstyledButton,
   Box,
   ScrollArea,
   TextInput,
@@ -29,8 +29,15 @@ import {
 } from '@tabler/icons-react'
 import { useQuery } from '@tanstack/react-query'
 import * as XLSX from 'xlsx'
-import { branchAdminApi } from '@/api/admin'
-import { enterpriseApi, streamEnterpriseVolumes, type EnterpriseRecord } from '@/api/enterprise'
+import { branchAdminApi, dpdLineAdminApi, lineAdminApi } from '@/api/admin'
+import {
+  enterpriseApi,
+  enterpriseLabel,
+  streamEnterpriseVolumes,
+  type EnterpriseMappingRow,
+  type EnterpriseRecord,
+} from '@/api/enterprise'
+import { PollProgress } from '@/components/PollProgress'
 import { enterpriseRecordTotal } from '@/domain/enterpriseVolumes'
 import { useLanguage } from '@/locales/LanguageContext'
 import { useSelectionStore } from '@/store/selectionStore'
@@ -70,13 +77,43 @@ export function EnterprisePollPage() {
     staleTime: 5 * 60_000,
   })
 
+  // Line names for the list: an enterprise points at either a physical line or
+  // a DPD line, and knowing which one it feeds is the whole point of the list.
+  const { data: lines } = useQuery({
+    queryKey: ['admin', 'lines'],
+    queryFn: () => lineAdminApi.getAll(),
+    staleTime: 5 * 60_000,
+  })
+  const { data: dpdLines } = useQuery({
+    queryKey: ['admin', 'dpd-lines'],
+    queryFn: () => dpdLineAdminApi.getAll().catch(() => []),
+    staleTime: 5 * 60_000,
+  })
+
+  const lineLabel = useMemo(() => {
+    const m = new Map<number, string>()
+    ;(lines ?? []).forEach((l) => m.set(l.id, l.name))
+    ;(dpdLines ?? []).forEach((d) => m.set(d.id, `[ДПД] ${d.name}`))
+    return (row: EnterpriseMappingRow) => {
+      const id = row.line_id ?? row.dpd_line_id
+      return id != null ? (m.get(id) ?? `#${id}`) : null
+    }
+  }, [lines, dpdLines])
+
   const list = useMemo(() => {
     const all = mappings ?? []
     const q = search.trim().toLowerCase()
     return all
       .filter((m) => !branchId || m.branch_id === branchId)
-      .filter((m) => !q || String(m.name ?? '').toLowerCase().includes(q) || String(m.ser_num ?? '').includes(q))
-  }, [mappings, branchId, search])
+      .filter((m) => {
+        if (!q) return true
+        return (
+          enterpriseLabel(m).toLowerCase().includes(q) ||
+          String(m.ser_num ?? '').includes(q) ||
+          (lineLabel(m) ?? '').toLowerCase().includes(q)
+        )
+      })
+  }, [mappings, branchId, search, lineLabel])
 
   const selectedMapping = list.find((m) => m.id === selected) ?? null
 
@@ -99,7 +136,10 @@ export function EnterprisePollPage() {
           mfDev: selectedMapping.mf_dev ?? undefined,
           typeDev: selectedMapping.type_dev ?? undefined,
           chNum: selectedMapping.ch_num ?? undefined,
-          line_id: selectedMapping.line_id ? [selectedMapping.line_id] : undefined,
+          line_id: (() => {
+            const id = selectedMapping.line_id ?? selectedMapping.dpd_line_id
+            return id != null ? [id] : undefined
+          })(),
         },
         { onProgress: setProgress, signal: ctrl.signal },
       )
@@ -140,8 +180,6 @@ export function EnterprisePollPage() {
     XLSX.writeFile(wb, `enterprise_${selectedMapping?.ser_num ?? 'poll'}_${from}_${to}.xlsx`)
   }
 
-  const pct = progress?.total ? Math.round(((progress.done ?? 0) / progress.total) * 100) : null
-
   return (
     <Stack gap="md">
       <Group justify="space-between" align="center" wrap="wrap">
@@ -180,19 +218,37 @@ export function EnterprisePollPage() {
               </Center>
             ) : (
               <Stack gap={2} p="xs">
-                {list.map((m) => (
-                  <Button
-                    key={m.id}
-                    variant={selected === m.id ? 'light' : 'subtle'}
-                    color={selected === m.id ? 'petrol' : 'gray'}
-                    size="xs"
-                    justify="flex-start"
-                    onClick={() => setSelected(m.id)}
-                    styles={{ label: { whiteSpace: 'normal', textAlign: 'left', lineHeight: 1.25 } }}
-                  >
-                    {m.name ?? m.ser_num ?? `#${m.id}`}
-                  </Button>
-                ))}
+                {list.map((m) => {
+                  const line = lineLabel(m)
+                  const on = selected === m.id
+                  return (
+                    <UnstyledButton
+                      key={m.id}
+                      onClick={() => setSelected(m.id)}
+                      px="xs"
+                      py={6}
+                      style={{
+                        borderRadius: 6,
+                        background: on ? 'var(--mantine-color-petrol-light)' : undefined,
+                      }}
+                      className={on ? undefined : 'hlv-picker-row'}
+                    >
+                      <Text size="xs" fw={on ? 600 : 400} lh={1.3}>
+                        {enterpriseLabel(m)}
+                      </Text>
+                      <Group gap={6} mt={2} wrap="nowrap">
+                        <Text size="10px" c={line ? 'petrol' : 'amber.6'} lineClamp={1}>
+                          {line ?? 'без лінії'}
+                        </Text>
+                        {m.ser_num != null && (
+                          <Text size="10px" c="dimmed" style={numericStyle} ml="auto">
+                            {m.ser_num}
+                          </Text>
+                        )}
+                      </Group>
+                    </UnstyledButton>
+                  )
+                })}
                 {list.length === 0 && (
                   <Text size="xs" c="dimmed" ta="center" py="md" px="xs">
                     {(mappings ?? []).length === 0
@@ -272,12 +328,22 @@ export function EnterprisePollPage() {
 
             {selectedMapping && (
               <Group gap="xs" mt="sm">
-                <Badge variant="light" color="petrol">
-                  {selectedMapping.name ?? selectedMapping.ser_num}
+                <Badge variant="light" color="petrol" tt="none">
+                  {enterpriseLabel(selectedMapping)}
                 </Badge>
-                {selectedMapping.ser_num && (
+                {lineLabel(selectedMapping) && (
+                  <Badge variant="outline" color="gray" tt="none">
+                    {lineLabel(selectedMapping)}
+                  </Badge>
+                )}
+                {selectedMapping.ser_num != null && (
                   <Text size="xs" c="dimmed" style={numericStyle}>
                     S/N {selectedMapping.ser_num}
+                  </Text>
+                )}
+                {selectedMapping.model_name && (
+                  <Text size="xs" c="dimmed">
+                    {selectedMapping.manufacturer_short_name} {selectedMapping.model_name}
                   </Text>
                 )}
               </Group>
@@ -285,12 +351,7 @@ export function EnterprisePollPage() {
 
             {loading && (
               <Box mt="sm">
-                <Progress value={pct ?? 100} animated={pct === null} color="grape" size="sm" />
-                <Text size="xs" c="dimmed" mt={4}>
-                  {pct !== null
-                    ? `${progress?.done ?? 0} / ${progress?.total} (${pct}%)`
-                    : (progress?.phase ?? t('loadingEnterpriseData'))}
-                </Text>
+                <PollProgress progress={progress ?? { phase: 'polling' }} />
               </Box>
             )}
           </Paper>

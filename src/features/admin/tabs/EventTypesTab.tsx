@@ -5,7 +5,6 @@ import {
   Center,
   Divider,
   Group,
-  Loader,
   ScrollArea,
   SegmentedControl,
   Select,
@@ -20,6 +19,7 @@ import { useQuery } from '@tanstack/react-query'
 import { sysTypeApi, editTypeApi, calcTypeAdminApi } from '@/api/admin'
 import { TablePagination } from '@/components/TablePagination'
 import { numericStyle } from '@/theme/theme'
+import { LoadingState } from '@/components/LoadingState'
 
 type Kind = 'sys' | 'edit'
 
@@ -135,9 +135,7 @@ export function EventTypesTab() {
       )}
 
       {isLoading ? (
-        <Center py={60}>
-          <Loader color="petrol" />
-        </Center>
+        <LoadingState />
       ) : (
         <Box style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
           <ScrollArea className="hlv-table-scroll" style={{ flex: 1 }} type="auto">

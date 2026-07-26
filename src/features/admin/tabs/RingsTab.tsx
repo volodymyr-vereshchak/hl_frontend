@@ -6,7 +6,6 @@ import {
   Button,
   Center,
   Group,
-  Loader,
   Modal,
   Paper,
   ScrollArea,
@@ -32,6 +31,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { dpdLineAdminApi, virtualLineAdminApi } from '@/api/admin'
 import type { VirtualLine } from '@/types'
 import { useAdminTopology, toOptions } from '../useAdminTopology'
+import { LoadingState } from '@/components/LoadingState'
 
 const notifyErr = (e: Error) => notifications.show({ message: e.message, color: 'red' })
 
@@ -360,9 +360,7 @@ export function RingsTab() {
       </Group>
 
       {isLoading ? (
-        <Center py={40}>
-          <Loader color="petrol" />
-        </Center>
+        <LoadingState py={40} />
       ) : (
         <Paper withBorder radius="md">
           <ScrollArea className="hlv-table-scroll" type="auto">

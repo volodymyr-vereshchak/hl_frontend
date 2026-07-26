@@ -57,8 +57,16 @@ export const useSelectionStore = create<SelectionState>()(
     }),
     {
       name: 'hlv-selection',
-      // Persist only the durable choices, not transient date filter state.
-      partialize: (s) => ({ branchId: s.branchId, lineId: s.lineId, lineMeta: s.lineMeta }),
+      // The period is part of what the user set up, so a reload must not throw
+      // it away and silently show a different range than the one on screen.
+      // `dateFilterEnabled` stays out: it gates the fetch, and restoring it
+      // would fire a request before the user has even looked at the page.
+      partialize: (s) => ({
+        branchId: s.branchId,
+        lineId: s.lineId,
+        lineMeta: s.lineMeta,
+        dateRange: s.dateRange,
+      }),
     },
   ),
 )

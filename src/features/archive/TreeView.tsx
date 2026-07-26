@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
+import { useLocalStorage } from '@mantine/hooks'
 import {
   Box,
   TextInput,
@@ -119,22 +120,40 @@ function SelectionInfo({ line }: { line: TreeLine | null }) {
 }
 
 interface NodeProps {
+  /** Stable id used to remember this node's open state across reloads. */
+  nodeKey: string
   label: string
   icon: React.ReactNode
   depth: number
   count?: number
   defaultOpen?: boolean
   forceOpen?: boolean
+  openMap: Record<string, boolean>
+  onToggle: (key: string, open: boolean) => void
   children: React.ReactNode
 }
 
-function TreeNode({ label, icon, depth, count, defaultOpen, forceOpen, children }: NodeProps) {
-  const [open, setOpen] = useState(defaultOpen ?? false)
+function TreeNode({
+  nodeKey,
+  label,
+  icon,
+  depth,
+  count,
+  defaultOpen,
+  forceOpen,
+  openMap,
+  onToggle,
+  children,
+}: NodeProps) {
+  // Open state lives in the parent's persisted map, so re-mounting the tree
+  // (navigating away and back, or a reload) does not collapse everything.
+  const open = openMap[nodeKey] ?? defaultOpen ?? false
+  const setOpen = (next: boolean) => onToggle(nodeKey, next)
   const isOpen = forceOpen || open
   return (
     <Box>
       <UnstyledButton
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => setOpen(!open)}
         pl={8 + depth * 16}
         pr="xs"
         py={6}
@@ -167,6 +186,16 @@ export function TreeView({ fill = false }: { fill?: boolean } = {}) {
   const [search, setSearch] = useState('')
   const q = search.trim().toLowerCase()
   const { lineId } = useSelectionStore()
+
+  // Which nodes are unfolded, kept across reloads and page changes.
+  const [openMap, setOpenMap] = useLocalStorage<Record<string, boolean>>({
+    key: 'hlv-tree-open',
+    defaultValue: {},
+  })
+  const toggleNode = useCallback(
+    (key: string, open: boolean) => setOpenMap((prev) => ({ ...prev, [key]: open })),
+    [setOpenMap],
+  )
 
   // Locate the selected line in the (unfiltered) tree for the info panel.
   const selectedLine = useMemo(() => {
@@ -216,6 +245,9 @@ export function TreeView({ fill = false }: { fill?: boolean } = {}) {
       {filtered.map((branch) => (
             <TreeNode
               key={branch.id}
+              nodeKey={`b${branch.id}`}
+              openMap={openMap}
+              onToggle={toggleNode}
               label={branch.name}
               depth={0}
               defaultOpen
@@ -230,6 +262,9 @@ export function TreeView({ fill = false }: { fill?: boolean } = {}) {
               {branch.lumgs.map((lumg) => (
                 <TreeNode
                   key={lumg.id}
+                  nodeKey={`l${lumg.id}`}
+                  openMap={openMap}
+                  onToggle={toggleNode}
                   label={lumg.name}
                   depth={1}
                   forceOpen={!!q}
@@ -238,6 +273,9 @@ export function TreeView({ fill = false }: { fill?: boolean } = {}) {
                   {lumg.calcs.map((calc) => (
                     <TreeNode
                       key={calc.id}
+                      nodeKey={`c${calc.id}`}
+                      openMap={openMap}
+                      onToggle={toggleNode}
                       label={calc.typeName ? `${calc.name} · ${calc.typeName}` : calc.name}
                       depth={2}
                       forceOpen={!!q}

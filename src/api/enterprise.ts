@@ -12,16 +12,39 @@ export interface EnterpriseRecord {
   [key: string]: unknown
 }
 
+/**
+ * One enterprise from `/enterprise-mappings/` (EnterpriseRead). The name column
+ * is `enterprise_name`, NOT `name` — reading the wrong one silently degrades the
+ * whole list to bare serial numbers.
+ *
+ * `mf_dev`/`type_dev` come back as the EFFECTIVE codes: resolved through
+ * `corector_type` when it is linked, legacy columns otherwise. The poll needs
+ * exactly that quadruple (ser_num, mf_dev, type_dev, ch_num) to address a device.
+ *
+ * A row points at EITHER a physical line (`line_id`) or a DPD line
+ * (`dpd_line_id`); ids never collide between the two.
+ */
 export interface EnterpriseMappingRow {
   id: number
-  name?: string
+  enterprise_name?: string
   line_id?: number | null
-  ser_num?: string | null
+  dpd_line_id?: number | null
+  ser_num?: number | string | null
+  corector_type_id?: number | null
   mf_dev?: number | null
   type_dev?: number | null
   ch_num?: number | null
   branch_id?: number | null
+  active?: boolean
+  enabled?: boolean
+  model_name?: string | null
+  manufacturer_short_name?: string | null
   [key: string]: unknown
+}
+
+/** Display name of a mapping, however sparse the row is. */
+export function enterpriseLabel(m: EnterpriseMappingRow): string {
+  return m.enterprise_name || (m.ser_num != null ? `S/N ${m.ser_num}` : `#${m.id}`)
 }
 
 export interface VolumesParams {
@@ -32,7 +55,7 @@ export interface VolumesParams {
   period_type?: 'daily' | 'hourly'
   include_devices?: boolean
   live?: boolean
-  serNum?: string
+  serNum?: number | string
   mfDev?: number
   typeDev?: number
   chNum?: number

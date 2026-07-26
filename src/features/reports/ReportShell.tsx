@@ -1,9 +1,10 @@
 import { type ReactNode } from 'react'
-import { Stack, Group, Title, Select, Button, Text, Alert, Loader, Center } from '@mantine/core'
+import { Stack, Group, Title, Select, Button, Text, Alert } from '@mantine/core'
 import { IconAlertTriangle, IconFileSpreadsheet, IconPlayerPlay } from '@tabler/icons-react'
 import { useLanguage } from '@/locales/LanguageContext'
 import { useSelectionStore } from '@/store/selectionStore'
 import { useBranches } from './useBranchLines'
+import { LoadingState } from '@/components/LoadingState'
 
 interface Props {
   title: string
@@ -94,9 +95,7 @@ export function ReportShell({
       )}
 
       {running ? (
-        <Center py={60}>
-          <Loader color="petrol" />
-        </Center>
+        <LoadingState label={t('appLoading')} />
       ) : (
         children
       )}

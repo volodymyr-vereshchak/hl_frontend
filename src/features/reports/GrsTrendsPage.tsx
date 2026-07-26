@@ -114,10 +114,13 @@ export function GrsTrendsPage() {
       let enterprise: Awaited<ReturnType<ReturnType<typeof getEnterpriseFetchFn>>> = []
       if (withEnterprise) {
         setProgress(t('loadingEnterpriseData'))
+        // Bare commercial days here, NOT `win`: the enterprise endpoint does
+        // the hourly 07:00→06:00 expansion itself, so an already-expanded
+        // window made it expand twice and miss the requested range.
         enterprise = await getEnterpriseFetchFn(true)(
           trendLines.map((l) => l.id),
-          win.from,
-          win.to,
+          from,
+          to,
           periodType,
           (pr) => setProgress(pr.total ? `${pr.done ?? 0}/${pr.total}` : (pr.phase ?? null)),
         ).catch(() => [])

@@ -1,4 +1,5 @@
-import { createBrowserRouter, Navigate, useSearchParams } from 'react-router-dom'
+import { useEffect } from 'react'
+import { createBrowserRouter, Navigate, useLocation, useSearchParams } from 'react-router-dom'
 import { AppShellLayout } from '@/components/AppShellLayout'
 import { OverviewPage } from '@/features/overview/OverviewPage'
 import { ArchivePage } from '@/features/archive/ArchivePage'
@@ -25,7 +26,26 @@ const LEGACY_ROUTE: Record<string, string> = {
   'flow-calc': '/flow-calc',
 }
 
-/** Entry redirect that honors legacy ?archiveType= / ?lineId= query params. */
+const LAST_ROUTE_KEY = 'hlv-last-route'
+
+/** Every known route, so a stale stored path can never strand the user. */
+const KNOWN_ROUTES = [
+  '/overview',
+  '/enterprise-poll',
+  '/reports/grs-trends',
+  '/reports/night-consumption',
+  '/reports/accidents',
+  '/flow-calc',
+  '/admin',
+]
+const isKnownRoute = (p: string) =>
+  KNOWN_ROUTES.includes(p) || /^\/archive\/(daily|hourly|sys|edit|param)$/.test(p)
+
+/**
+ * Entry redirect: legacy `?archiveType=` deep links win, then the screen the
+ * user was last on, then the overview. Reloading in the middle of a report
+ * should land back in that report, not on the front page.
+ */
 function RootRedirect() {
   const [params] = useSearchParams()
   const archiveType = params.get('archiveType')
@@ -35,7 +55,16 @@ function RootRedirect() {
     const suffix = lineId ? `?lineId=${lineId}` : ''
     return <Navigate to={`${target}${suffix}`} replace />
   }
-  return <Navigate to="/overview" replace />
+  const last = localStorage.getItem(LAST_ROUTE_KEY)
+  return <Navigate to={last && isKnownRoute(last) ? last : '/overview'} replace />
+}
+
+/** Records the current path so a reload can come back to it. */
+export function useRememberRoute() {
+  const { pathname } = useLocation()
+  useEffect(() => {
+    if (isKnownRoute(pathname)) localStorage.setItem(LAST_ROUTE_KEY, pathname)
+  }, [pathname])
 }
 
 export const router = createBrowserRouter([

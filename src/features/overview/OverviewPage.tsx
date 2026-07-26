@@ -8,8 +8,6 @@ import {
   SimpleGrid,
   Title,
   Badge,
-  Loader,
-  Center,
   Alert,
   Box,
   Paper,
@@ -33,6 +31,7 @@ import { useLanguage } from '@/locales/LanguageContext'
 import { numericStyle } from '@/theme/theme'
 import { LineCard } from './LineCard'
 import { useOverviewData, type OverviewData, type LumgGroup } from './useOverviewData'
+import { LoadingState } from '@/components/LoadingState'
 
 function fmtNum(n: number, digits = 0) {
   return n.toLocaleString('uk-UA', { maximumFractionDigits: digits, minimumFractionDigits: digits })
@@ -201,9 +200,7 @@ export function OverviewPage() {
       )}
 
       {isLoading && (
-        <Center py={80}>
-          <Loader color="petrol" />
-        </Center>
+        <LoadingState py={80} label={t('appLoading')} />
       )}
 
       {data && (

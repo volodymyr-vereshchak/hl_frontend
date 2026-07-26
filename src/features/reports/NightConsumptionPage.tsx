@@ -120,11 +120,13 @@ export function NightConsumptionPage() {
 
       // Night consumption is by definition the населення share, i.e. what is
       // left after industry — so industry is always subtracted, never optional.
+      // Bare commercial days, NOT `win`: the enterprise endpoint applies the
+      // hourly 07:00→06:00 expansion itself.
       setProgress(t('loadingEnterpriseData'))
       const enterprise = await getEnterpriseFetchFn(true)(
         reportLines.map((l) => l.id),
-        win.from,
-        win.to,
+        from,
+        to,
         'hourly',
         (pr) => setProgress(pr.total ? `${pr.done ?? 0}/${pr.total}` : (pr.phase ?? null)),
       ).catch(() => [])
@@ -230,7 +232,10 @@ export function NightConsumptionPage() {
     >
       {rows.length > 0 && (
         <Paper withBorder radius="md">
-          <ScrollArea className="hlv-table-scroll" type="auto">
+          {/* Bounded, so the chart underneath stays reachable on a long range;
+              past that height the table scrolls and then hands the wheel back
+              to the page. */}
+          <ScrollArea.Autosize className="hlv-table-scroll" mah="60dvh" type="auto">
             <Table striped highlightOnHover stickyHeader verticalSpacing={6}>
               <Table.Thead>
                 <Table.Tr>
@@ -257,7 +262,7 @@ export function NightConsumptionPage() {
                 ))}
               </Table.Tbody>
             </Table>
-          </ScrollArea>
+          </ScrollArea.Autosize>
         </Paper>
       )}
 

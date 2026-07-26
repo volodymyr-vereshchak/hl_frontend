@@ -44,6 +44,53 @@ body {
   background: var(--hlv-page-bg);
 }
 
+/* Loading state: a soft breathing halo behind the ring, so a long wait reads
+   as alive. Both stop under prefers-reduced-motion. */
+.hlv-pulse {
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+.hlv-pulse::before {
+  content: '';
+  position: absolute;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: var(--mantine-color-petrol-6);
+  opacity: 0.16;
+  animation: hlv-breathe 1.8s ease-in-out infinite;
+}
+.hlv-pulse-text {
+  animation: hlv-fade 1.8s ease-in-out infinite;
+}
+@keyframes hlv-breathe {
+  0%,
+  100% {
+    transform: scale(0.8);
+    opacity: 0.1;
+  }
+  50% {
+    transform: scale(1.15);
+    opacity: 0.22;
+  }
+}
+@keyframes hlv-fade {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hlv-pulse::before,
+  .hlv-pulse-text {
+    animation: none;
+  }
+}
+
 /* Row hover in the chart series picker. */
 .hlv-picker-row:hover {
   background: var(--hlv-surface-2);
@@ -64,8 +111,15 @@ body {
   bottom: 2px;
   left: 2px;
 }
+/*
+ * Scroll chaining stays ON (the browser default). `overscroll-behavior: contain`
+ * looked tidier but trapped the wheel: with the pointer over a table you could
+ * not reach the chart below it, because the page never took over once the table
+ * hit its end. A table that cannot scroll at all must pass the wheel straight
+ * through, which is what the default does.
+ */
 .hlv-table-scroll > [data-scrollarea-viewport] {
-  overscroll-behavior: contain;
+  overscroll-behavior: auto;
 }
 
 /* Slim, unobtrusive instrument-style scrollbars. */

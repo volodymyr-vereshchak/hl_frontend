@@ -8,7 +8,6 @@ import {
   Stack,
   ActionIcon,
   Text,
-  Loader,
   Center,
   Alert,
   NumberInput,
@@ -33,6 +32,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { numericStyle } from '@/theme/theme'
 import { TablePagination } from '@/components/TablePagination'
+import { LoadingState } from '@/components/LoadingState'
 
 export interface CrudField<T> {
   key: string
@@ -223,9 +223,7 @@ export function CrudTable<T extends { id: number }>({
       )}
 
       {isLoading ? (
-        <Center py={60}>
-          <Loader color="petrol" />
-        </Center>
+        <LoadingState />
       ) : (
         <Box style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
           <ScrollArea className="hlv-table-scroll" style={{ flex: 1 }} type="auto">

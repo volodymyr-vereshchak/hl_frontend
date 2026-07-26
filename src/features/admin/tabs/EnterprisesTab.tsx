@@ -7,7 +7,6 @@ import {
   Center,
   Divider,
   Group,
-  Loader,
   NumberInput,
   Paper,
   ScrollArea,
@@ -42,6 +41,7 @@ import {
 import { TablePagination } from '@/components/TablePagination'
 import { numericStyle } from '@/theme/theme'
 import { useAdminTopology, toOptions } from '../useAdminTopology'
+import { LoadingState } from '@/components/LoadingState'
 
 const notifyErr = (e: Error) => notifications.show({ message: e.message, color: 'red' })
 
@@ -573,9 +573,7 @@ export function EnterprisesTab() {
       {(adding || editingId != null) && formRow}
 
       {isLoading ? (
-        <Center py={40}>
-          <Loader color="petrol" />
-        </Center>
+        <LoadingState py={40} />
       ) : (
         <Paper withBorder radius="md">
           <ScrollArea className="hlv-table-scroll" type="auto">

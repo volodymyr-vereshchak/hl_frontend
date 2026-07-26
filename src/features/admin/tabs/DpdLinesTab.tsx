@@ -5,7 +5,6 @@ import {
   Button,
   Center,
   Group,
-  Loader,
   NumberInput,
   Paper,
   Progress,
@@ -35,6 +34,7 @@ import { deviceCatalogApi, dpdLineAdminApi, type DpdJobStatus } from '@/api/admi
 import type { DpdLine } from '@/types'
 import { numericStyle } from '@/theme/theme'
 import { useAdminTopology, toOptions } from '../useAdminTopology'
+import { LoadingState } from '@/components/LoadingState'
 
 const notifyErr = (e: Error) => notifications.show({ message: e.message, color: 'red' })
 const pad = (n: number) => String(n).padStart(2, '0')
@@ -547,9 +547,7 @@ export function DpdLinesTab() {
       </Group>
 
       {isLoading ? (
-        <Center py={40}>
-          <Loader color="petrol" />
-        </Center>
+        <LoadingState py={40} />
       ) : (
         <Paper withBorder radius="md">
           <ScrollArea className="hlv-table-scroll" type="auto">

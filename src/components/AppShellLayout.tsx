@@ -15,6 +15,7 @@ import {
   IconCalculator,
 } from '@tabler/icons-react'
 import { NavLink as RouterNavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { useRememberRoute } from '@/app/router'
 import { useLanguage } from '@/locales/LanguageContext'
 import { useUser } from '@/features/auth/UserContext'
 import { ColorSchemeToggle } from './ColorSchemeToggle'
@@ -63,6 +64,9 @@ export function AppShellLayout() {
   const navigate = useNavigate()
   const location = useLocation()
   const reportsActive = location.pathname.startsWith('/reports')
+
+  // Remember the screen so a reload returns here instead of the overview.
+  useRememberRoute()
 
   return (
     <AppShell header={{ height: 56 }} padding="lg">

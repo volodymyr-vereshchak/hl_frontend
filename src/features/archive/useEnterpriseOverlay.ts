@@ -7,8 +7,10 @@ import {
   getEnterpriseFetchFn,
   type PeriodType,
 } from '@/domain/enterpriseVolumes'
-import { commercialHourlyRange } from '@/domain/commercialDay'
 import type { ArchiveRow } from '@/api/entities'
+
+/** 'YYYY-MM-DD' out of a value that may carry a time part. */
+const dayOnly = (v: string) => String(v).split('T')[0].split(' ')[0]
 
 export interface OverlayState {
   enabled: boolean
@@ -51,10 +53,12 @@ export function useEnterpriseOverlay(
     const ctrl = new AbortController()
     abortRef.current = ctrl
 
-    const win =
-      type === 'hourly'
-        ? commercialHourlyRange(range.fromDate, range.toDate)
-        : { from: range.fromDate, to: range.toDate }
+    // The enterprise endpoint takes BARE COMMERCIAL DAYS and expands them
+    // itself (hourly: from D1 07:00 to D2+1 06:00). Passing an already-expanded
+    // window made it expand twice and poll a day that is never displayed — and
+    // when the archive controls carry a time part, the doubled string did not
+    // denote the requested range at all. Send the plain dates, like the old UI.
+    const win = { from: dayOnly(range.fromDate), to: dayOnly(range.toDate) }
 
     setLoading(true)
     setError(null)
