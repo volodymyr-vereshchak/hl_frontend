@@ -1,76 +1,18 @@
 import { useMemo, useState } from 'react'
-import { Badge, Button, Select } from '@mantine/core'
-import { notifications } from '@mantine/notifications'
+import { Select } from '@mantine/core'
 import { CrudTable, type CrudField } from '../CrudTable'
 import { useAdminTopology, toOptions } from '../useAdminTopology'
 import {
-  userApi,
   branchAdminApi,
   lumgAdminApi,
   lineAdminApi,
   calcAdminApi,
   calcTypeAdminApi,
   deviceCatalogApi,
-  type AdminUser,
   type Manufacturer,
   type CorectorType,
 } from '@/api/admin'
 import type { Branch, Lumg, Line, GasVolumeCalc, CalcType } from '@/types'
-
-// ── Система ─────────────────────────────────────────────────────────────────
-export function UsersTab() {
-  const fields: CrudField<AdminUser>[] = [
-    { key: 'id', label: 'ID', numeric: true, hideInForm: true },
-    { key: 'username', label: 'Логін', required: true },
-    { key: 'display_name', label: 'Імʼя' },
-    {
-      key: 'role',
-      label: 'Роль',
-      type: 'select',
-      options: [
-        { value: 'admin', label: 'Адміністратор' },
-        { value: 'viewer', label: 'Спостерігач' },
-      ],
-      render: (u) => (
-        <Badge variant="light" color={u.role === 'admin' ? 'amber' : 'petrol'} size="sm">
-          {u.role}
-        </Badge>
-      ),
-    },
-    { key: 'active', label: 'Активний', type: 'checkbox' },
-    { key: 'password', label: 'Пароль (для нового)', hideInTable: true },
-  ]
-  return (
-    <CrudTable<AdminUser>
-      title="Користувачі"
-      description="Облікові записи та ролі доступу"
-      queryKey={['admin', 'users']}
-      fetchAll={userApi.getAll}
-      create={(d) => userApi.create(d as Partial<AdminUser> & { password?: string })}
-      update={(id, d) => userApi.update(id, d as Partial<AdminUser>)}
-      remove={userApi.remove}
-      fields={fields}
-      searchKeys={['username', 'display_name', 'role']}
-      rowLabel={(u) => u.username}
-      extraRowActions={(u) => (
-        <Button
-          size="compact-xs"
-          variant="subtle"
-          onClick={() => {
-            const pwd = window.prompt(`Новий пароль для ${u.username}:`)
-            if (!pwd) return
-            userApi
-              .resetPassword(u.id, pwd)
-              .then(() => notifications.show({ message: 'Пароль змінено', color: 'teal' }))
-              .catch((e: Error) => notifications.show({ message: e.message, color: 'red' }))
-          }}
-        >
-          Пароль
-        </Button>
-      )}
-    />
-  )
-}
 
 // ── Мережа ──────────────────────────────────────────────────────────────────
 export function BranchesTab() {

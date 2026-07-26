@@ -605,15 +605,9 @@ export function EnterprisePollPage() {
                         </Table.Td>
                         <Table.Td ta="right" fw={700} style={numericStyle}>
                           {fmtNum(totals.temperature)}
-                          <Text span size="9px" c="dimmed" ml={4}>
-                            сер.
-                          </Text>
                         </Table.Td>
                         <Table.Td ta="right" fw={700} style={numericStyle}>
                           {fmtNum(totals.pressure)}
-                          <Text span size="9px" c="dimmed" ml={4}>
-                            сер.
-                          </Text>
                         </Table.Td>
                       </Table.Tr>
                     </Table.Tfoot>

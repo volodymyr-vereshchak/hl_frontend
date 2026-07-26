@@ -19,7 +19,6 @@ import {
 } from '@tabler/icons-react'
 import { useUser } from '@/features/auth/UserContext'
 import {
-  UsersTab,
   BranchesTab,
   LumgsTab,
   LinesConfigTab,
@@ -35,6 +34,7 @@ import { DpdCredentialsTab } from './tabs/DpdCredentialsTab'
 import { RingsTab } from './tabs/RingsTab'
 import { DpdLinesTab } from './tabs/DpdLinesTab'
 import { EnterprisesTab } from './tabs/EnterprisesTab'
+import { UsersTab } from './tabs/UsersTab'
 
 interface TabDef {
   id: string

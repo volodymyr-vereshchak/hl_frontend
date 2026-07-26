@@ -3,14 +3,22 @@
 export type UserRole = 'admin' | 'viewer'
 
 export interface User {
+  id?: number
   username: string
+  /** Human name; the UI shows this and falls back to `username`. */
+  display_name?: string | null
   role: UserRole
+  active?: boolean
+  /** Empty/absent = every branch. Non-empty = only these. */
   allowed_branch_ids?: number[] | null
 }
 
 export interface Branch {
   id: number
   name: string
+  short_name?: string | null
+  region?: string | null
+  active?: boolean
 }
 
 export interface Lumg {

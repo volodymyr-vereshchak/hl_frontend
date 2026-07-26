@@ -8,15 +8,35 @@ export interface AdminUser {
   display_name?: string | null
   role: UserRole
   active: boolean
+  /** Empty = access to every branch; non-empty = only those listed. */
   allowed_branch_ids?: number[]
+}
+
+/**
+ * Write shape of a user. Note the asymmetry with `AdminUser`: the API READS
+ * `allowed_branch_ids` but WRITES `branch_ids`.
+ */
+export interface UserWrite {
+  username?: string
+  display_name?: string | null
+  role?: UserRole
+  active?: boolean
+  branch_ids?: number[]
+  password?: string
+}
+
+/** POST /auth/users generates a password when none is supplied and returns it. */
+export interface UserCreated {
+  user: AdminUser
+  password: string
 }
 
 export const userApi = {
   getAll: () => api.get<AdminUser[]>('/auth/users'),
-  create: (data: Partial<AdminUser> & { password?: string }) => api.post<AdminUser>('/auth/users', data),
-  update: (id: number, data: Partial<AdminUser>) => api.patch<AdminUser>(`/auth/users/${id}`, data),
-  resetPassword: (id: number, password: string) =>
-    api.post<true>(`/auth/users/${id}/reset-password`, { password }),
+  create: (data: UserWrite) => api.post<UserCreated>('/auth/users', data),
+  update: (id: number, data: UserWrite) => api.patch<AdminUser>(`/auth/users/${id}`, data),
+  /** Server-side reset; the new password comes back in the response. */
+  resetPassword: (id: number) => api.post<{ password: string }>(`/auth/users/${id}/reset-password`),
   remove: (id: number) => api.delete<true>(`/auth/users/${id}`),
 }
 
