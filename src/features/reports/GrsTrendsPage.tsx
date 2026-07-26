@@ -5,7 +5,6 @@ import {
   Group,
   SegmentedControl,
   Switch,
-  Button,
   Loader,
   Box,
   useMantineColorScheme,
@@ -32,6 +31,7 @@ import { calculateTrendPercentages, trendColor, type TrendPoint } from '@/domain
 import { useLanguage } from '@/locales/LanguageContext'
 import { useSelectionStore } from '@/store/selectionStore'
 import { PeriodPicker } from '@/features/archive/PeriodPicker'
+import { ChartLinePicker } from './ChartLinePicker'
 import { ReportShell } from './ReportShell'
 import { useBranchLines, type ReportLine } from './useBranchLines'
 
@@ -155,6 +155,11 @@ export function GrsTrendsPage() {
       : `${d.toLocaleDateString(locale, { day: '2-digit', month: '2-digit' })} ${pad(d.getHours())}`
   }
 
+  const pickerLines = useMemo(
+    () => usedLines.map((l, i) => ({ id: l.id, name: l.name, color: trendColor(i, usedLines.length) })),
+    [usedLines],
+  )
+
   const grid = dark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.14)'
   const axis = dark ? '#9aa7ad' : '#5a6b75'
   const tickInterval = data ? Math.max(0, Math.ceil(data.length / 24) - 1) : 0
@@ -213,32 +218,7 @@ export function GrsTrendsPage() {
             <Text fw={600} ff="'Space Grotesk Variable', sans-serif">
               {t('grsConsumptionTrends')}
             </Text>
-            <Group gap={4}>
-              <Button size="compact-xs" variant="default" onClick={() => setHidden({})}>
-                {t('allLines')}
-              </Button>
-              {usedLines.map((l, i) => {
-                const color = trendColor(i, usedLines.length)
-                const on = !hidden[l.id]
-                return (
-                  <Button
-                    key={l.id}
-                    size="compact-xs"
-                    variant={on ? 'filled' : 'outline'}
-                    onClick={() => setHidden({ ...hidden, [l.id]: on })}
-                    styles={{
-                      root: {
-                        backgroundColor: on ? color : 'transparent',
-                        borderColor: color,
-                        color: on ? '#fff' : color,
-                      },
-                    }}
-                  >
-                    {l.name}
-                  </Button>
-                )
-              })}
-            </Group>
+            <ChartLinePicker lines={pickerLines} hidden={hidden} onChange={setHidden} />
           </Group>
 
           <ResponsiveContainer width="100%" height={560}>

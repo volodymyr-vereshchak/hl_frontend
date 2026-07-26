@@ -44,6 +44,11 @@ body {
   background: var(--hlv-page-bg);
 }
 
+/* Row hover in the chart series picker. */
+.hlv-picker-row:hover {
+  background: var(--hlv-surface-2);
+}
+
 /* Slim, unobtrusive instrument-style scrollbars. */
 * {
   scrollbar-width: thin;
