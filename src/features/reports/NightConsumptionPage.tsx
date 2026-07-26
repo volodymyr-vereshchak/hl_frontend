@@ -75,6 +75,7 @@ export function NightConsumptionPage() {
   const [progress, setProgress] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [hidden, setHidden] = useState<Record<number, boolean>>({})
+  const [view, setView] = useState<'table' | 'chart'>('table')
 
   // Report lines: physical ones flagged for the report plus virtual/DPD lines.
   const reportLines = useMemo(
@@ -232,93 +233,120 @@ export function NightConsumptionPage() {
       }
     >
       {rows.length > 0 && (
-        <Paper withBorder radius="md">
-          {/* Bounded, so the chart underneath stays reachable on a long range;
-              past that height the table scrolls and then hands the wheel back
-              to the page. */}
-          <ScrollArea.Autosize className="hlv-table-scroll" mah="60dvh" type="auto">
-            <Table striped highlightOnHover stickyHeader verticalSpacing={6}>
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th style={{ textAlign: 'center' }}>{t('date')}</Table.Th>
-                  {usedLines.map((l) => (
-                    <Table.Th key={l.id} style={{ textAlign: 'center', whiteSpace: 'normal' }}>
-                      {l.name}
-                    </Table.Th>
-                  ))}
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {rows.map((r) => (
-                  <Table.Tr key={r.date}>
-                    <Table.Td ta="center" style={numericStyle}>
-                      {new Date(r.date).toLocaleDateString('uk-UA')}
-                    </Table.Td>
+        /*
+         * Table and chart are alternatives, not a stack: both want the full
+         * width and the full height, and scrolling past a long table to reach
+         * the chart was the awkward part. One switch, no scrolling.
+         */
+        <Paper
+          withBorder
+          radius="md"
+          style={{
+            height: 'calc(100dvh - 210px)',
+            minHeight: 380,
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+          }}
+        >
+          <Group
+            justify="space-between"
+            px="sm"
+            py={8}
+            wrap="wrap"
+            style={{ borderBottom: '1px solid var(--hlv-border)', flexShrink: 0 }}
+          >
+            <SegmentedControl
+              size="xs"
+              value={view}
+              onChange={(v) => setView(v as 'table' | 'chart')}
+              data={[
+                { value: 'table', label: t('table') },
+                { value: 'chart', label: t('chart') },
+              ]}
+            />
+            {view === 'chart' && (
+              <ChartLinePicker lines={pickerLines} hidden={hidden} onChange={setHidden} />
+            )}
+          </Group>
+
+          {view === 'table' ? (
+            <ScrollArea className="hlv-table-scroll" style={{ flex: 1 }} type="auto">
+              <Table striped highlightOnHover stickyHeader verticalSpacing={6}>
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th style={{ textAlign: 'center' }}>{t('date')}</Table.Th>
                     {usedLines.map((l) => (
-                      <Table.Td key={l.id} ta="center" style={numericStyle}>
-                        {fmt(r[`line_${l.id}`])}
-                      </Table.Td>
+                      <Table.Th key={l.id} style={{ textAlign: 'center', whiteSpace: 'normal' }}>
+                        {l.name}
+                      </Table.Th>
                     ))}
                   </Table.Tr>
-                ))}
-              </Table.Tbody>
-            </Table>
-          </ScrollArea.Autosize>
-        </Paper>
-      )}
-
-      {rows.length > 0 && (
-        <Paper withBorder radius="md" p="md">
-          <Group justify="space-between" mb="sm" wrap="wrap">
-            <Text fw={600} ff="'Space Grotesk Variable', sans-serif">
-              {t('nightConsumption')}
-            </Text>
-            <ChartLinePicker lines={pickerLines} hidden={hidden} onChange={setHidden} />
-          </Group>
-          <ResponsiveContainer width="100%" height={460}>
-            <LineChart data={rows} margin={{ top: 8, right: 16, bottom: 8, left: 8 }}>
-              <CartesianGrid stroke={grid} strokeDasharray="3 3" />
-              <XAxis
-                dataKey="date"
-                tickFormatter={fmtX}
-                tick={{ fontSize: 11, fill: axis }}
-                interval={tickInterval}
-                angle={-45}
-                textAnchor="end"
-                height={62}
-              />
-              <YAxis
-                tick={{ fontSize: 11, fill: axis }}
-                width={72}
-                tickFormatter={(v) => fmt(v)}
-              />
-              <Tooltip
-                contentStyle={{
-                  background: 'var(--hlv-surface)',
-                  border: '1px solid var(--hlv-border)',
-                  borderRadius: 8,
-                  fontSize: 12,
-                }}
-                formatter={(v) => `${fmt(v)} ${t('volumeUnit')}`}
-                labelFormatter={(label) => fmtX(String(label))}
-              />
-              {usedLines.map((l, i) =>
-                hidden[l.id] ? null : (
-                  <Line
-                    key={l.id}
-                    type="monotone"
-                    dataKey={`line_${l.id}`}
-                    name={l.name}
-                    stroke={trendColor(i, usedLines.length)}
-                    strokeWidth={2}
-                    dot={false}
-                    connectNulls
-                    isAnimationActive={false}
+                </Table.Thead>
+                <Table.Tbody>
+                  {rows.map((r) => (
+                    <Table.Tr key={r.date}>
+                      <Table.Td ta="center" style={{ ...numericStyle, whiteSpace: 'nowrap' }}>
+                        {new Date(r.date).toLocaleDateString('uk-UA')}
+                      </Table.Td>
+                      {usedLines.map((l) => (
+                        <Table.Td
+                          key={l.id}
+                          ta="center"
+                          style={{ ...numericStyle, whiteSpace: 'nowrap' }}
+                        >
+                          {fmt(r[`line_${l.id}`])}
+                        </Table.Td>
+                      ))}
+                    </Table.Tr>
+                  ))}
+                </Table.Tbody>
+              </Table>
+            </ScrollArea>
+          ) : (
+            <Box p="md" style={{ flex: 1, minHeight: 0 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={rows} margin={{ top: 8, right: 16, bottom: 8, left: 8 }}>
+                  <CartesianGrid stroke={grid} strokeDasharray="3 3" />
+                  <XAxis
+                    dataKey="date"
+                    tickFormatter={fmtX}
+                    tick={{ fontSize: 11, fill: axis }}
+                    interval={tickInterval}
+                    angle={-45}
+                    textAnchor="end"
+                    height={62}
                   />
-                ),
-              )}
-            </LineChart>
-          </ResponsiveContainer>
+                  <YAxis tick={{ fontSize: 11, fill: axis }} width={72} tickFormatter={(v) => fmt(v)} />
+                  <Tooltip
+                    contentStyle={{
+                      background: 'var(--hlv-surface)',
+                      border: '1px solid var(--hlv-border)',
+                      borderRadius: 8,
+                      fontSize: 12,
+                    }}
+                    formatter={(v) => `${fmt(v)} ${t('volumeUnit')}`}
+                    labelFormatter={(label) => fmtX(String(label))}
+                  />
+                  {usedLines.map((l, i) =>
+                    hidden[l.id] ? null : (
+                      <Line
+                        key={l.id}
+                        type="monotone"
+                        dataKey={`line_${l.id}`}
+                        name={l.name}
+                        stroke={trendColor(i, usedLines.length)}
+                        strokeWidth={2}
+                        dot={false}
+                        connectNulls
+                        isAnimationActive={false}
+                      />
+                    ),
+                  )}
+                </LineChart>
+              </ResponsiveContainer>
+            </Box>
+          )}
         </Paper>
       )}
 

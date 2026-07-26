@@ -196,7 +196,14 @@ export function ArchiveTable({ rows, type, meta, overlay, onDrillDown }: Props) 
                 return (
                   <Table.Td
                     key={cell.id}
-                    style={{ textAlign: 'center', ...(isNum ? numericStyle : {}) }}
+                    style={{
+                      textAlign: 'center',
+                      // Values never wrap. Turning the industry overlay on adds
+                      // two columns, and the timestamp was the first thing to
+                      // break onto a second line, doubling every row's height.
+                      whiteSpace: 'nowrap',
+                      ...(isNum ? numericStyle : {}),
+                    }}
                   >
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}
                   </Table.Td>
