@@ -104,6 +104,18 @@ export const theme = createTheme({
     Table: {
       defaultProps: { verticalSpacing: 'xs', horizontalSpacing: 'md' },
     },
+    // Every report opens on a date range, so "where is today" is the first
+    // thing the eye looks for in an open calendar. Set here rather than on each
+    // picker so the archives, reports, poll and admin tabs cannot drift apart.
+    DatePickerInput: {
+      defaultProps: { highlightToday: true },
+    },
+    DateTimePicker: {
+      defaultProps: { highlightToday: true },
+    },
+    DatePicker: {
+      defaultProps: { highlightToday: true },
+    },
   },
 })
 

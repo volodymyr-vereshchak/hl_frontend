@@ -48,8 +48,12 @@ const notifyErr = (e: Error) => notifications.show({ message: e.message, color: 
 type FormState = {
   enterprise_name: string
   branch_id: string | null
+  /** UI only — narrows the line list, never sent to the API. */
+  calc_id: string | null
   line_id: string | null
   ser_num: string
+  /** UI only — narrows the corrector-type list, never sent to the API. */
+  manufacturer_id: string | null
   corector_type_id: string | null
   ch_num: string
   active: boolean
@@ -59,8 +63,10 @@ type FormState = {
 const EMPTY: FormState = {
   enterprise_name: '',
   branch_id: null,
+  calc_id: null,
   line_id: null,
   ser_num: '',
+  manufacturer_id: null,
   corector_type_id: null,
   ch_num: '0',
   active: true,
@@ -75,7 +81,8 @@ const EMPTY: FormState = {
  */
 export function EnterprisesTab() {
   const qc = useQueryClient()
-  const { branches, lumgs, calcs, lines, branchName, lumgName } = useAdminTopology()
+  const { branches, lumgs, calcs, lines, branchName, lumgName, calcIdsOfBranch } =
+    useAdminTopology()
 
   const { data: enterprises, isLoading } = useQuery({
     queryKey: ['admin', 'enterprise-mappings'],
@@ -143,6 +150,62 @@ export function EnterprisesTab() {
     const m = new Map(corectorOptions.map((o) => [o.value, o.label]))
     return (id?: number | null) => (id == null ? '—' : (m.get(String(id)) ?? String(id)))
   }, [corectorOptions])
+
+  // ── Cascading options for the add/edit form ───────────────────────────────
+  // Філія → обчислювач → лінія, виробник → тип коректора. Without this the two
+  // long selects listed every line and every corrector in the system.
+  const formCalcOptions = useMemo(() => {
+    if (!form.branch_id) return toOptions(calcs)
+    const ids = new Set(calcIdsOfBranch(Number(form.branch_id)))
+    return toOptions(calcs.filter((c) => ids.has(c.id)))
+  }, [calcs, form.branch_id, calcIdsOfBranch])
+
+  const formLineOptions = useMemo(() => {
+    const branchId = form.branch_id ? Number(form.branch_id) : null
+    const calcId = form.calc_id ? Number(form.calc_id) : null
+    const branchCalcIds = branchId != null ? new Set(calcIdsOfBranch(branchId)) : null
+    const phys = lines.filter((l) => {
+      if (calcId != null) return l.gas_volume_calc_id === calcId
+      if (branchCalcIds) return l.gas_volume_calc_id != null && branchCalcIds.has(l.gas_volume_calc_id)
+      return true
+    })
+    // ДПД lines hang off the філія/ЛУМГ directly, not off an обчислювач, so
+    // picking a specific обчислювач rules them out.
+    const dpd = (dpdLines ?? []).filter((d) => {
+      if (calcId != null) return false
+      if (branchId != null) return d.branch_id === branchId
+      return true
+    })
+    return [
+      ...phys.map((l) => ({ value: String(l.id), label: l.name })),
+      ...dpd.map((d) => ({ value: String(d.id), label: `[ДПД] ${d.name}` })),
+    ]
+  }, [lines, dpdLines, form.branch_id, form.calc_id, calcIdsOfBranch])
+
+  const manufacturerOptions = useMemo(
+    () =>
+      (manufacturers ?? [])
+        .map((m) => ({ value: String(m.id), label: m.short_name }))
+        .sort((a, b) => a.label.localeCompare(b.label)),
+    [manufacturers],
+  )
+
+  const formCorectorOptions = useMemo(() => {
+    const list = form.manufacturer_id
+      ? (corectorTypes ?? []).filter((ct) => String(ct.manufacturer_id) === form.manufacturer_id)
+      : (corectorTypes ?? [])
+    const mfr = new Map((manufacturers ?? []).map((m) => [m.id, m.short_name]))
+    return list
+      .map((ct) => ({
+        value: String(ct.id),
+        // The manufacturer is already picked above, so repeating it would only
+        // make every option longer.
+        label: form.manufacturer_id
+          ? ct.model_name
+          : `${mfr.get(ct.manufacturer_id) ?? '?'} / ${ct.model_name}`,
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label))
+  }, [corectorTypes, manufacturers, form.manufacturer_id])
 
   const calcToLumg = useMemo(() => new Map(calcs.map((c) => [c.id, c.lumg_id])), [calcs])
   const lumgToBranch = useMemo(() => new Map(lumgs.map((l) => [l.id, l.branch_id])), [lumgs])
@@ -265,11 +328,21 @@ export function EnterprisesTab() {
   const startEdit = (e: EnterpriseMapping) => {
     setAdding(false)
     setEditingId(e.id)
+    // Обчислювач and виробник only steer the selects, so they are back-derived
+    // from what the record already points at — otherwise editing would open
+    // with both narrowing selects blank and the long lists unfiltered again.
+    const calcId = e.line_id != null ? (lineById.get(e.line_id)?.gas_volume_calc_id ?? null) : null
+    const mfrId =
+      e.corector_type_id != null
+        ? ((corectorTypes ?? []).find((ct) => ct.id === e.corector_type_id)?.manufacturer_id ?? null)
+        : null
     setForm({
       enterprise_name: e.enterprise_name,
       branch_id: e.branch_id != null ? String(e.branch_id) : null,
+      calc_id: calcId != null ? String(calcId) : null,
       line_id: (e.line_id ?? e.dpd_line_id) != null ? String(e.line_id ?? e.dpd_line_id) : null,
       ser_num: String(e.ser_num ?? ''),
+      manufacturer_id: mfrId != null ? String(mfrId) : null,
       corector_type_id: e.corector_type_id != null ? String(e.corector_type_id) : null,
       ch_num: String(e.ch_num ?? 0),
       active: e.active,
@@ -315,8 +388,21 @@ export function EnterprisesTab() {
           w={180}
           data={toOptions(branches)}
           value={form.branch_id}
-          onChange={(v) => setForm({ ...form, branch_id: v })}
+          // Changing the філія invalidates whatever обчислювач/лінія was picked
+          // under the previous one.
+          onChange={(v) => setForm({ ...form, branch_id: v, calc_id: null, line_id: null })}
           placeholder="— з лінії —"
+          clearable
+          searchable
+        />
+        <Select
+          label="Обчислювач"
+          size="xs"
+          w={200}
+          data={formCalcOptions}
+          value={form.calc_id}
+          onChange={(v) => setForm({ ...form, calc_id: v, line_id: null })}
+          placeholder={form.branch_id ? '— всі —' : '— спершу філія —'}
           clearable
           searchable
         />
@@ -324,7 +410,7 @@ export function EnterprisesTab() {
           label="Лінія"
           size="xs"
           w={220}
-          data={lineOptions}
+          data={formLineOptions}
           value={form.line_id}
           onChange={(v) => setForm({ ...form, line_id: v })}
           placeholder="— не привʼязано —"
@@ -341,10 +427,21 @@ export function EnterprisesTab() {
           required
         />
         <Select
+          label="Виробник"
+          size="xs"
+          w={160}
+          data={manufacturerOptions}
+          value={form.manufacturer_id}
+          onChange={(v) => setForm({ ...form, manufacturer_id: v, corector_type_id: null })}
+          placeholder="— всі —"
+          clearable
+          searchable
+        />
+        <Select
           label="Тип коректора"
           size="xs"
           w={220}
-          data={corectorOptions}
+          data={formCorectorOptions}
           value={form.corector_type_id}
           onChange={(v) => setForm({ ...form, corector_type_id: v })}
           clearable
@@ -361,14 +458,14 @@ export function EnterprisesTab() {
         />
         <Switch
           size="xs"
-          label="Активне"
+          label="Активний"
           checked={form.active}
           onChange={(e) => setForm({ ...form, active: e.currentTarget.checked })}
           mb={6}
         />
         <Switch
           size="xs"
-          label="Опитувати"
+          label="Увімкнений"
           checked={form.enabled}
           onChange={(e) => setForm({ ...form, enabled: e.currentTarget.checked })}
           mb={6}
@@ -533,7 +630,7 @@ export function EnterprisesTab() {
         <Select
           size="xs"
           w={130}
-          label="Активне"
+          label="Активний"
           placeholder="Всі"
           data={[
             { value: 'true', label: 'Так' },
@@ -546,7 +643,7 @@ export function EnterprisesTab() {
         <Select
           size="xs"
           w={130}
-          label="Опитувати"
+          label="Увімкнений"
           placeholder="Всі"
           data={[
             { value: 'true', label: 'Так' },
@@ -587,8 +684,8 @@ export function EnterprisesTab() {
                   <Table.Th ta="right">Сер. №</Table.Th>
                   <Table.Th>Тип коректора</Table.Th>
                   <Table.Th ta="center">Канал</Table.Th>
-                  <Table.Th ta="center">Активне</Table.Th>
-                  <Table.Th ta="center">Опитувати</Table.Th>
+                  <Table.Th ta="center">Активний</Table.Th>
+                  <Table.Th ta="center">Увімкнений</Table.Th>
                   <Table.Th w={80} />
                 </Table.Tr>
               </Table.Thead>

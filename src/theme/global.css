@@ -196,3 +196,12 @@ table:has(.hlv-table-filler) {
   font-variant-numeric: tabular-nums;
   font-feature-settings: 'tnum' 1;
 }
+
+/* Today in the calendars. Mantine's own `highlightToday` only draws a hairline
+   in a dimmed colour, which disappears next to the red weekend numbers — so the
+   accent is restated here. `:not([data-selected])` keeps the filled selected
+   day untouched: when today IS the chosen date, the selection must win. */
+[data-today]:not([data-selected]):not([data-in-range]) {
+  border: 1px solid var(--mantine-color-petrol-5);
+  font-weight: 700;
+}

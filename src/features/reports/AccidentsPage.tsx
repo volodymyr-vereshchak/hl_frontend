@@ -9,8 +9,10 @@ import {
   UnstyledButton,
   Box,
   Select,
+  SimpleGrid,
+  Card,
 } from '@mantine/core'
-import { IconChevronRight } from '@tabler/icons-react'
+import { IconChevronRight, IconAlertTriangle, IconList, IconGauge } from '@tabler/icons-react'
 import * as XLSX from 'xlsx'
 import { sysArchiveApi, archiveDataApi } from '@/api/entities'
 import { useLanguage } from '@/locales/LanguageContext'
@@ -19,6 +21,7 @@ import {
   pairAccidents,
   groupAccidentsByType,
   summarizeOccurrencesByLine,
+  volumeOverOccurrences,
   groupBounds,
   type AccidentGroup,
   type SysRecord,
@@ -169,6 +172,7 @@ export function AccidentsPage() {
   const [from, setFrom] = useState(initial.from)
   const [to, setTo] = useState(initial.to)
   const [groups, setGroups] = useState<AccidentGroup[] | null>(null)
+  const [unionVolume, setUnionVolume] = useState(0)
   // Kept so the expandable rows use the same daily totals as the summary.
   const [dailyLookup, setDailyLookup] = useState<DailyVolumeLookup>(() => () => undefined)
   const [running, setRunning] = useState(false)
@@ -219,6 +223,21 @@ export function AccidentsPage() {
       const accidents = pairAccidents(rows, { fromDate: contractFrom, toDate: contractEnd })
       const byType = groupAccidentsByType(accidents, dailyVolume)
       setGroups(byType)
+
+      // Overall volume is the union across ALL types per line: alarms of
+      // different types overlap in time, so summing their volumes would count
+      // the same gas twice and could exceed what the line actually passed.
+      const byLine = new Map<number, typeof byType[number]['occurrences']>()
+      for (const g of byType) {
+        for (const o of g.occurrences) {
+          const lid = o.line_id ?? 0
+          if (!byLine.has(lid)) byLine.set(lid, [])
+          byLine.get(lid)!.push(o)
+        }
+      }
+      let union = 0
+      for (const occs of byLine.values()) union += volumeOverOccurrences(occs, dailyVolume)
+      setUnionVolume(union)
     } catch (e) {
       setError((e as Error).message)
       setGroups(null)
@@ -261,6 +280,15 @@ export function AccidentsPage() {
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(perLine), 'По лініях')
     XLSX.writeFile(wb, `accidents_${from}_${to}.xlsx`)
   }
+
+  const totals = useMemo(() => {
+    if (!groups) return null
+    return {
+      types: groups.length,
+      count: groups.reduce((s, g) => s + g.totalCount, 0),
+      volume: unionVolume,
+    }
+  }, [groups, unionVolume])
 
   return (
     <ReportShell
@@ -324,6 +352,44 @@ export function AccidentsPage() {
         </>
       }
     >
+      {totals && (
+        <SimpleGrid cols={{ base: 1, sm: 3 }}>
+          <Card padding="sm" radius="md">
+            <Group gap="xs">
+              <IconAlertTriangle size={16} color="var(--mantine-color-amber-5)" />
+              <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
+                {t('totalAccidents')}
+              </Text>
+            </Group>
+            <Text fz={24} fw={700} style={numericStyle}>
+              {totals.count}
+            </Text>
+          </Card>
+          <Card padding="sm" radius="md">
+            <Group gap="xs">
+              <IconList size={16} color="var(--mantine-color-petrol-5)" />
+              <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
+                {t('accidentTypes')}
+              </Text>
+            </Group>
+            <Text fz={24} fw={700} style={numericStyle}>
+              {totals.types}
+            </Text>
+          </Card>
+          <Card padding="sm" radius="md">
+            <Group gap="xs">
+              <IconGauge size={16} color="var(--mantine-color-steel-5)" />
+              <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
+                {t('totalVolume')}
+              </Text>
+            </Group>
+            <Text fz={24} fw={700} style={numericStyle}>
+              {fmtNum(totals.volume)}
+            </Text>
+          </Card>
+        </SimpleGrid>
+      )}
+
       {groups && groups.length > 0 && (
         /* Height follows the content; the page scrolls, not the table. */
         <Paper withBorder radius="md">
