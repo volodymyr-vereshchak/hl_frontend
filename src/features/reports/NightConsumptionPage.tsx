@@ -5,7 +5,6 @@ import {
   Text,
   Group,
   SegmentedControl,
-  Switch,
   Loader,
   Box,
   ScrollArea,
@@ -55,7 +54,6 @@ export function NightConsumptionPage() {
   const [from, setFrom] = useState(initial.from)
   const [to, setTo] = useState(initial.to)
   const [mode, setMode] = useState<NightMode>('min')
-  const [withEnterprise, setWithEnterprise] = useState(true)
   const [netMap, setNetMap] = useState<NetMap | null>(null)
   const [usedLines, setUsedLines] = useState<ReportLine[]>([])
   const [running, setRunning] = useState(false)
@@ -105,17 +103,16 @@ export function NightConsumptionPage() {
         return
       }
 
-      let enterprise: Awaited<ReturnType<ReturnType<typeof getEnterpriseFetchFn>>> = []
-      if (withEnterprise) {
-        setProgress(t('loadingEnterpriseData'))
-        enterprise = await getEnterpriseFetchFn(true)(
-          reportLines.map((l) => l.id),
-          win.from,
-          win.to,
-          'hourly',
-          (pr) => setProgress(pr.total ? `${pr.done ?? 0}/${pr.total}` : (pr.phase ?? null)),
-        ).catch(() => [])
-      }
+      // Night consumption is by definition the населення share, i.e. what is
+      // left after industry — so industry is always subtracted, never optional.
+      setProgress(t('loadingEnterpriseData'))
+      const enterprise = await getEnterpriseFetchFn(true)(
+        reportLines.map((l) => l.id),
+        win.from,
+        win.to,
+        'hourly',
+        (pr) => setProgress(pr.total ? `${pr.done ?? 0}/${pr.total}` : (pr.phase ?? null)),
+      ).catch(() => [])
 
       setNetMap(buildNetByDayLineHour(hourly, enterprise))
       setUsedLines(reportLines)
@@ -186,14 +183,6 @@ export function NightConsumptionPage() {
               setFrom(f)
               setTo(t2)
             }}
-          />
-          <Switch
-            size="sm"
-            color="grape"
-            checked={withEnterprise}
-            onChange={(e) => setWithEnterprise(e.currentTarget.checked)}
-            label={t('enterpriseOverlay')}
-            styles={{ label: { whiteSpace: 'nowrap' } }}
           />
           {progress && (
             <Group gap={4} wrap="nowrap">
