@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { startTransition, useCallback, useEffect, useState } from 'react'
 import { Navigate, useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Paper,
@@ -114,6 +114,13 @@ export function ArchivePage() {
   const overlay = useEnterpriseOverlay(canOverlay ? lineId : null, lineMeta, archiveType, dateRange)
   const rows =
     canOverlay && overlay.enabled && rawRows ? applyOverlay(rawRows, overlay.byPeriod, archiveType) : rawRows
+  const showChart = canOverlay && view === 'chart' && !!rows?.length
+  // Once the chart has been opened it stays in the tree, hidden.
+  const [chartMounted, setChartMounted] = useState(false)
+  useEffect(() => {
+    if (showChart) setChartMounted(true)
+  }, [showChart])
+
 
   const canExport = !!rows && rows.length > 0
   const handleExport = async () => {
@@ -147,10 +154,14 @@ export function ArchivePage() {
   }
 
   // Clicking a daily volume opens that commercial day in the hourly archive.
-  const drillToHourly = (day: string) => {
-    setDateRange({ fromDate: day, toDate: day })
-    navigate('/archive/hourly')
-  }
+  // Stable identity, or the memoised table would rebuild on every render.
+  const drillToHourly = useCallback(
+    (day: string) => {
+      setDateRange({ fromDate: day, toDate: day })
+      navigate('/archive/hourly')
+    },
+    [navigate, setDateRange],
+  )
 
   const titleMap: Record<ArchiveType, string> = {
     daily: t('dailyArchive'),
@@ -220,10 +231,14 @@ export function ArchivePage() {
                   py={6}
                   style={{ borderBottom: '1px solid var(--hlv-border)', flexShrink: 0 }}
                 >
+                  {/* The heavy part of the switch is mounting the chart (~450ms
+                      of render for a month of hourly points). startTransition
+                      lets React paint the control immediately and do that work
+                      after, so the click never feels swallowed. */}
                   <SegmentedControl
                     size="xs"
                     value={view}
-                    onChange={(v) => setView(v as 'table' | 'chart')}
+                    onChange={(v) => startTransition(() => setView(v as 'table' | 'chart'))}
                     data={[
                       { value: 'table', label: t('table') },
                       { value: 'chart', label: t('chart') },
@@ -231,22 +246,38 @@ export function ArchivePage() {
                   />
                 </Group>
               )}
-              {canOverlay && view === 'chart' && rows.length > 0 ? (
-                <ArchiveChart
+              {/*
+                The table is HIDDEN, not unmounted, when the chart is shown. A
+                month of hourly data is ~750 rows; re-mounting them on every
+                switch cost ~1s of blocked main thread, which read as "the table
+                is loading again". Kept mounted, switching back is instant.
+              */}
+              <Box style={{ flex: 1, minHeight: 0, display: showChart ? 'none' : 'block' }}>
+                <ArchiveTable
                   rows={rows}
                   type={archiveType}
                   meta={lineMeta}
-                  overlay={overlay.enabled && !!overlay.byPeriod}
-                  embedded
+                  overlay={canOverlay && overlay.enabled && !!overlay.byPeriod}
+                  onDrillDown={drillToHourly}
                 />
-              ) : (
-                <Box style={{ flex: 1, minHeight: 0 }}>
-                  <ArchiveTable
+              </Box>
+              {/* Mounted on first use and then kept: re-creating the plot on
+                  every switch cost about a second each way. */}
+              {chartMounted && (
+                <Box
+                  style={{
+                    flex: showChart ? 1 : undefined,
+                    minHeight: 0,
+                    display: showChart ? 'flex' : 'none',
+                    flexDirection: 'column',
+                  }}
+                >
+                  <ArchiveChart
                     rows={rows}
                     type={archiveType}
                     meta={lineMeta}
-                    overlay={canOverlay && overlay.enabled && !!overlay.byPeriod}
-                    onDrillDown={drillToHourly}
+                    overlay={overlay.enabled && !!overlay.byPeriod}
+                    embedded
                   />
                 </Box>
               )}

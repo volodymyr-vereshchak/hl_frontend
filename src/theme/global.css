@@ -156,3 +156,18 @@ body {
     transition-duration: 0.01ms !important;
   }
 }
+
+/*
+ * Archive table body cells. Rendered as plain <td> for speed (see the note in
+ * ArchiveTable), so the alignment, the monospaced digits and the no-wrap rule
+ * that used to be inline styles live here instead.
+ */
+.hlv-cell {
+  text-align: center;
+  white-space: nowrap;
+}
+.hlv-cell-num {
+  font-family: 'JetBrains Mono Variable', ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}

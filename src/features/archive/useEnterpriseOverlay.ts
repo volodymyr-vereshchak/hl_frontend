@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { startTransition, useCallback, useEffect, useRef, useState } from 'react'
 import type { ArchiveType } from '@/types'
 import type { LineMeta, DateRange } from '@/store/selectionStore'
 import {
@@ -33,7 +33,11 @@ export function useEnterpriseOverlay(
   type: ArchiveType,
   range: DateRange,
 ): OverlayState {
-  const [enabled, setEnabled] = useState(false)
+  const [enabled, setEnabledState] = useState(false)
+  // The flag itself flips at once; the re-render it causes (a month of hourly
+  // rows plus two new columns) runs as a transition so the switch never feels
+  // stuck under the finger.
+  const setEnabled = useCallback((v: boolean) => startTransition(() => setEnabledState(v)), [])
   const [loading, setLoading] = useState(false)
   const [progress, setProgress] = useState<OverlayState['progress']>(null)
   const [error, setError] = useState<string | null>(null)

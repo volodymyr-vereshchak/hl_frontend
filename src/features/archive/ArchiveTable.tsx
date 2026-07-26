@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { memo, useMemo, useState } from 'react'
 import { Table, Text, Group, Box, ScrollArea } from '@mantine/core'
 import { IconArrowUp, IconArrowDown } from '@tabler/icons-react'
 import {
@@ -57,7 +57,19 @@ function fmtNumber(v: unknown, digits = 2): string {
 
 const helper = createColumnHelper<ArchiveRow>()
 
-export function ArchiveTable({ rows, type, meta, overlay, onDrillDown }: Props) {
+/**
+ * Memoised: a month of hourly data is ~750 rows, and rebuilding them cost ~0.8s
+ * of blocked main thread whenever ANY sibling state changed — flipping the
+ * industry switch, for instance, which does not touch the table until its data
+ * actually arrives. Callers must keep the props referentially stable.
+ */
+export const ArchiveTable = memo(function ArchiveTable({
+  rows,
+  type,
+  meta,
+  overlay,
+  onDrillDown,
+}: Props) {
   const { t } = useLanguage()
   const [sorting, setSorting] = useState<SortingState>([])
 
@@ -188,28 +200,29 @@ export function ArchiveTable({ rows, type, meta, overlay, onDrillDown }: Props) 
             </Table.Tr>
           ))}
         </Table.Thead>
+        {/*
+          Plain <tr>/<td> in the body, not Table.Tr/Table.Td. A month of hourly
+          data is ~750 rows x 10 columns; routing every one of those ~7500 cells
+          through Mantine's styles API cost 1.4-2.0s of blocked main thread on
+          each re-render (measured), which is what made toggling the industry
+          overlay and switching table/chart feel stuck. The look is unchanged —
+          striping and hover come from the parent Table's own classes, and the
+          alignment lives in the CSS class below.
+        */}
         <Table.Tbody>
           {table.getRowModel().rows.map((row) => (
-            <Table.Tr key={row.id}>
-              {row.getVisibleCells().map((cell) => {
-                const isNum = numericKeys.has(cell.column.id)
-                return (
-                  <Table.Td
-                    key={cell.id}
-                    style={{
-                      textAlign: 'center',
-                      // Values never wrap. Turning the industry overlay on adds
-                      // two columns, and the timestamp was the first thing to
-                      // break onto a second line, doubling every row's height.
-                      whiteSpace: 'nowrap',
-                      ...(isNum ? numericStyle : {}),
-                    }}
-                  >
-                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                  </Table.Td>
-                )
-              })}
-            </Table.Tr>
+            <tr key={row.id}>
+              {row.getVisibleCells().map((cell) => (
+                <td
+                  key={cell.id}
+                  className={
+                    numericKeys.has(cell.column.id) ? 'hlv-cell hlv-cell-num' : 'hlv-cell'
+                  }
+                >
+                  {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                </td>
+              ))}
+            </tr>
           ))}
         </Table.Tbody>
         {hasSummary && rows.length > 0 && (
@@ -254,4 +267,4 @@ export function ArchiveTable({ rows, type, meta, overlay, onDrillDown }: Props) 
       )}
     </ScrollArea>
   )
-}
+})
