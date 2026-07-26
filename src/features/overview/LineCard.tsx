@@ -1,4 +1,4 @@
-import { Card, Text, Group, Box, Stack } from '@mantine/core'
+import { Card, Text, Group, Box, Stack, Tooltip } from '@mantine/core'
 import { IconArrowUpRight, IconArrowDownRight, IconMinus } from '@tabler/icons-react'
 import { numericStyle } from '@/theme/theme'
 import { useLanguage } from '@/locales/LanguageContext'
@@ -20,6 +20,16 @@ const fmt = (n: number | null | undefined, d = 2) =>
   n == null || isNaN(n) ? '—' : Number(n).toFixed(d)
 const fmtVol = (n: number | null | undefined) =>
   n == null || isNaN(n) ? '—' : Number(n).toLocaleString('uk-UA', { maximumFractionDigits: 1 })
+
+/** Lag as "3 год 12 хв" — whole hours only once it passes a day's worth. */
+function fmtLag(ms: number, t: (k: string) => string): string {
+  const totalMin = Math.round(ms / 60_000)
+  const h = Math.floor(totalMin / 60)
+  const m = totalMin % 60
+  if (h === 0) return `${m} ${t('unitMinuteShort')}`
+  if (m === 0) return `${h} ${t('unitHourShort')}`
+  return `${h} ${t('unitHourShort')} ${m} ${t('unitMinuteShort')}`
+}
 
 function fmtTime(ts: Date | string | undefined): string {
   if (!ts) return '--:--'
@@ -127,12 +137,13 @@ function DpBar({ dp }: { dp: NonNullable<PressureReading['dpData']> }) {
 export function LineCard({ lineName, pressure, flow, volume, referenceTime }: LineCardProps) {
   const { t } = useLanguage()
   const dp = pressure.dpData
-  const isStale =
+  const lagMs =
     referenceTime && pressure.timestamp
-      ? Math.abs(new Date(pressure.timestamp).getTime() - new Date(referenceTime).getTime()) > 60_000
-      : false
+      ? Math.abs(new Date(pressure.timestamp).getTime() - new Date(referenceTime).getTime())
+      : 0
+  const isStale = lagMs > 60_000
 
-  return (
+  const card = (
     <Card
       padding="xs"
       radius="md"
@@ -141,8 +152,8 @@ export function LineCard({ lineName, pressure, flow, volume, referenceTime }: Li
         // Fill the grid row so cards in a row line up regardless of which
         // sections (flow / volume / dP) a line actually has.
         height: '100%',
-        borderColor: isStale ? 'var(--mantine-color-red-7)' : undefined,
-        background: isStale ? 'color-mix(in srgb, var(--mantine-color-red-9) 12%, var(--hlv-surface))' : undefined,
+        borderColor: isStale ? 'var(--hlv-stale-border)' : undefined,
+        background: isStale ? 'var(--hlv-stale-bg)' : undefined,
       }}
     >
       <Stack gap={6} align="center">
@@ -254,5 +265,19 @@ export function LineCard({ lineName, pressure, flow, volume, referenceTime }: Li
         )}
       </Stack>
     </Card>
+  )
+
+  // The red card alone does not say what is wrong; the tooltip names it and
+  // quantifies how far this line lags the rest of the branch.
+  if (!isStale) return card
+  return (
+    <Tooltip
+      label={`${t('staleData')} — ${t('staleBehindBy')} ${fmtLag(lagMs, t)}`}
+      withArrow
+      position="top"
+      color="red"
+    >
+      {card}
+    </Tooltip>
   )
 }

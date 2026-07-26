@@ -24,6 +24,10 @@ body {
   --hlv-surface-2: #e9edef;
   --hlv-border: #d5dbde;
   --hlv-grid-line: #eceff1;
+  /* Line card whose data lags the rest of the branch. On white a dark red
+     border barely registers, so light gets a fully saturated one. */
+  --hlv-stale-border: var(--mantine-color-red-6);
+  --hlv-stale-bg: #fdeced;
 }
 
 [data-mantine-color-scheme='dark'] {
@@ -32,6 +36,8 @@ body {
   --hlv-surface-2: #222b34;
   --hlv-border: #2c353d;
   --hlv-grid-line: #232c34;
+  --hlv-stale-border: var(--mantine-color-red-7);
+  --hlv-stale-bg: color-mix(in srgb, var(--mantine-color-red-9) 12%, var(--hlv-surface));
 }
 
 body {

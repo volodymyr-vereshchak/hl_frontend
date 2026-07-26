@@ -225,6 +225,10 @@ grsTrends: "Тренды ГРС",
   flowInWorkingConditions: "Расход в р.у.",
   currentValue: "Текущее",
   maxValue24h: "Макс. 24ч",
+  staleData: "Данные устарели",
+  staleBehindBy: "отстают на",
+  unitHourShort: "ч",
+  unitMinuteShort: "мин",
 
   // Enterprise Poll Analysis
   enterprisePoll: "Опрос предприятий",
