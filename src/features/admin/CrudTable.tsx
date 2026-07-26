@@ -45,6 +45,8 @@ export interface CrudField<T> {
   /** Hide from the create/edit form (e.g. computed columns). */
   hideInForm?: boolean
   numeric?: boolean
+  /** Select whose value must be sent as a number (foreign keys). */
+  numericValue?: boolean
   render?: (row: T) => ReactNode
 }
 
@@ -61,7 +63,12 @@ export interface CrudTableProps<T extends { id: number }> {
   searchKeys?: string[]
   rowLabel?: (row: T) => string
   extraRowActions?: (row: T) => ReactNode
+  /** Controls rendered in the toolbar, e.g. branch/calc filters. */
   toolbarExtra?: ReactNode
+  /** Row predicate applied before the search box, for those toolbar filters. */
+  filter?: (row: T) => boolean
+  /** Values merged into the payload of every create (e.g. a pre-selected branch). */
+  createDefaults?: Record<string, unknown>
 }
 
 const PAGE_SIZE_DEFAULT = 50
@@ -83,6 +90,8 @@ export function CrudTable<T extends { id: number }>({
   rowLabel,
   extraRowActions,
   toolbarExtra,
+  filter,
+  createDefaults,
 }: CrudTableProps<T>) {
   const qc = useQueryClient()
   const { data, isLoading, error, refetch, isFetching } = useQuery({ queryKey, queryFn: fetchAll })
@@ -119,14 +128,14 @@ export function CrudTable<T extends { id: number }>({
   })
 
   const rows = useMemo(() => {
-    const all = data ?? []
+    const all = filter ? (data ?? []).filter(filter) : (data ?? [])
     const q = search.trim().toLowerCase()
     if (!q) return all
     const keys = searchKeys ?? fields.map((f) => f.key)
     return all.filter((row) =>
       keys.some((k) => String((row as Record<string, unknown>)[k] ?? '').toLowerCase().includes(q)),
     )
-  }, [data, search, searchKeys, fields])
+  }, [data, search, searchKeys, fields, filter])
 
   const pageRows = useMemo(
     () => rows.slice((page - 1) * pageSize, page * pageSize),
@@ -139,7 +148,7 @@ export function CrudTable<T extends { id: number }>({
     fields.forEach((f) => {
       if (f.type === 'checkbox') init[f.key] = false
     })
-    setForm(init)
+    setForm({ ...init, ...createDefaults })
     open()
   }
 
@@ -327,7 +336,9 @@ export function CrudTable<T extends { id: number }>({
                   label={f.label}
                   data={f.options ?? []}
                   value={value == null ? null : String(value)}
-                  onChange={(v) => setForm({ ...form, [f.key]: v })}
+                  onChange={(v) =>
+                    setForm({ ...form, [f.key]: v && f.numericValue ? Number(v) : v })
+                  }
                   required={f.required}
                   searchable
                   clearable

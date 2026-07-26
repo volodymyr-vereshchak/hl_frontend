@@ -24,17 +24,17 @@ import {
   LumgsTab,
   LinesConfigTab,
   CalcsTab,
-  VirtualLinesTab,
-  DpdLinesTab,
   CalcTypesTab,
   DeviceMappingsTab,
   CorrectorTypesTab,
-  EnterprisesTab,
 } from './tabs/SimpleTabs'
 import { EventTypesTab } from './tabs/EventTypesTab'
 import { UpdateTab } from './tabs/UpdateTab'
 import { DataPathsTab } from './tabs/DataPathsTab'
 import { DpdCredentialsTab } from './tabs/DpdCredentialsTab'
+import { RingsTab } from './tabs/RingsTab'
+import { DpdLinesTab } from './tabs/DpdLinesTab'
+import { EnterprisesTab } from './tabs/EnterprisesTab'
 
 interface TabDef {
   id: string
@@ -68,7 +68,7 @@ const GROUPS: GroupDef[] = [
     tabs: [
       { id: 'lines', label: 'Лінії', icon: <IconRipple size={16} />, element: <LinesConfigTab /> },
       { id: 'calcs', label: 'Обчислювачі', icon: <IconCpu size={16} />, element: <CalcsTab /> },
-      { id: 'virtual', label: 'Віртуальні лінії', icon: <IconCircles size={16} />, element: <VirtualLinesTab /> },
+      { id: 'virtual', label: 'Кільця', icon: <IconCircles size={16} />, element: <RingsTab /> },
       { id: 'dpd-lines', label: 'Лінії ДПД', icon: <IconApi size={16} />, element: <DpdLinesTab /> },
     ],
   },

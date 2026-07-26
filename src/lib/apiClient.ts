@@ -52,6 +52,11 @@ export function setSessionHandlers({ onSessionLost }: { onSessionLost?: () => vo
   _onSessionLost = onSessionLost ?? null
 }
 
+/** Base URL for requests that bypass the JSON client (file download / upload). */
+export function apiBaseUrl(): string {
+  return resolveBaseUrl()
+}
+
 function resolveBaseUrl(): string {
   const w = window as unknown as { APP_CONFIG?: { API_URL?: string } }
   return w.APP_CONFIG?.API_URL || import.meta.env.VITE_API_URL || DEFAULT_API_URL

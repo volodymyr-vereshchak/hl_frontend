@@ -1,4 +1,4 @@
-import { api } from '@/lib/apiClient'
+import { api, apiBaseUrl } from '@/lib/apiClient'
 import type { Branch, Lumg, Line, GasVolumeCalc, CalcType, VirtualLine, DpdLine, UserRole } from '@/types'
 
 // ── Users ───────────────────────────────────────────────────────────────────
@@ -26,12 +26,29 @@ export const branchAdminApi = {
   create: (data: Partial<Branch>) => api.post<Branch>('/grmu_branch/', data),
   update: (id: number, data: Partial<Branch>) => api.patch<Branch>(`/grmu_branch/${id}`, data),
   remove: (id: number) => api.delete<true>(`/grmu_branch/${id}`),
-  // ASK.CFG name-config path + mappings
-  getConfigPath: (id: number) => api.get<{ path?: string; active?: boolean }>(`/grmu_branch/${id}/data-path`),
+  // ASK.CFG — the file line/ГРС names are read from, plus its ЛУМГ mapping
+  getConfigPath: (id: number) => api.get<DataPath | null>(`/grmu_branch/${id}/data-path`),
   setConfigPath: (id: number, data: { path: string; active?: boolean }) =>
-    api.put<unknown>(`/grmu_branch/${id}/data-path`, data),
+    api.put<DataPath>(`/grmu_branch/${id}/data-path`, data),
   deleteConfigPath: (id: number) => api.delete<true>(`/grmu_branch/${id}/data-path`),
+  previewConfig: (id: number) => api.get<ConfigGis[]>(`/grmu_branch/${id}/config-preview`),
+  getConfigMappings: (id: number) => api.get<ConfigMapping[]>(`/grmu_branch/${id}/config-mappings`),
+  setConfigMappings: (id: number, data: ConfigMapping[]) =>
+    api.put<ConfigMapping[]>(`/grmu_branch/${id}/config-mappings`, data),
   updateNames: (id: number) => api.post<unknown>(`/grmu_branch/${id}/update-names`),
+}
+
+/** One ГРС block found inside ASK.CFG. */
+export interface ConfigGis {
+  gis_name: string
+  flow_count: number
+  line_count: number
+}
+
+/** Which ЛУМГ a CFG block's names belong to. */
+export interface ConfigMapping {
+  gis_name: string
+  lumg_id: number | null
 }
 
 export const lumgAdminApi = {
@@ -44,9 +61,12 @@ export const lumgAdminApi = {
     api.put<DataPath>(`/lumgs/${id}/data-path`, data),
   deleteDataPath: (id: number) => api.delete<true>(`/lumgs/${id}/data-path`),
   getEisCodes: (id: number) => api.get<EisCode[]>(`/lumgs/${id}/eis-codes`),
-  addEisCode: (id: number, code: string) => api.post<EisCode>(`/lumgs/${id}/eis-codes`, { code }),
-  deleteEisCode: (id: number, codeId: number) => api.delete<true>(`/lumgs/${id}/eis-codes/${codeId}`),
-  scanEis: (id: number) => api.get<{ codes?: string[] }>(`/lumgs/${id}/scan-eis`),
+  addEisCode: (id: number, eisCode: string) =>
+    api.post<EisCode>(`/lumgs/${id}/eis-codes`, { eis_code: eisCode }),
+  deleteEisCode: (id: number, eisCode: string) =>
+    api.delete<true>(`/lumgs/${id}/eis-codes/${encodeURIComponent(eisCode)}`),
+  /** Folder names found under the ЛУМГ's archive path, as raw code strings. */
+  scanEis: (id: number) => api.get<string[]>(`/lumgs/${id}/scan-eis`),
 }
 
 export interface DataPath {
@@ -58,7 +78,7 @@ export interface DataPath {
 
 export interface EisCode {
   id: number
-  code: string
+  eis_code: string
   lumg_id?: number
 }
 
@@ -97,7 +117,18 @@ export const dpdLineAdminApi = {
   update: (id: number, data: Partial<DpdLine>) => api.patch<DpdLine>(`/dpd_lines/${id}`, data),
   remove: (id: number) => api.delete<true>(`/dpd_lines/${id}`),
   init: (id: number) => api.post<unknown>(`/dpd_lines/${id}/init`),
-  initStatus: (id: number) => api.get<{ status?: string }>(`/dpd_lines/${id}/init/status`),
+  initStatus: (id: number) => api.get<DpdJobStatus>(`/dpd_lines/${id}/init/status`),
+}
+
+/** Init/refresh job of one DPD line. */
+export interface DpdJobStatus {
+  status: 'idle' | 'running' | 'done' | 'error' | string
+  kind?: 'init' | 'update' | string
+  progress_done?: number | null
+  progress_total?: number | null
+  started_at?: string | null
+  finished_at?: string | null
+  error?: string | null
 }
 
 // ── Reference tables (paged) ────────────────────────────────────────────────
@@ -138,16 +169,15 @@ export const editTypeApi = {
 export interface Manufacturer {
   id: number
   short_name: string
-  full_name?: string | null
+  full_name: string
   mf_dev: number
 }
 
 export interface CorectorType {
   id: number
-  name?: string
-  type_dev?: number
-  mf_dev?: number
-  model_name?: string
+  manufacturer_id: number
+  model_name: string
+  type_dev: number
 }
 
 export const deviceCatalogApi = {
@@ -156,13 +186,26 @@ export const deviceCatalogApi = {
 }
 
 // ── Enterprise mappings ─────────────────────────────────────────────────────
+/**
+ * One industrial consumer behind a metering line. It points at EITHER a physical
+ * line (`line_id`) or a DPD line (`dpd_line_id`) — the backend rejects both.
+ */
 export interface EnterpriseMapping {
   id: number
-  name?: string
-  line_id?: number | null
-  ser_num?: string | null
+  enterprise_name: string
   branch_id?: number | null
-  [key: string]: unknown
+  line_id?: number | null
+  dpd_line_id?: number | null
+  ser_num: number
+  corector_type_id?: number | null
+  ch_num: number
+  active: boolean
+  enabled: boolean
+}
+
+export interface UploadResult {
+  imported: number
+  errors?: string[]
 }
 
 export const enterpriseMappingApi = {
@@ -171,24 +214,55 @@ export const enterpriseMappingApi = {
   update: (id: number, data: Partial<EnterpriseMapping>) =>
     api.patch<EnterpriseMapping>(`/enterprise-mappings/${id}`, data),
   remove: (id: number) => api.delete<true>(`/enterprise-mappings/${id}`),
+
+  downloadTemplate: () => window.open(`${apiBaseUrl()}/enterprise-mappings/template`, '_blank'),
+  downloadExport: () => window.open(`${apiBaseUrl()}/enterprise-mappings/export`, '_blank'),
+
+  /** Excel import; multipart, so it goes around the JSON client. */
+  async uploadExcel(file: File, branchId?: number): Promise<UploadResult> {
+    const form = new FormData()
+    form.append('file', file)
+    const url = branchId
+      ? `${apiBaseUrl()}/enterprise-mappings/upload?branch_id=${branchId}`
+      : `${apiBaseUrl()}/enterprise-mappings/upload`
+    const res = await fetch(url, { method: 'POST', body: form, credentials: 'include' })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }))
+      throw new Error(typeof err.detail === 'string' ? err.detail : JSON.stringify(err.detail))
+    }
+    return res.json()
+  },
 }
 
-// ── DPD config / credentials ────────────────────────────────────────────────
-export interface DpdGlobalConfig {
-  api_base_url?: string
-  auth_url?: string
-  timeout_sec?: number
+// ── DPD archive job (industry data cache) ───────────────────────────────────
+export interface ArchiveRefreshStatus {
+  status: 'idle' | 'running' | 'done' | 'error' | string
+  started_at?: string | null
+  finished_at?: string | null
+  progress_done?: number | null
+  progress_total?: number | null
+  error?: string | null
 }
 
-export const dpdConfigApi = {
-  get: () => api.get<DpdGlobalConfig>('/grmu_branch/dpd-config'),
-  upsert: (data: DpdGlobalConfig) => api.put<DpdGlobalConfig>('/grmu_branch/dpd-config', data),
+export const enterpriseArchiveApi = {
+  status: () => api.get<ArchiveRefreshStatus>('/enterprise/archive/refresh/status'),
+  refresh: () => api.post<unknown>('/enterprise/archive/refresh'),
+  clearCache: () => api.delete<unknown>('/enterprise/cache/'),
 }
 
+// ── DPD credentials ─────────────────────────────────────────────────────────
+/**
+ * Per-branch DPD access. Every branch has its OWN endpoints and login — there is
+ * no shared configuration (grmu_branch_dpd_credential is 1:1 with the branch).
+ * `password` is write-only: the API never returns it.
+ */
 export interface DpdCredential {
+  branch_id?: number
   username?: string
   password?: string
-  branch_id?: number
+  api_base_url?: string | null
+  auth_url?: string | null
+  timeout_sec?: number
 }
 
 export const dpdCredentialApi = {

@@ -48,23 +48,43 @@ export interface Line {
   dp_unit?: string | null
 }
 
+/**
+ * A "кільце" — a named sum of several real lines (physical and/or DPD). It
+ * behaves like a line everywhere else: it shows up in the archives, in the
+ * reports and in the trends. Members live in `physical_line_ids`.
+ */
 export interface VirtualLine {
   id: number
   name: string
-  lumg_id?: number | null
-  branch_id?: number | null
-  include_in_trends?: boolean
-  include_in_report?: boolean
-}
-
-export interface DpdLine {
-  id: number
-  name: string
+  description?: string | null
   lumg_id?: number | null
   branch_id?: number | null
   active?: boolean
   include_in_trends?: boolean
   include_in_report?: boolean
+  physical_line_ids?: number[]
+}
+
+/** One corrector in a DPD line's history; it is in force from `installed_from`. */
+export interface DpdDevice {
+  ser_num: number
+  corector_type_id: number
+  ch_num: number
+  installed_from: string
+  model_name?: string | null
+  manufacturer?: string | null
+}
+
+export interface DpdLine {
+  id: number
+  name: string
+  description?: string | null
+  lumg_id?: number | null
+  branch_id?: number | null
+  active?: boolean
+  include_in_trends?: boolean
+  include_in_report?: boolean
+  devices?: DpdDevice[]
 }
 
 /** Line kind for routing archive requests to the right endpoints. */

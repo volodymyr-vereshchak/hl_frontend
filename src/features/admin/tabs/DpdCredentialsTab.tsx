@@ -1,91 +1,316 @@
 import { useEffect, useState } from 'react'
 import {
-  Stack,
-  Group,
-  Text,
-  Paper,
-  TextInput,
-  NumberInput,
-  Button,
-  Select,
-  PasswordInput,
-  Box,
   Alert,
+  Badge,
+  Box,
+  Button,
+  Code,
+  Group,
+  NumberInput,
+  Paper,
+  PasswordInput,
+  Progress,
+  Stack,
+  Text,
+  TextInput,
 } from '@mantine/core'
-import { IconDeviceFloppy, IconInfoCircle, IconTrash } from '@tabler/icons-react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { modals } from '@mantine/modals'
 import { notifications } from '@mantine/notifications'
-import { branchAdminApi, dpdConfigApi, dpdCredentialApi } from '@/api/admin'
+import { IconDeviceFloppy, IconRefresh, IconTrash } from '@tabler/icons-react'
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  branchAdminApi,
+  dpdCredentialApi,
+  enterpriseArchiveApi,
+  type ArchiveRefreshStatus,
+  type DpdCredential,
+} from '@/api/admin'
+import type { Branch } from '@/types'
 
 const notifyErr = (e: Error) => notifications.show({ message: e.message, color: 'red' })
 
-/** Global DPD API config + per-branch credentials. */
-export function DpdCredentialsTab() {
+/** Shared DPD data cache: one refresh job covering all branches. */
+function ArchiveControls() {
   const qc = useQueryClient()
-  const [branchId, setBranchId] = useState<string | null>(null)
-  const [apiBase, setApiBase] = useState('')
-  const [authUrl, setAuthUrl] = useState('')
-  const [timeout, setTimeoutSec] = useState<number | ''>(600)
-  const [username, setUsername] = useState('')
-  const [password, setPassword] = useState('')
+  const [polling, setPolling] = useState(false)
 
-  const { data: branches } = useQuery({ queryKey: ['admin', 'branches'], queryFn: branchAdminApi.getAll })
-  const { data: config } = useQuery({
-    queryKey: ['admin', 'dpd-config'],
-    queryFn: () => dpdConfigApi.get().catch(() => ({}) as Record<string, never>),
-  })
-  const { data: cred } = useQuery({
-    queryKey: ['admin', 'dpd-cred', branchId],
-    queryFn: () => dpdCredentialApi.get(Number(branchId)).catch(() => null),
-    enabled: !!branchId,
+  const { data: job } = useQuery<ArchiveRefreshStatus | null>({
+    queryKey: ['admin', 'dpd-archive-status'],
+    queryFn: () => enterpriseArchiveApi.status().catch(() => null),
+    refetchInterval: polling ? 2000 : false,
   })
 
   useEffect(() => {
-    if (config) {
-      setApiBase(config.api_base_url ?? '')
-      setAuthUrl(config.auth_url ?? '')
-      setTimeoutSec(config.timeout_sec ?? 600)
-    }
-  }, [config])
+    setPolling(job?.status === 'running')
+  }, [job?.status])
 
-  useEffect(() => {
-    setUsername(cred?.username ?? '')
-    setPassword('')
-  }, [cred])
-
-  const saveConfig = useMutation({
-    mutationFn: () =>
-      dpdConfigApi.upsert({
-        api_base_url: apiBase,
-        auth_url: authUrl,
-        timeout_sec: timeout === '' ? undefined : Number(timeout),
+  const refresh = useMutation({
+    mutationFn: enterpriseArchiveApi.refresh,
+    onSuccess: () => {
+      notifications.show({ message: 'Оновлення запущено', color: 'teal' })
+      setPolling(true)
+      qc.invalidateQueries({ queryKey: ['admin', 'dpd-archive-status'] })
+    },
+    onError: () =>
+      notifications.show({
+        message: 'Не вдалося запустити (можливо, вже виконується)',
+        color: 'red',
       }),
+  })
+
+  const clear = useMutation({
+    mutationFn: enterpriseArchiveApi.clearCache,
+    onSuccess: () => notifications.show({ message: 'Архів очищено', color: 'teal' }),
+    onError: notifyErr,
+  })
+
+  const running = job?.status === 'running'
+  // The job counts each device twice (daily + hourly pass) — report devices.
+  const done = Math.floor((job?.progress_done ?? 0) / 2)
+  const total = Math.ceil((job?.progress_total ?? 0) / 2)
+
+  return (
+    <Paper withBorder radius="md" p="md">
+      <Group justify="space-between" wrap="wrap" gap="sm">
+        <Box style={{ flex: 1, minWidth: 240 }}>
+          <Text fw={600} size="sm">
+            Архів даних ДПД
+          </Text>
+          <Text size="xs" c="dimmed">
+            Оновлюється автоматично о 10:00 та 16:00 — останні 30 днів по всіх підприємствах
+          </Text>
+        </Box>
+        <Group gap="xs">
+          <Button
+            size="xs"
+            leftSection={<IconRefresh size={14} />}
+            onClick={() => refresh.mutate()}
+            disabled={running}
+            loading={refresh.isPending}
+          >
+            {running ? 'Виконується…' : 'Оновити зараз'}
+          </Button>
+          <Button
+            size="xs"
+            color="red"
+            variant="light"
+            leftSection={<IconTrash size={14} />}
+            disabled={running}
+            onClick={() =>
+              modals.openConfirmModal({
+                title: 'Очистити архів ДПД',
+                children: (
+                  <Text size="sm">
+                    Дані буде завантажено заново при наступному оновленні. Продовжити?
+                  </Text>
+                ),
+                labels: { confirm: 'Очистити', cancel: 'Скасувати' },
+                confirmProps: { color: 'red' },
+                onConfirm: () => clear.mutate(),
+              })
+            }
+          >
+            Очистити архів
+          </Button>
+        </Group>
+      </Group>
+
+      {running && total > 0 && (
+        <Box mt="sm">
+          <Progress value={(done / total) * 100} size="sm" color="amber" animated />
+          <Text size="10px" c="dimmed" mt={2}>
+            {done} / {total} приладів
+          </Text>
+        </Box>
+      )}
+      {!running && job?.finished_at && (
+        <Text size="xs" c={job.status === 'error' ? 'red.5' : 'dimmed'} mt="sm">
+          Останнє оновлення: {new Date(job.finished_at).toLocaleString('uk-UA')}
+          {job.status === 'error' && job.error ? ` — помилка: ${job.error}` : ''}
+        </Text>
+      )}
+    </Paper>
+  )
+}
+
+/** One branch card: its own endpoints, login and password. */
+function BranchCard({ branch, cred }: { branch: Branch; cred: DpdCredential | null }) {
+  const qc = useQueryClient()
+  const [editing, setEditing] = useState(false)
+  const [form, setForm] = useState<DpdCredential>({})
+
+  const startEdit = () => {
+    setForm({
+      username: cred?.username ?? '',
+      password: '',
+      api_base_url: cred?.api_base_url ?? '',
+      auth_url: cred?.auth_url ?? '',
+      timeout_sec: cred?.timeout_sec ?? 30,
+    })
+    setEditing(true)
+  }
+
+  const invalidate = () => qc.invalidateQueries({ queryKey: ['admin', 'dpd-cred', branch.id] })
+
+  const save = useMutation({
+    mutationFn: () => {
+      const payload: DpdCredential = {
+        username: form.username,
+        api_base_url: form.api_base_url,
+        auth_url: form.auth_url,
+        timeout_sec: Number(form.timeout_sec) || 30,
+      }
+      // An empty password means "keep the current one" — never send a blank.
+      if (form.password) payload.password = form.password
+      return dpdCredentialApi.upsert(branch.id, payload)
+    },
     onSuccess: () => {
-      notifications.show({ message: 'Конфігурацію збережено', color: 'teal' })
-      qc.invalidateQueries({ queryKey: ['admin', 'dpd-config'] })
+      notifications.show({ message: 'Збережено', color: 'teal' })
+      setEditing(false)
+      invalidate()
     },
     onError: notifyErr,
   })
 
-  const saveCred = useMutation({
-    mutationFn: () => dpdCredentialApi.upsert(Number(branchId), { username, password }),
+  const remove = useMutation({
+    mutationFn: () => dpdCredentialApi.remove(branch.id),
     onSuccess: () => {
-      notifications.show({ message: 'Облікові дані збережено', color: 'teal' })
-      setPassword('')
-      qc.invalidateQueries({ queryKey: ['admin', 'dpd-cred', branchId] })
+      notifications.show({ message: 'Видалено', color: 'teal' })
+      invalidate()
     },
     onError: notifyErr,
   })
 
-  const removeCred = useMutation({
-    mutationFn: () => dpdCredentialApi.remove(Number(branchId)),
-    onSuccess: () => {
-      notifications.show({ message: 'Облікові дані видалено', color: 'teal' })
-      setUsername('')
-      setPassword('')
-      qc.invalidateQueries({ queryKey: ['admin', 'dpd-cred', branchId] })
-    },
-    onError: notifyErr,
+  return (
+    <Paper withBorder radius="md" p="md">
+      <Group justify="space-between" wrap="wrap" gap="sm">
+        <Group gap="sm" style={{ flex: 1, minWidth: 240 }}>
+          <Text fw={600} size="sm">
+            {branch.name}
+          </Text>
+          {cred ? (
+            <>
+              <Badge variant="light" color="petrol" size="sm" tt="none">
+                {cred.username}
+              </Badge>
+              {cred.api_base_url && <Code style={{ fontSize: 11 }}>{cred.api_base_url}</Code>}
+            </>
+          ) : (
+            <Text size="xs" c="dimmed">
+              Не налаштовано
+            </Text>
+          )}
+        </Group>
+        {!editing && (
+          <Group gap="xs">
+            <Button size="compact-xs" variant="default" onClick={startEdit}>
+              {cred ? 'Редагувати' : 'Додати'}
+            </Button>
+            {cred && (
+              <Button
+                size="compact-xs"
+                color="red"
+                variant="light"
+                onClick={() =>
+                  modals.openConfirmModal({
+                    title: 'Видалити доступ',
+                    children: (
+                      <Text size="sm">Видалити облікові дані ДПД для «{branch.name}»?</Text>
+                    ),
+                    labels: { confirm: 'Видалити', cancel: 'Скасувати' },
+                    confirmProps: { color: 'red' },
+                    onConfirm: () => remove.mutate(),
+                  })
+                }
+              >
+                Видалити
+              </Button>
+            )}
+          </Group>
+        )}
+      </Group>
+
+      {editing && (
+        <Stack gap="sm" mt="sm">
+          <Group gap="sm" grow align="flex-start">
+            <TextInput
+              label="API base URL"
+              size="xs"
+              value={form.api_base_url ?? ''}
+              onChange={(e) => setForm({ ...form, api_base_url: e.currentTarget.value })}
+              placeholder="https://dpd.example.com/api"
+            />
+            <TextInput
+              label="Auth URL"
+              size="xs"
+              value={form.auth_url ?? ''}
+              onChange={(e) => setForm({ ...form, auth_url: e.currentTarget.value })}
+              placeholder="https://dpd.example.com/auth/token"
+            />
+          </Group>
+          <Group gap="sm" align="flex-end">
+            <TextInput
+              label="Логін"
+              size="xs"
+              w={220}
+              value={form.username ?? ''}
+              onChange={(e) => setForm({ ...form, username: e.currentTarget.value })}
+            />
+            <PasswordInput
+              label={cred ? 'Новий пароль (необовʼязково)' : 'Пароль'}
+              size="xs"
+              w={220}
+              value={form.password ?? ''}
+              onChange={(e) => setForm({ ...form, password: e.currentTarget.value })}
+              placeholder={cred ? 'не змінювати' : ''}
+            />
+            <NumberInput
+              label="Таймаут, с"
+              size="xs"
+              w={120}
+              min={1}
+              max={600}
+              value={form.timeout_sec ?? 30}
+              onChange={(v) => setForm({ ...form, timeout_sec: Number(v) || 30 })}
+            />
+          </Group>
+          {!cred && !form.password && (
+            <Alert color="amber" variant="light" py={6}>
+              <Text size="xs">Пароль обовʼязковий для нового запису</Text>
+            </Alert>
+          )}
+          <Group gap="xs">
+            <Button
+              size="xs"
+              leftSection={<IconDeviceFloppy size={14} />}
+              onClick={() => save.mutate()}
+              loading={save.isPending}
+              disabled={!form.username || (!cred && !form.password)}
+            >
+              Зберегти
+            </Button>
+            <Button size="xs" variant="default" onClick={() => setEditing(false)}>
+              Скасувати
+            </Button>
+          </Group>
+        </Stack>
+      )}
+    </Paper>
+  )
+}
+
+/** Доступ до ДПД — per-branch endpoints and credentials plus the shared cache. */
+export function DpdCredentialsTab() {
+  const { data: branches } = useQuery({
+    queryKey: ['admin', 'branches'],
+    queryFn: branchAdminApi.getAll,
+  })
+
+  const credQueries = useQueries({
+    queries: (branches ?? []).map((b) => ({
+      queryKey: ['admin', 'dpd-cred', b.id],
+      queryFn: () => dpdCredentialApi.get(b.id).catch(() => null),
+    })),
   })
 
   return (
@@ -95,108 +320,15 @@ export function DpdCredentialsTab() {
           Доступ до ДПД
         </Text>
         <Text size="xs" c="dimmed">
-          Глобальні налаштування API та облікові дані по філіях
+          Кожна філія має власні адреси API та власні облікові дані
         </Text>
       </Box>
 
-      <Paper withBorder radius="md" p="md">
-        <Text fw={600} size="sm" mb="sm">
-          Глобальна конфігурація
-        </Text>
-        <Stack gap="sm">
-          <TextInput
-            label="API base URL"
-            value={apiBase}
-            onChange={(e) => setApiBase(e.currentTarget.value)}
-            size="xs"
-          />
-          <TextInput
-            label="Auth URL"
-            value={authUrl}
-            onChange={(e) => setAuthUrl(e.currentTarget.value)}
-            size="xs"
-          />
-          <NumberInput
-            label="Таймаут, с"
-            value={timeout}
-            onChange={(v) => setTimeoutSec(v === '' ? '' : Number(v))}
-            size="xs"
-            w={180}
-          />
-          <Group>
-            <Button
-              size="xs"
-              leftSection={<IconDeviceFloppy size={14} />}
-              onClick={() => saveConfig.mutate()}
-              loading={saveConfig.isPending}
-            >
-              Зберегти
-            </Button>
-          </Group>
-        </Stack>
-      </Paper>
+      <ArchiveControls />
 
-      <Paper withBorder radius="md" p="md">
-        <Text fw={600} size="sm" mb="sm">
-          Облікові дані філії
-        </Text>
-        <Stack gap="sm">
-          <Select
-            label="Філія"
-            placeholder="Оберіть філію"
-            data={(branches ?? []).map((b) => ({ value: String(b.id), label: b.name }))}
-            value={branchId}
-            onChange={setBranchId}
-            searchable
-            size="xs"
-            w={320}
-          />
-          {branchId ? (
-            <>
-              <TextInput
-                label="Користувач"
-                value={username}
-                onChange={(e) => setUsername(e.currentTarget.value)}
-                size="xs"
-                w={320}
-              />
-              <PasswordInput
-                label="Пароль"
-                value={password}
-                onChange={(e) => setPassword(e.currentTarget.value)}
-                placeholder={cred ? '•••••• (не змінювати)' : ''}
-                size="xs"
-                w={320}
-              />
-              <Group>
-                <Button
-                  size="xs"
-                  leftSection={<IconDeviceFloppy size={14} />}
-                  onClick={() => saveCred.mutate()}
-                  loading={saveCred.isPending}
-                  disabled={!username}
-                >
-                  Зберегти
-                </Button>
-                <Button
-                  size="xs"
-                  color="red"
-                  variant="light"
-                  leftSection={<IconTrash size={14} />}
-                  onClick={() => removeCred.mutate()}
-                  loading={removeCred.isPending}
-                >
-                  Видалити
-                </Button>
-              </Group>
-            </>
-          ) : (
-            <Alert variant="light" color="petrol" icon={<IconInfoCircle size={16} />}>
-              Оберіть філію, щоб керувати обліковими даними
-            </Alert>
-          )}
-        </Stack>
-      </Paper>
+      {(branches ?? []).map((b, i) => (
+        <BranchCard key={b.id} branch={b} cred={credQueries[i]?.data ?? null} />
+      ))}
     </Stack>
   )
 }
