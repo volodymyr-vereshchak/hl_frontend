@@ -28,6 +28,7 @@ import { IconKey, IconPencil, IconPlus, IconSearch, IconTrash } from '@tabler/ic
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { branchAdminApi, userApi, type AdminUser, type UserWrite } from '@/api/admin'
 import { LoadingState } from '@/components/LoadingState'
+import { copyText } from '@/lib/clipboard'
 import type { UserRole } from '@/types'
 import { toOptions } from '../useAdminTopology'
 
@@ -192,7 +193,16 @@ export function UsersTab() {
             <Button
               size="compact-xs"
               variant="light"
-              onClick={() => void navigator.clipboard.writeText(newPassword.password)}
+              onClick={() =>
+                void copyText(newPassword.password).then((ok) => {
+                  if (!ok) {
+                    notifications.show({
+                      color: 'red',
+                      message: 'Не вдалося скопіювати в буфер обміну',
+                    })
+                  }
+                })
+              }
             >
               Копіювати
             </Button>

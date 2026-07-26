@@ -1,6 +1,7 @@
 import { Box, Group, Stack, Text, Paper, Divider, Tooltip, ActionIcon } from '@mantine/core'
-import { useClipboard } from '@mantine/hooks'
+import { notifications } from '@mantine/notifications'
 import { IconCheck, IconCopy, IconGauge } from '@tabler/icons-react'
+import { useCopyToClipboard } from '@/lib/clipboard'
 import { numericStyle } from '@/theme/theme'
 import { useLanguage } from '@/locales/LanguageContext'
 import { STD, KST_METHOD_NAMES } from '@/domain/flowRate/standards'
@@ -90,7 +91,14 @@ function asText(r: FlowCalcResults, device: DeviceType, t: (k: string) => string
 
 export function FlowCalcResultsPanel({ results, device }: Props) {
   const { t } = useLanguage()
-  const clipboard = useClipboard({ timeout: 1500 })
+  const clipboard = useCopyToClipboard({ timeout: 1500 })
+
+  const handleCopy = async () => {
+    if (!results) return
+    const ok = await clipboard.copy(asText(results, device, t))
+    // A copy that goes nowhere used to leave the icon unchanged and say nothing.
+    if (!ok) notifications.show({ color: 'red', message: t('copyError') })
+  }
 
   return (
     <Paper radius="md" withBorder style={{ overflow: 'hidden' }}>
@@ -104,12 +112,13 @@ export function FlowCalcResultsPanel({ results, device }: Props) {
           {t('fcResults')}
         </Text>
         {results && (
-          <Tooltip label={clipboard.copied ? '✓' : 'Copy'} withArrow>
+          <Tooltip label={clipboard.copied ? t('copied') : t('copy')} withArrow>
             <ActionIcon
               size="sm"
               variant="subtle"
               color={clipboard.copied ? 'teal' : 'gray'}
-              onClick={() => clipboard.copy(asText(results, device, t))}
+              aria-label={t('copy')}
+              onClick={() => void handleCopy()}
             >
               {clipboard.copied ? <IconCheck size={15} /> : <IconCopy size={15} />}
             </ActionIcon>
