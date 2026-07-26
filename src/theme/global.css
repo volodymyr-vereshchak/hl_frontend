@@ -158,13 +158,38 @@ body {
 }
 
 /*
- * Archive table body cells. Rendered as plain <td> for speed (see the note in
- * ArchiveTable), so the alignment, the monospaced digits and the no-wrap rule
- * that used to be inline styles live here instead.
+ * Archive table body cells. Plain <td> for speed (see the note in ArchiveTable),
+ * so everything Mantine's Table.Td would have applied is spelled out here —
+ * using Mantine's own spacing variables, so the two are pixel-identical.
  */
 .hlv-cell {
+  padding: var(--table-vertical-spacing) var(--table-horizontal-spacing);
   text-align: center;
   white-space: nowrap;
+}
+
+/*
+ * Pushes the totals row to the bottom of the pane when the rows do not fill it.
+ * ScrollArea's content wrapper is auto-height, so a table asking for 100% would
+ * otherwise resolve against the rows it already has: stretch the wrapper first.
+ */
+.hlv-table-scroll [data-scrollarea-viewport] > div:has(> table .hlv-table-filler) {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+/* Flex-grow rather than height:100% — the wrapper's height is a minimum, not a
+   definite value, so a percentage would resolve against the rows instead. */
+table:has(.hlv-table-filler) {
+  flex: 1 0 auto;
+}
+.hlv-table-filler {
+  height: 100%;
+  background: none !important;
+}
+.hlv-table-filler td {
+  padding: 0;
+  border: none;
 }
 .hlv-cell-num {
   font-family: 'JetBrains Mono Variable', ui-monospace, monospace;

@@ -201,17 +201,15 @@ export const ArchiveTable = memo(function ArchiveTable({
           ))}
         </Table.Thead>
         {/*
-          Plain <tr>/<td> in the body, not Table.Tr/Table.Td. A month of hourly
-          data is ~750 rows x 10 columns; routing every one of those ~7500 cells
-          through Mantine's styles API cost 1.4-2.0s of blocked main thread on
-          each re-render (measured), which is what made toggling the industry
-          overlay and switching table/chart feel stuck. The look is unchanged —
-          striping and hover come from the parent Table's own classes, and the
-          alignment lives in the CSS class below.
+          Rows stay Mantine's (striping and hover live on the row), but the CELLS
+          are plain <td>: a month of hourly data is ~750 rows x 10 columns, and
+          routing all ~7500 of those through Mantine's styles API is what made
+          the table expensive to rebuild. `.hlv-cell` reuses Mantine's own
+          spacing variables, so the padding is identical to Table.Td.
         */}
         <Table.Tbody>
           {table.getRowModel().rows.map((row) => (
-            <tr key={row.id}>
+            <Table.Tr key={row.id}>
               {row.getVisibleCells().map((cell) => (
                 <td
                   key={cell.id}
@@ -222,8 +220,12 @@ export const ArchiveTable = memo(function ArchiveTable({
                   {flexRender(cell.column.columnDef.cell, cell.getContext())}
                 </td>
               ))}
-            </tr>
+            </Table.Tr>
           ))}
+          {/* Absorbs the slack so the totals row sits at the bottom of the pane
+              even when only a handful of rows came back. Collapses to nothing
+              once the rows overflow. */}
+          {hasSummary && <Table.Tr className="hlv-table-filler" aria-hidden><td colSpan={specs.length} /></Table.Tr>}
         </Table.Tbody>
         {hasSummary && rows.length > 0 && (
           /* Totals stay pinned to the bottom of the viewport while rows scroll. */
