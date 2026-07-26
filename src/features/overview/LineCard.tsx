@@ -30,26 +30,29 @@ function fmtTime(ts: Date | string | undefined): string {
   return `${day}.${mon}.${d.getFullYear()} ${time}`
 }
 
+/**
+ * Delta vs the previous period. The unit is deliberately omitted — it is already
+ * on the value directly above, and repeating it pushed the row onto two lines at
+ * the card's width.
+ */
 function ChangeRow({
   change,
   changePercent,
   isIncrease,
   isDecrease,
-  unit,
 }: {
   change: number
   changePercent: number
   isIncrease: boolean
   isDecrease: boolean
-  unit: string
 }) {
   const color = isIncrease ? 'var(--mantine-color-teal-5)' : isDecrease ? 'var(--mantine-color-red-5)' : 'var(--mantine-color-dimmed)'
   const Icon = isIncrease ? IconArrowUpRight : isDecrease ? IconArrowDownRight : IconMinus
   return (
-    <Group gap={4} justify="center" style={{ color }}>
-      <Icon size={13} />
-      <Text size="xs" fw={600} style={{ color, ...numericStyle }}>
-        {fmtVol(Math.abs(change))} {unit} ({changePercent > 0 ? '+' : ''}
+    <Group gap={3} justify="center" wrap="nowrap" style={{ color }}>
+      <Icon size={12} style={{ flexShrink: 0 }} />
+      <Text size="10px" fw={600} style={{ color, ...numericStyle }}>
+        {fmtVol(Math.abs(change))} ({changePercent > 0 ? '+' : ''}
         {fmtVol(changePercent)}%)
       </Text>
     </Group>
@@ -64,7 +67,7 @@ function DataSection({ children }: { children: React.ReactNode }) {
         width: '100%',
         background: 'var(--hlv-surface-2)',
         borderRadius: 6,
-        padding: '6px 10px',
+        padding: '5px 8px',
       }}
     >
       {children}
@@ -131,16 +134,19 @@ export function LineCard({ lineName, pressure, flow, volume, referenceTime }: Li
 
   return (
     <Card
-      padding="sm"
+      padding="xs"
       radius="md"
       withBorder
       style={{
+        // Fill the grid row so cards in a row line up regardless of which
+        // sections (flow / volume / dP) a line actually has.
+        height: '100%',
         borderColor: isStale ? 'var(--mantine-color-red-7)' : undefined,
         background: isStale ? 'color-mix(in srgb, var(--mantine-color-red-9) 12%, var(--hlv-surface))' : undefined,
       }}
     >
-      <Stack gap={8} align="center">
-        <Text fw={600} size="sm" ta="center" lineClamp={2} style={{ minHeight: '2.6em' }} title={lineName}>
+      <Stack gap={6} align="center">
+        <Text fw={600} size="sm" ta="center" lineClamp={2} style={{ minHeight: '2.5em' }} title={lineName}>
           {lineName}
         </Text>
 
@@ -151,18 +157,18 @@ export function LineCard({ lineName, pressure, flow, volume, referenceTime }: Li
             background: 'var(--hlv-surface)',
             border: '1px solid var(--hlv-border)',
             borderRadius: 10,
-            padding: '12px 14px 8px',
+            padding: '9px 10px 7px',
           }}
         >
-          <Group justify="center" align="baseline" gap={6}>
-            <Text fz={32} fw={700} lh={1} c="petrol" style={numericStyle}>
+          <Group justify="center" align="baseline" gap={5}>
+            <Text fz={27} fw={700} lh={1} c="petrol" style={numericStyle}>
               {fmt(pressure.pressure)}
             </Text>
-            <Text size="xs" c="dimmed">
+            <Text size="10px" c="dimmed">
               {pressure.pressureUnit}
             </Text>
           </Group>
-          <Group justify="center" gap="xl" mt={8}>
+          <Group justify="center" gap="lg" mt={6}>
             <Stack gap={0} align="center">
               <Text size="9px" fw={700} tt="uppercase" c="blue.4">
                 min
@@ -199,7 +205,7 @@ export function LineCard({ lineName, pressure, flow, volume, referenceTime }: Li
                 {t('volumeUnit')}/ч
               </Text>
             </Group>
-            <ChangeRow {...flow} unit={`${t('volumeUnit')}/ч`} />
+            <ChangeRow {...flow} />
           </DataSection>
         )}
 
@@ -216,7 +222,7 @@ export function LineCard({ lineName, pressure, flow, volume, referenceTime }: Li
                 {t('volumeUnit')}
               </Text>
             </Group>
-            <ChangeRow {...volume} unit={t('volumeUnit')} />
+            <ChangeRow {...volume} />
           </DataSection>
         )}
 

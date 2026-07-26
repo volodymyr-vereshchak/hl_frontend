@@ -55,15 +55,15 @@ function MetricCard({
 }) {
   return (
     <Card padding="md" radius="md">
-      <Group justify="space-between" align="flex-start">
+      <Group justify="center" gap={8}>
+        <ThemeIcon variant="light" color={color} size="sm" radius="md">
+          {icon}
+        </ThemeIcon>
         <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
           {label}
         </Text>
-        <ThemeIcon variant="light" color={color} size="md" radius="md">
-          {icon}
-        </ThemeIcon>
       </Group>
-      <Group align="baseline" gap={6} mt="xs">
+      <Group align="baseline" gap={6} mt="xs" justify="center">
         <Text fz={26} fw={700} style={numericStyle} lh={1}>
           {value}
         </Text>
@@ -73,7 +73,11 @@ function MetricCard({
           </Text>
         )}
       </Group>
-      {extra && <Box mt={6}>{extra}</Box>}
+      {extra && (
+        <Box mt={6} ta="center">
+          {extra}
+        </Box>
+      )}
     </Card>
   )
 }
@@ -112,8 +116,16 @@ function LumgSection({
       </UnstyledButton>
       <Collapse expanded={!collapsed}>
         <Box px="sm" pb="sm">
+          {/* auto-fill rather than a fixed column count: the cards keep a
+              readable minimum width and a wide screen simply fits more. */}
           {cards.length > 0 ? (
-            <SimpleGrid cols={{ base: 1, xs: 2, sm: 3, md: 4, xl: 5 }} spacing="sm">
+            <Box
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(186px, 1fr))',
+                gap: 'var(--mantine-spacing-xs)',
+              }}
+            >
               {cards.map((id) => (
                 <LineCard
                   key={id}
@@ -124,7 +136,7 @@ function LumgSection({
                   referenceTime={data.currentPeriod.end}
                 />
               ))}
-            </SimpleGrid>
+            </Box>
           ) : (
             <Text c="dimmed" size="sm" ta="center" py="md">
               {t('noLinesInLumg')}
@@ -204,7 +216,7 @@ export function OverviewPage() {
               icon={<IconGauge size={18} />}
               extra={
                 vc && (
-                  <Group gap={6}>
+                  <Group gap={6} justify="center">
                     <Badge
                       variant="light"
                       color={vc.isDecrease ? 'red' : vc.isIncrease ? 'teal' : 'gray'}
