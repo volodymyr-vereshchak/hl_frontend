@@ -21,14 +21,17 @@ const fmt = (n: number | null | undefined, d = 2) =>
 const fmtVol = (n: number | null | undefined) =>
   n == null || isNaN(n) ? '—' : Number(n).toLocaleString('uk-UA', { maximumFractionDigits: 1 })
 
-/** Lag as "3 год 12 хв" — whole hours only once it passes a day's worth. */
+/**
+ * Lag as "3 год" / "2 дн 3 год". The archive is hourly, so a line can only ever
+ * be behind by whole hours — minutes would be noise.
+ */
 function fmtLag(ms: number, t: (k: string) => string): string {
-  const totalMin = Math.round(ms / 60_000)
-  const h = Math.floor(totalMin / 60)
-  const m = totalMin % 60
-  if (h === 0) return `${m} ${t('unitMinuteShort')}`
-  if (m === 0) return `${h} ${t('unitHourShort')}`
-  return `${h} ${t('unitHourShort')} ${m} ${t('unitMinuteShort')}`
+  const totalH = Math.max(1, Math.round(ms / 3_600_000))
+  const d = Math.floor(totalH / 24)
+  const h = totalH % 24
+  if (d === 0) return `${h} ${t('unitHourShort')}`
+  if (h === 0) return `${d} ${t('unitDayShort')}`
+  return `${d} ${t('unitDayShort')} ${h} ${t('unitHourShort')}`
 }
 
 function fmtTime(ts: Date | string | undefined): string {

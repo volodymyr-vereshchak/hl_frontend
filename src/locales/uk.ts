@@ -228,7 +228,7 @@ grsTrends: "Тренди ГРС",
   staleData: "Дані застаріли",
   staleBehindBy: "відстають на",
   unitHourShort: "год",
-  unitMinuteShort: "хв",
+  unitDayShort: "дн",
 
   // Enterprise Poll Analysis
   enterprisePoll: "Опитування підприємств",
