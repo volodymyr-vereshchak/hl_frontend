@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { startTransition, useMemo, useRef, useState } from 'react'
 import {
   Stack,
   Group,
@@ -68,6 +68,9 @@ interface PollRow {
   pressureUnit: string | null
 }
 
+/** Same split height as the archives, so the two screens line up. */
+const SPLIT_HEIGHT = 'calc(100dvh - 150px)'
+
 const NO_BRANCH = '__no_branch__'
 const NO_LINE = '__no_line__'
 
@@ -96,6 +99,10 @@ export function EnterprisePollPage() {
   const [selected, setSelected] = useState<number | null>(null)
   // Collapsed groups survive reloads; the tree is long and reopening it every
   // time would be busywork.
+  const [view, setView] = useLocalStorage<'table' | 'chart'>({
+    key: 'hlv-poll-view',
+    defaultValue: 'table',
+  })
   const [collapsed, setCollapsed] = useLocalStorage<Record<string, boolean>>({
     key: 'hlv-poll-collapsed',
     defaultValue: {},
@@ -290,9 +297,62 @@ export function EnterprisePollPage() {
   }
 
   return (
-    <Stack gap="md">
-      <Group justify="space-between" align="center" wrap="wrap">
-        <Title order={3}>{t('enterprisePoll')}</Title>
+    <Stack gap="sm">
+      {/* Same shape as the archives: one toolbar line, then tree + pane filling
+          the screen. */}
+      <Group gap="md" wrap="nowrap" align="center">
+        <Title order={4} style={{ whiteSpace: 'nowrap' }}>
+          {t('enterprisePoll')}
+        </Title>
+        <SegmentedControl
+          size="xs"
+          value={periodType}
+          onChange={(v) => setPeriodType(v as PeriodType)}
+          data={[
+            { value: 'daily', label: t('daily') },
+            { value: 'hourly', label: t('hourly') },
+          ]}
+        />
+        <DatePickerInput
+          aria-label={t('from')}
+          leftSection={<IconCalendar size={15} />}
+          value={from}
+          onChange={(v) => v && setFrom(v)}
+          valueFormat="DD.MM.YYYY"
+          size="xs"
+          w={140}
+          popoverProps={{ zIndex: 500, withinPortal: true }}
+        />
+        <DatePickerInput
+          aria-label={t('to')}
+          leftSection={<IconCalendar size={15} />}
+          value={to}
+          onChange={(v) => v && setTo(v)}
+          valueFormat="DD.MM.YYYY"
+          size="xs"
+          w={140}
+          popoverProps={{ zIndex: 500, withinPortal: true }}
+        />
+        {loading ? (
+          <Button
+            size="xs"
+            color="red"
+            variant="light"
+            leftSection={<IconPlayerStop size={15} />}
+            onClick={stop}
+          >
+            Зупинити
+          </Button>
+        ) : (
+          <Button
+            size="xs"
+            leftSection={<IconPlayerPlay size={15} />}
+            onClick={run}
+            disabled={!selectedMapping}
+          >
+            Опитати
+          </Button>
+        )}
         <Select
           placeholder="Всі філії"
           data={(branches ?? []).map((b) => ({ value: String(b.id), label: b.name }))}
@@ -301,15 +361,27 @@ export function EnterprisePollPage() {
           clearable
           searchable
           size="xs"
-          w={260}
+          w={220}
         />
+        <Button
+          size="xs"
+          variant="light"
+          color="teal"
+          leftSection={<IconFileSpreadsheet size={15} />}
+          onClick={exportExcel}
+          disabled={!rows.length}
+          ml="auto"
+          style={{ flexShrink: 0 }}
+        >
+          {t('excel')}
+        </Button>
       </Group>
 
-      <Box style={{ display: 'flex', gap: 'var(--mantine-spacing-md)', alignItems: 'flex-start' }}>
+      <Box style={{ display: 'flex', gap: 'var(--mantine-spacing-md)', height: SPLIT_HEIGHT, minHeight: 360 }}>
         <Paper
           withBorder
           radius="md"
-          style={{ width: 320, flexShrink: 0, display: 'flex', flexDirection: 'column', height: 'calc(100dvh - 200px)' }}
+          style={{ width: 420, flexShrink: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
         >
           <Box p="sm" pb={4}>
             <TextInput
@@ -459,73 +531,32 @@ export function EnterprisePollPage() {
           </ScrollArea>
         </Paper>
 
-        <Stack gap="md" style={{ flex: 1, minWidth: 0 }}>
-          <Paper withBorder radius="md" p="md">
-            <Group align="flex-end" gap="sm" wrap="wrap">
+        <Paper
+          withBorder
+          radius="md"
+          style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
+        >
+          {/* Header of the pane: what was polled, plus the table/chart switch. */}
+          <Group
+            px="sm"
+            py={6}
+            gap="sm"
+            wrap="wrap"
+            style={{ borderBottom: '1px solid var(--hlv-border)', flexShrink: 0 }}
+          >
+            {rows.length > 0 && (
               <SegmentedControl
                 size="xs"
-                value={periodType}
-                onChange={(v) => setPeriodType(v as PeriodType)}
+                value={view}
+                onChange={(v) => startTransition(() => setView(v as 'table' | 'chart'))}
                 data={[
-                  { value: 'daily', label: t('daily') },
-                  { value: 'hourly', label: t('hourly') },
+                  { value: 'table', label: t('table') },
+                  { value: 'chart', label: t('chart') },
                 ]}
               />
-              <DatePickerInput
-                aria-label={t('from')}
-                leftSection={<IconCalendar size={15} />}
-                value={from}
-                onChange={(v) => v && setFrom(v)}
-                valueFormat="DD.MM.YYYY"
-                size="xs"
-                w={140}
-                popoverProps={{ zIndex: 500, withinPortal: true }}
-              />
-              <DatePickerInput
-                aria-label={t('to')}
-                leftSection={<IconCalendar size={15} />}
-                value={to}
-                onChange={(v) => v && setTo(v)}
-                valueFormat="DD.MM.YYYY"
-                size="xs"
-                w={140}
-                popoverProps={{ zIndex: 500, withinPortal: true }}
-              />
-              {loading ? (
-                <Button
-                  size="xs"
-                  color="red"
-                  variant="light"
-                  leftSection={<IconPlayerStop size={15} />}
-                  onClick={stop}
-                >
-                  Зупинити
-                </Button>
-              ) : (
-                <Button
-                  size="xs"
-                  leftSection={<IconPlayerPlay size={15} />}
-                  onClick={run}
-                  disabled={!selectedMapping}
-                >
-                  Опитати
-                </Button>
-              )}
-              <Button
-                size="xs"
-                variant="light"
-                color="teal"
-                leftSection={<IconFileSpreadsheet size={15} />}
-                onClick={exportExcel}
-                disabled={!rows.length}
-                ml="auto"
-              >
-                {t('excel')}
-              </Button>
-            </Group>
-
+            )}
             {selectedMapping && (
-              <Group gap="xs" mt="sm">
+              <Group gap="xs" wrap="wrap">
                 <Badge variant="light" color="petrol" tt="none">
                   {enterpriseLabel(selectedMapping)}
                 </Badge>
@@ -546,56 +577,62 @@ export function EnterprisePollPage() {
                 )}
               </Group>
             )}
-
-            {loading && (
-              <Box mt="sm">
-                <PollProgress progress={progress ?? { phase: 'polling' }} />
-              </Box>
+            {rows.length > 0 && (
+              <Text size="xs" c="dimmed" ml="auto">
+                {t('records')}: {rows.length}
+              </Text>
             )}
-          </Paper>
+          </Group>
 
-          {error && (
-            <Alert color="red" variant="light" icon={<IconAlertTriangle size={16} />}>
+          {loading ? (
+            <Box p="md">
+              <PollProgress progress={progress ?? { phase: 'polling' }} />
+            </Box>
+          ) : error ? (
+            <Alert color="red" variant="light" icon={<IconAlertTriangle size={16} />} m="sm">
               {error}
             </Alert>
-          )}
-
-          {records && rows.length > 0 && (
+          ) : !selectedMapping ? (
+            <Center style={{ flex: 1 }}>
+              <Text c="dimmed">{t('selectEnterprise')}</Text>
+            </Center>
+          ) : records && rows.length === 0 ? (
+            <Center style={{ flex: 1 }}>
+              <Text c="dimmed">{t('enterpriseNoData')}</Text>
+            </Center>
+          ) : !records ? (
+            <Center style={{ flex: 1 }}>
+              <Text c="dimmed">{t('noPollData')}</Text>
+            </Center>
+          ) : (
             <>
-              <Paper withBorder radius="md">
-                <Group justify="space-between" p="sm">
-                  <Text fw={600} size="sm">
-                    {t('records')}: {rows.length}
-                  </Text>
-                </Group>
-                <ScrollArea.Autosize className="hlv-table-scroll" mah={360} type="auto">
+              <Box style={{ flex: 1, minHeight: 0, display: view === 'chart' ? 'none' : 'block' }}>
+                <ScrollArea className="hlv-table-scroll" style={{ height: '100%' }} type="auto">
                   <Table striped highlightOnHover stickyHeader verticalSpacing={6}>
                     <Table.Thead>
                       <Table.Tr>
-                        <Table.Th>Період</Table.Th>
-                        <Table.Th ta="right">Обʼєм, м³</Table.Th>
-                        <Table.Th ta="right">Температура, °C</Table.Th>
-                        <Table.Th ta="right">Тиск, {pressureUnit}</Table.Th>
+                        <Table.Th ta="center">Період</Table.Th>
+                        <Table.Th ta="center">Обʼєм, м³</Table.Th>
+                        <Table.Th ta="center">Температура, °C</Table.Th>
+                        <Table.Th ta="center">Тиск, {pressureUnit}</Table.Th>
                       </Table.Tr>
                     </Table.Thead>
                     <Table.Tbody>
                       {rows.map((r, i) => (
                         <Table.Tr key={i}>
-                          <Table.Td>{r.period.replace('T', ' ').slice(0, 16)}</Table.Td>
-                          <Table.Td ta="right" style={numericStyle}>
-                            {fmtNum(r.volume, 3)}
-                          </Table.Td>
-                          <Table.Td ta="right" style={numericStyle}>
-                            {fmtNum(r.temperature)}
-                          </Table.Td>
-                          <Table.Td ta="right" style={numericStyle}>
-                            {fmtNum(r.pressure)}
-                          </Table.Td>
+                          <td className="hlv-cell hlv-cell-num">
+                            {r.period.replace('T', ' ').slice(0, 16)}
+                          </td>
+                          <td className="hlv-cell hlv-cell-num">{fmtNum(r.volume, 3)}</td>
+                          <td className="hlv-cell hlv-cell-num">{fmtNum(r.temperature)}</td>
+                          <td className="hlv-cell hlv-cell-num">{fmtNum(r.pressure)}</td>
                         </Table.Tr>
                       ))}
+                      {/* Keeps the totals row at the bottom of a short table. */}
+                      <Table.Tr className="hlv-table-filler" aria-hidden>
+                        <td colSpan={4} />
+                      </Table.Tr>
                     </Table.Tbody>
-                    {/* Same footer semantics as the archives: volume sums, the
-                        rest averages. */}
                     <Table.Tfoot
                       style={{
                         position: 'sticky',
@@ -605,32 +642,34 @@ export function EnterprisePollPage() {
                       }}
                     >
                       <Table.Tr>
-                        <Table.Td fw={700}>Разом</Table.Td>
-                        <Table.Td ta="right" fw={700} style={numericStyle}>
+                        <Table.Td ta="center" fw={700}>
+                          Разом
+                        </Table.Td>
+                        <Table.Td ta="center" fw={700} style={numericStyle}>
                           {fmtNum(totals.volume, 3)}
                         </Table.Td>
-                        <Table.Td ta="right" fw={700} style={numericStyle}>
+                        <Table.Td ta="center" fw={700} style={numericStyle}>
                           {fmtNum(totals.temperature)}
                         </Table.Td>
-                        <Table.Td ta="right" fw={700} style={numericStyle}>
+                        <Table.Td ta="center" fw={700} style={numericStyle}>
                           {fmtNum(totals.pressure)}
                         </Table.Td>
                       </Table.Tr>
                     </Table.Tfoot>
                   </Table>
-                </ScrollArea.Autosize>
-              </Paper>
-
-              <ArchiveChart rows={rows as unknown as ArchiveRow[]} type={periodType} meta={{ kind: 'dpd' }} />
+                </ScrollArea>
+              </Box>
+              {view === 'chart' && (
+                <ArchiveChart
+                  rows={rows as unknown as ArchiveRow[]}
+                  type={periodType}
+                  meta={{ kind: 'dpd' }}
+                  embedded
+                />
+              )}
             </>
           )}
-
-          {records && rows.length === 0 && !loading && (
-            <Alert variant="light" color="amber" icon={<IconAlertTriangle size={16} />}>
-              {t('enterpriseNoData')}
-            </Alert>
-          )}
-        </Stack>
+        </Paper>
       </Box>
     </Stack>
   )

@@ -20,6 +20,7 @@ import { useLanguage } from '@/locales/LanguageContext'
 import { useUser } from '@/features/auth/UserContext'
 import { ColorSchemeToggle } from './ColorSchemeToggle'
 import { LanguagePicker } from './LanguagePicker'
+import { WhatsNewButton } from './WhatsNewButton'
 import { UserBadge } from '@/features/auth/UserBadge'
 import type { TranslationKey } from '@/locales'
 
@@ -135,6 +136,7 @@ export function AppShellLayout() {
           </ScrollArea>
 
           <Group gap="xs" wrap="nowrap" style={{ flexShrink: 0 }}>
+            <WhatsNewButton />
             <LanguagePicker />
             <ColorSchemeToggle />
             <UserBadge />
