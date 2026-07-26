@@ -97,18 +97,21 @@ body {
 }
 
 /*
- * Scroll region of a table with a sticky header. The header never scrolls, so
- * the scrollbar must not run behind it: start the track below the header row
- * and inset it from the rounded border, and stop the rubber-band overscroll
- * that pushed the thumb outside that border.
+ * Scroll region of a table with a sticky header and, in the archives, a sticky
+ * totals row. Neither of those scrolls, so the scrollbar must not run across
+ * them: the track starts below the header and stops above the totals row, and
+ * is inset from the rounded border. `--hlv-tfoot-h` is measured and set by the
+ * table (it changes with the font, and is 0 when there is no totals row).
+ * The rubber-band overscroll that pushed the thumb outside the border is
+ * stopped further down.
  */
 .hlv-table-scroll [data-orientation='vertical'] {
   top: var(--hlv-thead-h, 34px);
-  bottom: 2px;
+  bottom: calc(var(--hlv-tfoot-h, 0px) + 2px);
   right: 2px;
 }
 .hlv-table-scroll [data-orientation='horizontal'] {
-  bottom: 2px;
+  bottom: calc(var(--hlv-tfoot-h, 0px) + 2px);
   left: 2px;
 }
 /*

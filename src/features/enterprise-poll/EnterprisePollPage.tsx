@@ -43,6 +43,7 @@ import {
   type EnterpriseRecord,
 } from '@/api/enterprise'
 import { PollProgress } from '@/components/PollProgress'
+import { useElementHeight } from '@/components/useElementHeight'
 import { enterpriseRecordTotal } from '@/domain/enterpriseVolumes'
 import { useLanguage } from '@/locales/LanguageContext'
 import { useSelectionStore } from '@/store/selectionStore'
@@ -89,6 +90,8 @@ export function EnterprisePollPage() {
   const { branchId, setBranchId } = useSelectionStore()
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<number | null>(null)
+  // Feeds the scrollbars, which must stop above the sticky totals row.
+  const [tfootRef, tfootHeight] = useElementHeight<HTMLTableSectionElement>()
   // Collapsed groups survive reloads; the tree is long and reopening it every
   // time would be busywork.
   const [view, setView] = useLocalStorage<'table' | 'chart'>({
@@ -599,7 +602,12 @@ export function EnterprisePollPage() {
           ) : (
             <>
               <Box style={{ flex: 1, minHeight: 0, display: view === 'chart' ? 'none' : 'block' }}>
-                <ScrollArea className="hlv-table-scroll" style={{ height: '100%' }} type="auto">
+                {/* Scrollbars stop above the totals row — see global.css. */}
+                <ScrollArea
+                  className="hlv-table-scroll"
+                  style={{ height: '100%', '--hlv-tfoot-h': `${tfootHeight}px` } as React.CSSProperties}
+                  type="auto"
+                >
                   <Table striped highlightOnHover stickyHeader verticalSpacing={6}>
                     <Table.Thead>
                       <Table.Tr>
@@ -626,6 +634,7 @@ export function EnterprisePollPage() {
                       </Table.Tr>
                     </Table.Tbody>
                     <Table.Tfoot
+                      ref={tfootRef}
                       style={{
                         position: 'sticky',
                         bottom: 0,

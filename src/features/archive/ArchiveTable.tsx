@@ -9,6 +9,7 @@ import {
   createColumnHelper,
   type SortingState,
 } from '@tanstack/react-table'
+import { useElementHeight } from '@/components/useElementHeight'
 import { numericStyle } from '@/theme/theme'
 import { useLanguage } from '@/locales/LanguageContext'
 import { getArchiveColumns, resolveEditName } from '@/domain/archiveColumns'
@@ -162,13 +163,23 @@ export const ArchiveTable = memo(function ArchiveTable({
   const numericKeys = new Set(specs.filter((s) => s.key !== 'period' && s.key !== 'edit_name' && s.key !== 'sys_name').map((s) => s.key))
   // Parameters are a snapshot list — a totals row is meaningless there.
   const hasSummary = type !== 'param' && specs.some((s) => s.isSummable || s.isAveragable)
+  // Feeds the scrollbars, which must stop above the totals row. 0 when the
+  // table has no totals row and the scrollbar can run to the bottom.
+  const [tfootRef, tfootHeight] = useElementHeight<HTMLTableSectionElement>()
 
   return (
-    /* Archive headers wrap onto two lines, so the scrollbar starts lower. */
+    /* Archive headers wrap onto two lines, so the scrollbar starts lower; it
+       stops above the totals row, whose height is measured below. */
     <ScrollArea
       className="hlv-table-scroll"
       type="auto"
-      style={{ height: '100%', '--hlv-thead-h': '58px' } as React.CSSProperties}
+      style={
+        {
+          height: '100%',
+          '--hlv-thead-h': '58px',
+          '--hlv-tfoot-h': `${tfootHeight}px`,
+        } as React.CSSProperties
+      }
     >
       <Table striped highlightOnHover stickyHeader verticalSpacing={6}>
         <Table.Thead>
@@ -229,7 +240,7 @@ export const ArchiveTable = memo(function ArchiveTable({
         </Table.Tbody>
         {hasSummary && rows.length > 0 && (
           /* Totals stay pinned to the bottom of the viewport while rows scroll. */
-          <Table.Tfoot>
+          <Table.Tfoot ref={tfootRef}>
             <Table.Tr>
               {specs.map((spec, i) => {
                 const isNum = numericKeys.has(spec.key)
