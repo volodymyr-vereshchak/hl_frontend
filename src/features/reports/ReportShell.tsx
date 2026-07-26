@@ -16,6 +16,8 @@ interface Props {
   onExport?: () => void
   canExport?: boolean
   error?: string | null
+  /** What the run is doing right now, shown under the single spinner. */
+  progress?: string | null
   /** Reports with their own cascading branch selector opt out of the header one. */
   withBranchPicker?: boolean
   children: ReactNode
@@ -31,6 +33,7 @@ export function ReportShell({
   onExport,
   canExport,
   error,
+  progress,
   withBranchPicker = true,
   children,
 }: Props) {
@@ -64,12 +67,14 @@ export function ReportShell({
 
       <Group gap="sm" align="flex-end" wrap="wrap">
         {controls}
+        {/* Deliberately NOT `loading`: the one spinner lives in the middle of
+            the screen, and three of them at once looked like three things were
+            happening. */}
         <Button
           size="xs"
           leftSection={<IconPlayerPlay size={15} />}
           onClick={onRun}
-          loading={running}
-          disabled={withBranchPicker && branchId == null}
+          disabled={running || (withBranchPicker && branchId == null)}
         >
           {t('loadAccidentsData')}
         </Button>
@@ -94,11 +99,7 @@ export function ReportShell({
         </Alert>
       )}
 
-      {running ? (
-        <LoadingState label={t('appLoading')} />
-      ) : (
-        children
-      )}
+      {running ? <LoadingState py={100} label={progress ?? t('appLoading')} /> : children}
     </Stack>
   )
 }

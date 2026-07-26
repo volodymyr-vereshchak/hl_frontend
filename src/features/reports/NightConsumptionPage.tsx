@@ -1,11 +1,11 @@
 import { useMemo, useState } from 'react'
+import { useLocalStorage } from '@mantine/hooks'
 import {
   Paper,
   Table,
   Text,
   Group,
   SegmentedControl,
-  Loader,
   Box,
   ScrollArea,
   useMantineColorScheme,
@@ -42,6 +42,7 @@ import { useSelectionStore } from '@/store/selectionStore'
 import { numericStyle } from '@/theme/theme'
 import { PeriodPicker } from '@/features/archive/PeriodPicker'
 import { ChartLinePicker } from './ChartLinePicker'
+import { pollPhaseLabel } from './pollPhase'
 import { ReportShell } from './ReportShell'
 import { useBranchLines, type ReportLine } from './useBranchLines'
 
@@ -74,7 +75,11 @@ export function NightConsumptionPage() {
   const [running, setRunning] = useState(false)
   const [progress, setProgress] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [hidden, setHidden] = useState<Record<number, boolean>>({})
+  // Which series the user switched off — remembered, like the archive chart.
+  const [hidden, setHidden] = useLocalStorage<Record<number, boolean>>({
+    key: 'hlv-night-hidden-lines',
+    defaultValue: {},
+  })
   const [view, setView] = useState<'table' | 'chart'>('table')
 
   // Report lines: physical ones flagged for the report plus virtual/DPD lines.
@@ -90,6 +95,7 @@ export function NightConsumptionPage() {
     }
     setRunning(true)
     setError(null)
+    setProgress(t('phaseArchives'))
     try {
       // Night hours belong to commercial days, so the hourly window runs
       // 07:00 → next-day 06:00 across the selected range.
@@ -124,15 +130,16 @@ export function NightConsumptionPage() {
       // left after industry — so industry is always subtracted, never optional.
       // Bare commercial days, NOT `win`: the enterprise endpoint applies the
       // hourly 07:00→06:00 expansion itself.
-      setProgress(t('loadingEnterpriseData'))
+      setProgress(t('phaseEnterprise'))
       const enterprise = await getEnterpriseFetchFn(true)(
         reportLines.map((l) => l.id),
         from,
         to,
         'hourly',
-        (pr) => setProgress(pr.total ? `${pr.done ?? 0}/${pr.total}` : (pr.phase ?? null)),
+        (pr) => setProgress(pollPhaseLabel(pr, t)),
       ).catch(() => [])
 
+      setProgress(t('phaseCalculating'))
       setNetMap(buildNetByDayLineHour(hourly, enterprise))
       setUsedLines(reportLines)
     } catch (e) {
@@ -198,6 +205,7 @@ export function NightConsumptionPage() {
       description={description}
       onRun={run}
       running={running}
+      progress={progress}
       onExport={exportExcel}
       canExport={rows.length > 0}
       error={error}
@@ -221,14 +229,6 @@ export function NightConsumptionPage() {
               setTo(t2)
             }}
           />
-          {progress && (
-            <Group gap={4} wrap="nowrap">
-              <Loader size={14} color="grape" />
-              <Text size="xs" c="dimmed">
-                {progress}
-              </Text>
-            </Group>
-          )}
         </>
       }
     >

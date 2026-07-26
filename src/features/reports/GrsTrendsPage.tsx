@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useLocalStorage } from '@mantine/hooks'
 import {
   Paper,
   Text,
   Group,
   SegmentedControl,
   Switch,
-  Loader,
   Box,
   useMantineColorScheme,
 } from '@mantine/core'
@@ -32,6 +32,7 @@ import { useLanguage } from '@/locales/LanguageContext'
 import { useSelectionStore } from '@/store/selectionStore'
 import { PeriodPicker } from '@/features/archive/PeriodPicker'
 import { ChartLinePicker } from './ChartLinePicker'
+import { pollPhaseLabel } from './pollPhase'
 import { ReportShell } from './ReportShell'
 import { useBranchLines, type ReportLine } from './useBranchLines'
 
@@ -59,7 +60,11 @@ export function GrsTrendsPage() {
   const [withEnterprise, setWithEnterprise] = useState(false)
   const [data, setData] = useState<TrendPoint[] | null>(null)
   const [usedLines, setUsedLines] = useState<ReportLine[]>([])
-  const [hidden, setHidden] = useState<Record<number, boolean>>({})
+  // Which series the user switched off — remembered, like the archive chart.
+  const [hidden, setHidden] = useLocalStorage<Record<number, boolean>>({
+    key: 'hlv-trends-hidden-lines',
+    defaultValue: {},
+  })
   const [running, setRunning] = useState(false)
   const [progress, setProgress] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -77,6 +82,7 @@ export function GrsTrendsPage() {
     }
     setRunning(true)
     setError(null)
+    setProgress(t('phaseArchives'))
     try {
       const win =
         periodType === 'hourly' ? commercialHourlyRange(from, to) : { from, to }
@@ -114,7 +120,7 @@ export function GrsTrendsPage() {
 
       let enterprise: Awaited<ReturnType<ReturnType<typeof getEnterpriseFetchFn>>> = []
       if (withEnterprise) {
-        setProgress(t('loadingEnterpriseData'))
+        setProgress(t('phaseEnterprise'))
         // Bare commercial days here, NOT `win`: the enterprise endpoint does
         // the hourly 07:00→06:00 expansion itself, so an already-expanded
         // window made it expand twice and miss the requested range.
@@ -123,10 +129,11 @@ export function GrsTrendsPage() {
           from,
           to,
           periodType,
-          (pr) => setProgress(pr.total ? `${pr.done ?? 0}/${pr.total}` : (pr.phase ?? null)),
+          (pr) => setProgress(pollPhaseLabel(pr, t)),
         ).catch(() => [])
       }
 
+      setProgress(t('phaseCalculating'))
       setData(calculateTrendPercentages(rows, enterprise, periodType))
       setUsedLines(trendLines)
     } catch (e) {
@@ -186,6 +193,7 @@ export function GrsTrendsPage() {
       description={t('grsTracksDescription')}
       onRun={run}
       running={running}
+      progress={progress}
       onExport={exportExcel}
       canExport={!!data?.length}
       error={error}
@@ -217,14 +225,6 @@ export function GrsTrendsPage() {
             label={t('enterpriseOverlay')}
             styles={{ label: { whiteSpace: 'nowrap' } }}
           />
-          {progress && (
-            <Group gap={4} wrap="nowrap">
-              <Loader size={14} color="grape" />
-              <Text size="xs" c="dimmed">
-                {progress}
-              </Text>
-            </Group>
-          )}
         </>
       }
     >
