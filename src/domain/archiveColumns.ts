@@ -99,7 +99,10 @@ export function getArchiveColumns({
       return [
         { key: 'period', label: t('period'), sortable: true },
         { key: 'sys_name', label: t('operationType'), sortable: true },
-        { key: 'volume', label: t('value'), sortable: true, isSummable: true },
+        // Not summable: this is the counter READING at the moment of the event
+        // (battery-run start and its matching end), not a volume delta. Adding
+        // the readings up produced a totals row that meant nothing.
+        { key: 'volume', label: t('value'), sortable: true },
       ]
     case 'param':
       return [
