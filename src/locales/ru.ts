@@ -64,6 +64,7 @@ export const ru = {
   editArchiveFile: "архив_изменений",
   systemArchiveFile: "архив_аварий",
   parametersFile: "параметры",
+  enterpriseFile: "предприятия",
 
   // GRS Report
   grsReport: "Отчет ГРС",

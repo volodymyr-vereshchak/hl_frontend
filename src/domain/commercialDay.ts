@@ -20,6 +20,16 @@ export function getContractHour(): number {
 
 const pad = (n: number) => String(n).padStart(2, '0')
 
+/**
+ * 'YYYY-MM-DD' out of a value that may carry a time part.
+ *
+ * The enterprise endpoints take BARE commercial days and expand them
+ * themselves; the archive controls hand out values like '2026-07-01 07:00:00'.
+ * Feeding those straight back into the expansion produced doubled timestamps
+ * and NaN dates, so every caller strips the time through this.
+ */
+export const dayOnly = (v: string) => String(v).split('T')[0].split(' ')[0]
+
 /** Add `delta` days to a 'YYYY-MM-DD' string using pure UTC math (no TZ/DST). */
 export function addDays(dateStr: string, delta: number): string {
   const [y, m, d] = dateStr.split('-').map(Number)

@@ -3,15 +3,29 @@ import type { ArchiveColumn } from '@/domain/archiveColumns'
 import { resolveEditName } from '@/domain/archiveColumns'
 import { formatEditValue } from '@/domain/valueConverter'
 import {
+  buildEnterpriseBreakdown,
   enterprisePeriodKey,
-  enterpriseRecordTotal,
   getEnterpriseFetchFn,
   type PeriodType,
 } from '@/domain/enterpriseVolumes'
-import { commercialHourlyRange } from '@/domain/commercialDay'
+import { dayOnly } from '@/domain/commercialDay'
 import type { ArchiveRow } from '@/api/entities'
 import type { ArchiveType } from '@/types'
 import type { DateRange } from '@/store/selectionStore'
+
+const pad = (n: number) => String(n).padStart(2, '0')
+
+/**
+ * Save the workbook as `<base>_<local date_time>.xlsx`.
+ *
+ * Local, not the UTC slice of toISOString(): two exports a minute apart must
+ * still sort by the clock the user was looking at.
+ */
+function writeWorkbook(wb: XLSX.WorkBook, fileBase: string) {
+  const d = new Date()
+  const stamp = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_${pad(d.getHours())}_${pad(d.getMinutes())}`
+  XLSX.writeFile(wb, `${fileBase}_${stamp}.xlsx`)
+}
 
 /** Export the current archive rows to an .xlsx file (SheetJS). */
 export function exportArchiveToExcel(
@@ -39,13 +53,7 @@ export function exportArchiveToExcel(
   const ws = XLSX.utils.aoa_to_sheet([header, ...body])
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, 'Archive')
-  const date = new Date().toISOString().split('T')[0]
-  XLSX.writeFile(wb, `${fileBase}_${date}.xlsx`)
-}
-
-interface DeviceRecord {
-  name?: string
-  volume?: number
+  writeWorkbook(wb, fileBase)
 }
 
 /**
@@ -62,10 +70,11 @@ export async function exportWithEnterpriseBreakdown(
   range: DateRange,
 ) {
   const periodType: PeriodType = type === 'hourly' ? 'hourly' : 'daily'
-  const win =
-    type === 'hourly'
-      ? commercialHourlyRange(range.fromDate, range.toDate)
-      : { from: range.fromDate, to: range.toDate }
+  // Bare commercial days: the endpoint expands them itself (hourly → D 07:00 to
+  // D+1 06:00). The archive controls hand out an already-expanded range for the
+  // hourly view, and re-expanding that yielded to_date=NaN-NaN-NaN and a 400.
+  // Same window the on-screen overlay asks for, so file and screen agree.
+  const win = { from: dayOnly(range.fromDate), to: dayOnly(range.toDate) }
 
   // include_devices → per-enterprise columns.
   const records = await getEnterpriseFetchFn(isVirtual, { includeDevices: true })(
@@ -75,28 +84,7 @@ export async function exportWithEnterpriseBreakdown(
     periodType,
   )
 
-  // period → { enterpriseName: volume } plus the period total.
-  const byPeriod = new Map<string, { devices: Record<string, number>; total: number }>()
-  const names = new Set<string>()
-  for (const rec of records) {
-    const key = enterprisePeriodKey(rec.period, periodType)
-    const entry = byPeriod.get(key) ?? { devices: {}, total: 0 }
-    const label = String(rec.name ?? rec.ser_num ?? `ID ${rec.enterprise_id ?? '?'}`)
-    const devices = (rec as { devices?: DeviceRecord[] }).devices
-    const vol = enterpriseRecordTotal(rec as never)
-    entry.devices[label] = (entry.devices[label] ?? 0) + vol
-    entry.total += vol
-    names.add(label)
-    // Device-level names give a finer breakdown when present.
-    for (const d of devices ?? []) {
-      if (!d?.name) continue
-      names.add(d.name)
-      entry.devices[d.name] = (entry.devices[d.name] ?? 0) + (d.volume ?? 0)
-    }
-    byPeriod.set(key, entry)
-  }
-
-  const enterpriseCols = [...names].sort()
+  const { names: enterpriseCols, byPeriod } = buildEnterpriseBreakdown(records, periodType)
   const header = [
     ...columns.map((c) => c.label),
     ...enterpriseCols,
@@ -111,10 +99,11 @@ export async function exportWithEnterpriseBreakdown(
       const n = Number(raw)
       return isFinite(n) ? n : (raw ?? '')
     })
-    const key = enterprisePeriodKey(row.period, periodType)
-    const entry = byPeriod.get(key)
-    const perEnterprise = enterpriseCols.map((name) => entry?.devices[name] ?? 0)
-    const totalEnt = entry?.total ?? 0
+    const entry = byPeriod.get(enterprisePeriodKey(row.period, periodType))
+    // Unpolled periods stay blank rather than reading as a measured zero.
+    const perEnterprise = enterpriseCols.map((name) => entry?.[name] ?? '')
+    // Totalled from the visible columns, so the row always adds up on screen.
+    const totalEnt = perEnterprise.reduce<number>((s, v) => s + (typeof v === 'number' ? v : 0), 0)
     const net = (Number(row.volume) || 0) - totalEnt
     return [...base, ...perEnterprise, totalEnt, net]
   })
@@ -122,6 +111,5 @@ export async function exportWithEnterpriseBreakdown(
   const ws = XLSX.utils.aoa_to_sheet([header, ...body])
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, 'Промисловість')
-  const date = new Date().toISOString().split('T')[0]
-  XLSX.writeFile(wb, `${fileBase}_${date}.xlsx`)
+  writeWorkbook(wb, fileBase)
 }

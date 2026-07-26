@@ -52,14 +52,6 @@ import type { ArchiveRow } from '@/api/entities'
 
 type PeriodType = 'daily' | 'hourly'
 
-/** Per-device readings inside one enterprise record. */
-interface PollDevice {
-  volume?: number | null
-  temperature?: number | null
-  pressure?: number | null
-  pressure_unit?: string | null
-}
-
 interface PollRow {
   period: string
   volume: number
@@ -255,10 +247,10 @@ export function EnterprisePollPage() {
     () =>
       (records ?? [])
         .map((r) => {
-          const device = (r as { devices?: PollDevice[] }).devices?.[0]
+          const device = r.devices?.[0]
           return {
             period: String(r.period),
-            volume: enterpriseRecordTotal(r as never),
+            volume: enterpriseRecordTotal(r),
             temperature: device?.temperature ?? null,
             pressure: device?.pressure ?? null,
             pressureUnit: device?.pressure_unit ?? null,

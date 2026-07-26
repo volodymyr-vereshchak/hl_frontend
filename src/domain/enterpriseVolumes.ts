@@ -5,7 +5,12 @@
  * night report clamp with Math.max(0, …); the chart overlay and Excel export
  * show the raw line − enterprise difference).
  */
-import { enterpriseApi, streamEnterpriseVolumes, type EnterpriseRecord } from '@/api/enterprise'
+import {
+  enterpriseApi,
+  streamEnterpriseVolumes,
+  type EnterpriseDeviceVolume,
+  type EnterpriseRecord,
+} from '@/api/enterprise'
 
 export type PeriodType = 'daily' | 'hourly'
 
@@ -18,17 +23,66 @@ export function enterprisePeriodKey(period: unknown, periodType: PeriodType): st
   return periodType === 'hourly' ? raw.slice(0, 13) : raw.slice(0, 10)
 }
 
-interface RecordWithDevices extends EnterpriseRecord {
-  total_volume?: number | null
-  devices?: { volume?: number }[]
-}
-
 /** Total enterprise volume of one record (API `total_volume` or device sum). */
-export function enterpriseRecordTotal(record: RecordWithDevices | undefined): number {
+export function enterpriseRecordTotal(record: EnterpriseRecord | undefined): number {
   if (record && record.total_volume !== undefined && record.total_volume !== null) {
     return record.total_volume
   }
   return (record?.devices ?? []).reduce((sum, d) => sum + (d.volume || 0), 0)
+}
+
+/** Column label of a device: its enterprise, else something identifying. */
+export function enterpriseDeviceLabel(device: EnterpriseDeviceVolume): string {
+  const name = device.enterprise_name?.trim()
+  if (name) return name
+  return device.serNum != null ? `S/N ${device.serNum}` : 'Без назви'
+}
+
+export interface EnterpriseBreakdown {
+  /** Sorted enterprise names — one spreadsheet column each. */
+  names: string[]
+  /** periodKey → { enterpriseName: volume }; null = that device was not polled. */
+  byPeriod: Map<string, Record<string, number | null>>
+}
+
+/**
+ * Per-enterprise breakdown for the Excel export: which enterprises appear at
+ * all, and how much each consumed in every period.
+ *
+ * Null and zero are NOT interchangeable here. A device that was never polled
+ * contributes null (exported as an empty cell); a device polled with no
+ * consumption contributes 0. Collapsing both to 0 made an unreachable corrector
+ * look like an idle one.
+ */
+export function buildEnterpriseBreakdown(
+  records: EnterpriseRecord[] | undefined,
+  periodType: PeriodType,
+): EnterpriseBreakdown {
+  const names = new Set<string>()
+  const byPeriod = new Map<string, Record<string, number | null>>()
+
+  for (const record of records ?? []) {
+    const key = enterprisePeriodKey(record.period, periodType)
+    let entry = byPeriod.get(key)
+    if (!entry) {
+      entry = {}
+      byPeriod.set(key, entry)
+    }
+    for (const device of record.devices ?? []) {
+      const label = enterpriseDeviceLabel(device)
+      names.add(label)
+      if (device.volume != null) {
+        // Several devices can belong to one enterprise — they add up.
+        entry[label] = (entry[label] ?? 0) + device.volume
+      } else if (entry[label] === undefined) {
+        entry[label] = null
+      }
+      // Already has a number from a sibling device: a partial poll must not
+      // wipe what did come back.
+    }
+  }
+
+  return { names: [...names].sort(), byPeriod }
 }
 
 /**

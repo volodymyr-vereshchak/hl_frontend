@@ -71,13 +71,15 @@ export function useTreeData() {
       const linesByCalc = new Map<number, TreeLine[]>()
       for (const l of lines) {
         if (l.gas_volume_calc_id == null) continue
+        const name = l.name || `l${l.line ?? l.id}`
         const tl: TreeLine = {
           id: l.id,
-          name: l.name || `l${l.line ?? l.id}`,
+          name,
           kind: 'physical',
           lineNo: l.line ?? null,
           meta: {
             kind: 'physical',
+            name,
             meter: l.meter,
             is_high_pressure: l.is_high_pressure,
             pressure_unit: l.pressure_unit,
@@ -113,7 +115,12 @@ export function useTreeData() {
       for (const v of virtuals) {
         const lumgId = v.lumg_id ?? (v.branch_id != null ? firstLumgOfBranch(v.branch_id) : null)
         if (lumgId == null) continue
-        const tl: TreeLine = { id: v.id, name: v.name, kind: 'virtual', meta: { kind: 'virtual' } }
+        const tl: TreeLine = {
+          id: v.id,
+          name: v.name,
+          kind: 'virtual',
+          meta: { kind: 'virtual', name: v.name },
+        }
         if (!virtualByLumg.has(lumgId)) virtualByLumg.set(lumgId, [])
         virtualByLumg.get(lumgId)!.push(tl)
       }
@@ -121,7 +128,12 @@ export function useTreeData() {
       for (const d of dpds) {
         const lumgId = d.lumg_id ?? (d.branch_id != null ? firstLumgOfBranch(d.branch_id) : null)
         if (lumgId == null) continue
-        const tl: TreeLine = { id: d.id, name: d.name, kind: 'dpd', meta: { kind: 'dpd' } }
+        const tl: TreeLine = {
+          id: d.id,
+          name: d.name,
+          kind: 'dpd',
+          meta: { kind: 'dpd', name: d.name },
+        }
         if (!dpdByLumg.has(lumgId)) dpdByLumg.set(lumgId, [])
         dpdByLumg.get(lumgId)!.push(tl)
       }

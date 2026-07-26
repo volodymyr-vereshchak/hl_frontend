@@ -7,10 +7,8 @@ import {
   getEnterpriseFetchFn,
   type PeriodType,
 } from '@/domain/enterpriseVolumes'
+import { dayOnly } from '@/domain/commercialDay'
 import type { ArchiveRow } from '@/api/entities'
-
-/** 'YYYY-MM-DD' out of a value that may carry a time part. */
-const dayOnly = (v: string) => String(v).split('T')[0].split(' ')[0]
 
 export interface OverlayState {
   enabled: boolean

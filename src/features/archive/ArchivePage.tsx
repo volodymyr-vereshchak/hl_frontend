@@ -13,6 +13,7 @@ import {
   SegmentedControl,
 } from '@mantine/core'
 import { useLocalStorage } from '@mantine/hooks'
+import { notifications } from '@mantine/notifications'
 import { IconAlertTriangle, IconInfoCircle } from '@tabler/icons-react'
 import { useSelectionStore } from '@/store/selectionStore'
 import { useLanguage } from '@/locales/LanguageContext'
@@ -41,6 +42,24 @@ function commercialWindow(fromDate: string, toDate: string) {
 // Height reserved for app header (56) + main padding + the single-line toolbar.
 /** Tree + pane fill the screen; nothing else sits below them. */
 const SPLIT_HEIGHT = 'calc(100dvh - 150px)'
+
+/** Locale keys for the archive name that goes into the file name. */
+const FILE_NAME_KEY: Record<ArchiveType, string> = {
+  daily: 'dailyArchiveFile',
+  hourly: 'hourlyArchiveFile',
+  sys: 'systemArchiveFile',
+  edit: 'editArchiveFile',
+  param: 'parametersFile',
+}
+
+/** Anything a file name cannot carry (or that makes it awkward to type). */
+const sanitizeForFileName = (s: string) =>
+  s
+    .replace(/[\\/:*?"<>|]+/g, '_')
+    .replace(/\s+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_|_$/g, '')
+    .slice(0, 60)
 
 export function ArchivePage() {
   const { type } = useParams<{ type: string }>()
@@ -123,7 +142,7 @@ export function ArchivePage() {
 
 
   const canExport = !!rows && rows.length > 0
-  const handleExport = async () => {
+  const runExport = async () => {
     if (!rows || !lineMeta || !lineId) return
     const columns = getArchiveColumns({
       archiveType,
@@ -137,20 +156,38 @@ export function ArchivePage() {
     })
     // Paged archives export the whole range, not just the visible page.
     const data = paged ? await fetchFullArchive(lineId, archiveType, dateRange) : rows
+    // Name the file after the line, not its database id: a folder of exports
+    // should be readable without looking anything up.
+    const lineName = sanitizeForFileName(lineMeta.name || `#${lineId}`)
+    const fileBase = `${t(FILE_NAME_KEY[archiveType])}_${lineName}`
     // With the overlay on, export a per-enterprise breakdown instead.
     if (canOverlay && overlay.enabled) {
       await exportWithEnterpriseBreakdown(
         data,
         columns,
         archiveType,
-        `${archiveType}_${lineId}_enterprise`,
+        `${fileBase}_${t('enterpriseFile')}`,
         lineId,
         lineMeta.kind === 'virtual',
         dateRange,
       )
       return
     }
-    exportArchiveToExcel(data, columns, archiveType, `${archiveType}_${lineId}`)
+    exportArchiveToExcel(data, columns, archiveType, fileBase)
+  }
+
+  const handleExport = async () => {
+    try {
+      await runExport()
+    } catch (e) {
+      // Without this the whole export failed silently — the enterprise
+      // breakdown fetches from the API, and that request can 400 or time out.
+      notifications.show({
+        color: 'red',
+        title: t('exportError'),
+        message: (e as Error).message,
+      })
+    }
   }
 
   // Clicking a daily volume opens that commercial day in the hourly archive.

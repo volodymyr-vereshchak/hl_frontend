@@ -1,15 +1,38 @@
 import { api } from '@/lib/apiClient'
 
+/**
+ * One device's reading inside an enterprise volume record. The enterprise name
+ * lives HERE, on the device, and is called `enterprise_name` — the record above
+ * carries no name at all. Reading a `name` off the record silently produced
+ * "ID ?" column headers in the Excel export instead of the enterprises.
+ *
+ * `volume` is null when the device was not polled for that period, which is not
+ * the same as a polled zero — consumers must keep the two apart.
+ */
+export interface EnterpriseDeviceVolume {
+  serNum: number
+  mfDev: number
+  typeDev: number
+  chNum: number
+  enterprise_name: string
+  volume?: number | null
+  temperature?: number | null
+  pressure?: number | null
+  pressure_unit?: string | null
+}
+
+/**
+ * One (line, period) row from `/enterprise/volumes/` — mirrors the backend's
+ * EnterpriseVolumeResponse exactly. Deliberately has NO index signature: the
+ * previous `[key: string]: unknown` let the export read fields the endpoint
+ * never returns without a single type error.
+ */
 export interface EnterpriseRecord {
-  line_id?: number
+  line_id?: number | null
   period: string
-  volume?: number
-  temperature?: number
-  pressure?: number
-  enterprise_id?: number
-  name?: string
-  ser_num?: string
-  [key: string]: unknown
+  total_volume?: number | null
+  device_count?: number
+  devices?: EnterpriseDeviceVolume[]
 }
 
 /**

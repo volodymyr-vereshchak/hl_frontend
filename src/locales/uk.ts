@@ -64,6 +64,7 @@ export const uk = {
   editArchiveFile: "архів_змін",
   systemArchiveFile: "архів_аварій",
   parametersFile: "параметри",
+  enterpriseFile: "підприємства",
 
   // GRS Report
   grsReport: "Звіт ГРС",

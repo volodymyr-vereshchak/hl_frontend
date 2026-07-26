@@ -4,6 +4,9 @@ import type { LineKind } from '@/types'
 
 export interface LineMeta {
   kind: LineKind
+  /** Tree label of the line — names the export file. Absent in selections
+   *  persisted before this field existed, so callers need a fallback. */
+  name?: string
   meter?: boolean
   is_high_pressure?: boolean
   pressure_unit?: string | null
