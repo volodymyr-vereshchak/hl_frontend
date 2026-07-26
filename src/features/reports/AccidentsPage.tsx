@@ -46,15 +46,15 @@ function defaultRange() {
 }
 
 /**
- * Timestamp on ONE line: two-digit year and no seconds. The full value stays
- * available in the cell's title, so nothing is actually lost — accidents are
- * bounded by hourly records anyway, and the seconds only made every row two
- * lines tall.
+ * Timestamp on ONE line, seconds included — they matter for accidents. The row
+ * is kept short by the two-digit year and by never wrapping (see stampStyle),
+ * not by dropping precision.
  */
 const fmtTime = (iso: string) => {
   const d = new Date(iso)
   if (isNaN(d.getTime())) return iso
-  return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${String(d.getFullYear()).slice(2)} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+  const date = `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${String(d.getFullYear()).slice(2)}`
+  return `${date} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
 
 const fmtNum = (n: number) => n.toLocaleString('uk-UA', { maximumFractionDigits: 2 })
