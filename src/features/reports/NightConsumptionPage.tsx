@@ -8,7 +8,17 @@ import {
   Loader,
   Box,
   ScrollArea,
+  useMantineColorScheme,
 } from '@mantine/core'
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from 'recharts'
 import * as XLSX from 'xlsx'
 import {
   archiveDataApi,
@@ -18,6 +28,7 @@ import {
 } from '@/api/entities'
 import { commercialHourlyRange } from '@/domain/commercialDay'
 import { getEnterpriseFetchFn } from '@/domain/enterpriseVolumes'
+import { trendColor } from '@/domain/grsTrends'
 import {
   buildNetByDayLineHour,
   nightRowsFromMap,
@@ -30,6 +41,7 @@ import { useLanguage } from '@/locales/LanguageContext'
 import { useSelectionStore } from '@/store/selectionStore'
 import { numericStyle } from '@/theme/theme'
 import { PeriodPicker } from '@/features/archive/PeriodPicker'
+import { ChartLinePicker } from './ChartLinePicker'
 import { ReportShell } from './ReportShell'
 import { useBranchLines, type ReportLine } from './useBranchLines'
 
@@ -46,7 +58,9 @@ const fmt = (v: unknown) =>
   v == null ? '—' : Number(v).toLocaleString('uk-UA', { maximumFractionDigits: 2 })
 
 export function NightConsumptionPage() {
-  const { t } = useLanguage()
+  const { t, getLocale } = useLanguage()
+  const { colorScheme } = useMantineColorScheme()
+  const dark = colorScheme === 'dark'
   const { branchId } = useSelectionStore()
   const { data: lines } = useBranchLines(branchId)
 
@@ -59,6 +73,7 @@ export function NightConsumptionPage() {
   const [running, setRunning] = useState(false)
   const [progress, setProgress] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [hidden, setHidden] = useState<Record<number, boolean>>({})
 
   // Report lines: physical ones flagged for the report plus virtual/DPD lines.
   const reportLines = useMemo(
@@ -130,6 +145,24 @@ export function NightConsumptionPage() {
     () => (netMap ? nightRowsFromMap(netMap, usedLines.map((l) => l.id), mode) : []),
     [netMap, usedLines, mode],
   )
+
+  const pickerLines = useMemo(
+    () =>
+      usedLines.map((l, i) => ({ id: l.id, name: l.name, color: trendColor(i, usedLines.length) })),
+    [usedLines],
+  )
+
+  const fmtX = (value: string) => {
+    const d = new Date(value)
+    return isNaN(d.getTime())
+      ? value
+      : d.toLocaleDateString(getLocale(), { day: '2-digit', month: '2-digit' })
+  }
+
+  const grid = dark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.14)'
+  const axis = dark ? '#9aa7ad' : '#5a6b75'
+  // Cap the number of X labels so a long range stays readable.
+  const tickInterval = Math.max(0, Math.ceil(rows.length / 24) - 1)
 
   const exportExcel = () => {
     if (!netMap) return
@@ -225,6 +258,61 @@ export function NightConsumptionPage() {
               </Table.Tbody>
             </Table>
           </ScrollArea>
+        </Paper>
+      )}
+
+      {rows.length > 0 && (
+        <Paper withBorder radius="md" p="md">
+          <Group justify="space-between" mb="sm" wrap="wrap">
+            <Text fw={600} ff="'Space Grotesk Variable', sans-serif">
+              {t('nightConsumption')}
+            </Text>
+            <ChartLinePicker lines={pickerLines} hidden={hidden} onChange={setHidden} />
+          </Group>
+          <ResponsiveContainer width="100%" height={460}>
+            <LineChart data={rows} margin={{ top: 8, right: 16, bottom: 8, left: 8 }}>
+              <CartesianGrid stroke={grid} strokeDasharray="3 3" />
+              <XAxis
+                dataKey="date"
+                tickFormatter={fmtX}
+                tick={{ fontSize: 11, fill: axis }}
+                interval={tickInterval}
+                angle={-45}
+                textAnchor="end"
+                height={62}
+              />
+              <YAxis
+                tick={{ fontSize: 11, fill: axis }}
+                width={72}
+                tickFormatter={(v) => fmt(v)}
+              />
+              <Tooltip
+                contentStyle={{
+                  background: 'var(--hlv-surface)',
+                  border: '1px solid var(--hlv-border)',
+                  borderRadius: 8,
+                  fontSize: 12,
+                }}
+                formatter={(v) => `${fmt(v)} ${t('volumeUnit')}`}
+                labelFormatter={(label) => fmtX(String(label))}
+              />
+              {usedLines.map((l, i) =>
+                hidden[l.id] ? null : (
+                  <Line
+                    key={l.id}
+                    type="monotone"
+                    dataKey={`line_${l.id}`}
+                    name={l.name}
+                    stroke={trendColor(i, usedLines.length)}
+                    strokeWidth={2}
+                    dot={false}
+                    connectNulls
+                    isAnimationActive={false}
+                  />
+                ),
+              )}
+            </LineChart>
+          </ResponsiveContainer>
         </Paper>
       )}
 
