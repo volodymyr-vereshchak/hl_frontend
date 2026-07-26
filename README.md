@@ -54,6 +54,28 @@ src/
   locales/    ru.ts, uk.ts
 ```
 
+## Деплой
+
+Офлайн-сервер не має node — nginx віддає **закомічений `dist/`** просто з
+репозиторію. Тому `dist/` навмисно не в `.gitignore`, і порядок такий:
+
+```bash
+npm run build      # перезбирає dist/ (хешовані ассети + index.html)
+git add dist        # разом зі змінами в src
+git commit
+```
+
+Комміт лише в `src/` **не доїде до серверного UI** — там побачать стару
+збірку. Перенос на сервер — інкрементальними git-бандлами:
+
+```bat
+D:\Projects\HLViewer\make-bundles.bat
+```
+
+Скрипт кладе `newfrontend.bundle` у `D:\Projects\HLViewer\bundles\` разом з
+`APPLY-ON-SERVER.txt` (команди для сервера). Стан сервера відмічений
+локальним тегом `offline/master` — його не пушать і не видаляють.
+
 ## Нотатки
 
 - `react-router` 7.18.1: `npm audit` показує один high-флаг (RSC Mode CSRF).

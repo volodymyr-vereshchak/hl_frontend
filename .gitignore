@@ -8,7 +8,9 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
-dist
+# `dist/` is deliberately NOT ignored: the offline server has no node and nginx
+# serves the committed build straight from the repo. Rebuild and commit it
+# before every transfer — see "Деплой" in README.md.
 dist-ssr
 *.local
 
