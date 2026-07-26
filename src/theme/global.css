@@ -49,6 +49,25 @@ body {
   background: var(--hlv-surface-2);
 }
 
+/*
+ * Scroll region of a table with a sticky header. The header never scrolls, so
+ * the scrollbar must not run behind it: start the track below the header row
+ * and inset it from the rounded border, and stop the rubber-band overscroll
+ * that pushed the thumb outside that border.
+ */
+.hlv-table-scroll [data-orientation='vertical'] {
+  top: var(--hlv-thead-h, 34px);
+  bottom: 2px;
+  right: 2px;
+}
+.hlv-table-scroll [data-orientation='horizontal'] {
+  bottom: 2px;
+  left: 2px;
+}
+.hlv-table-scroll > [data-scrollarea-viewport] {
+  overscroll-behavior: contain;
+}
+
 /* Slim, unobtrusive instrument-style scrollbars. */
 * {
   scrollbar-width: thin;

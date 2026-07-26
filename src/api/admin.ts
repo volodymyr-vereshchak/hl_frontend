@@ -151,15 +151,34 @@ interface Paged<T> {
   items: T[]
 }
 
+/**
+ * Server-side filters of the type dictionaries. `calcTypeId` is the device type
+ * CODE (gas_vol_calc_type.type_id), not the row id; `search` matches the name
+ * or the event code.
+ */
+export interface TypeQuery {
+  skip?: number
+  limit?: number
+  calcTypeId?: number | null
+  search?: string
+}
+
+const typeParams = (q: TypeQuery) => ({
+  skip: q.skip ?? 0,
+  limit: q.limit ?? 50,
+  ...(q.calcTypeId != null ? { calc_type_id: q.calcTypeId } : {}),
+  ...(q.search ? { search: q.search } : {}),
+})
+
 export const sysTypeApi = {
-  getPaged: (skip = 0, limit = 50) => api.get<Paged<SysType>>('/sys-types/', { skip, limit }),
+  getPaged: (q: TypeQuery = {}) => api.get<Paged<SysType>>('/sys-types/', typeParams(q)),
   create: (data: Partial<SysType>) => api.post<SysType>('/sys-types/', data),
   update: (id: number, data: Partial<SysType>) => api.patch<SysType>(`/sys-types/${id}`, data),
   remove: (id: number) => api.delete<true>(`/sys-types/${id}`),
 }
 
 export const editTypeApi = {
-  getPaged: (skip = 0, limit = 50) => api.get<Paged<EditType>>('/edit-types/', { skip, limit }),
+  getPaged: (q: TypeQuery = {}) => api.get<Paged<EditType>>('/edit-types/', typeParams(q)),
   create: (data: Partial<EditType>) => api.post<EditType>('/edit-types/', data),
   update: (id: number, data: Partial<EditType>) => api.patch<EditType>(`/edit-types/${id}`, data),
   remove: (id: number) => api.delete<true>(`/edit-types/${id}`),

@@ -152,7 +152,12 @@ export function ArchiveTable({ rows, type, meta, overlay, onDrillDown }: Props) 
   const hasSummary = type !== 'param' && specs.some((s) => s.isSummable || s.isAveragable)
 
   return (
-    <ScrollArea type="auto" style={{ height: '100%' }}>
+    /* Archive headers wrap onto two lines, so the scrollbar starts lower. */
+    <ScrollArea
+      className="hlv-table-scroll"
+      type="auto"
+      style={{ height: '100%', '--hlv-thead-h': '58px' } as React.CSSProperties}
+    >
       <Table striped highlightOnHover stickyHeader verticalSpacing={6}>
         <Table.Thead>
           {table.getHeaderGroups().map((hg) => (

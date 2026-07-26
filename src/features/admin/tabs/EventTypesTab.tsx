@@ -1,20 +1,23 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
-  Stack,
-  Group,
-  Text,
-  SegmentedControl,
-  Table,
-  Loader,
+  Alert,
+  Box,
   Center,
   Divider,
-  Box,
+  Group,
+  Loader,
   ScrollArea,
-  Alert,
+  SegmentedControl,
+  Select,
+  Stack,
+  Table,
+  Text,
+  TextInput,
 } from '@mantine/core'
-import { IconAlertTriangle } from '@tabler/icons-react'
+import { useDebouncedValue } from '@mantine/hooks'
+import { IconAlertTriangle, IconSearch } from '@tabler/icons-react'
 import { useQuery } from '@tanstack/react-query'
-import { sysTypeApi, editTypeApi } from '@/api/admin'
+import { sysTypeApi, editTypeApi, calcTypeAdminApi } from '@/api/admin'
 import { TablePagination } from '@/components/TablePagination'
 import { numericStyle } from '@/theme/theme'
 
@@ -32,49 +35,96 @@ interface EventTypeRow {
 
 /**
  * Sys/edit type dictionaries. Both are large (thousands of rows) and served
- * paged by the backend, so this tab paginates server-side.
+ * paged by the backend, so the calculator-type filter and the search run
+ * server-side too — filtering only the current page would be misleading.
  */
 export function EventTypesTab() {
   const [kind, setKind] = useState<Kind>('sys')
+  const [calcType, setCalcType] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
+  const [debouncedSearch] = useDebouncedValue(search, 300)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(50)
 
+  // Any filter change invalidates the current page number.
+  useEffect(() => setPage(1), [kind, calcType, debouncedSearch, pageSize])
+
+  const { data: calcTypes } = useQuery({
+    queryKey: ['admin', 'calc-types'],
+    queryFn: calcTypeAdminApi.getAll,
+  })
+
   const { data, isLoading, error } = useQuery<{ total: number; items: EventTypeRow[] }>({
-    queryKey: ['admin', 'event-types', kind, page, pageSize],
+    queryKey: ['admin', 'event-types', kind, calcType, debouncedSearch, page, pageSize],
     placeholderData: (prev) => prev,
-    queryFn: async () => {
-      const skip = (page - 1) * pageSize
-      return kind === 'sys'
-        ? await sysTypeApi.getPaged(skip, pageSize)
-        : await editTypeApi.getPaged(skip, pageSize)
+    queryFn: () => {
+      const q = {
+        skip: (page - 1) * pageSize,
+        limit: pageSize,
+        // The dictionaries key on the device type CODE, not the row id.
+        calcTypeId: calcType ? Number(calcType) : null,
+        search: debouncedSearch.trim(),
+      }
+      return kind === 'sys' ? sysTypeApi.getPaged(q) : editTypeApi.getPaged(q)
     },
   })
 
   const items = data?.items ?? []
   const total = data?.total ?? 0
 
+  const calcTypeOptions = useMemo(
+    () =>
+      (calcTypes ?? []).map((t) => ({
+        value: String(t.type_id),
+        label: `${t.type_name} (${t.type_id})`,
+      })),
+    [calcTypes],
+  )
+  const calcTypeName = useMemo(() => {
+    const m = new Map((calcTypes ?? []).map((t) => [t.type_id, t.type_name]))
+    return (code: number) => m.get(code) ?? '—'
+  }, [calcTypes])
+
   return (
     <Stack gap="sm" style={{ height: '100%' }}>
-      <Group justify="space-between">
-        <Box>
-          <Text fw={600} fz="lg" ff="'Space Grotesk Variable', sans-serif">
-            Типи подій
-          </Text>
-          <Text size="xs" c="dimmed">
-            Довідники аварій та змін по типах обчислювачів
-          </Text>
-        </Box>
+      <Box>
+        <Text fw={600} fz="lg" ff="'Space Grotesk Variable', sans-serif">
+          Типи подій
+        </Text>
+        <Text size="xs" c="dimmed">
+          Довідники аварій та змін по типах обчислювачів
+        </Text>
+      </Box>
+
+      {/* Filters get their own row so nothing is squeezed against the panel edge. */}
+      <Group gap="sm" wrap="wrap">
         <SegmentedControl
           size="xs"
           value={kind}
-          onChange={(v) => {
-            setKind(v as Kind)
-            setPage(1)
-          }}
+          onChange={(v) => setKind(v as Kind)}
+          style={{ flexShrink: 0 }}
           data={[
             { value: 'sys', label: 'Аварії' },
             { value: 'edit', label: 'Зміни' },
           ]}
+        />
+        <Select
+          size="xs"
+          w={260}
+          placeholder="Всі типи обчислювачів"
+          data={calcTypeOptions}
+          value={calcType}
+          onChange={setCalcType}
+          clearable
+          searchable
+        />
+        <TextInput
+          size="xs"
+          w={260}
+          placeholder="Пошук за кодом або назвою"
+          leftSection={<IconSearch size={14} />}
+          value={search}
+          onChange={(e) => setSearch(e.currentTarget.value)}
         />
       </Group>
 
@@ -90,7 +140,7 @@ export function EventTypesTab() {
         </Center>
       ) : (
         <Box style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-          <ScrollArea style={{ flex: 1 }} type="auto">
+          <ScrollArea className="hlv-table-scroll" style={{ flex: 1 }} type="auto">
             <Table striped highlightOnHover stickyHeader verticalSpacing={6}>
               <Table.Thead>
                 <Table.Tr>
@@ -100,9 +150,7 @@ export function EventTypesTab() {
                   <Table.Th ta="right" w={110}>
                     Код
                   </Table.Th>
-                  <Table.Th ta="right" w={130}>
-                    Тип обч.
-                  </Table.Th>
+                  <Table.Th w={220}>Тип обчислювача</Table.Th>
                   <Table.Th>Назва</Table.Th>
                 </Table.Tr>
               </Table.Thead>
@@ -118,8 +166,11 @@ export function EventTypesTab() {
                       <Table.Td ta="right" style={numericStyle}>
                         {code}
                       </Table.Td>
-                      <Table.Td ta="right" style={numericStyle}>
-                        {it.gas_volume_calc_type_id}
+                      <Table.Td>
+                        <Text size="sm">{calcTypeName(it.gas_volume_calc_type_id)}</Text>
+                        <Text size="10px" c="dimmed" style={numericStyle}>
+                          {it.gas_volume_calc_type_id}
+                        </Text>
                       </Table.Td>
                       <Table.Td>{name}</Table.Td>
                     </Table.Tr>
@@ -127,6 +178,13 @@ export function EventTypesTab() {
                 })}
               </Table.Tbody>
             </Table>
+            {items.length === 0 && (
+              <Center py="xl">
+                <Text c="dimmed" size="sm">
+                  Нічого не знайдено
+                </Text>
+              </Center>
+            )}
           </ScrollArea>
           <Divider />
           <TablePagination

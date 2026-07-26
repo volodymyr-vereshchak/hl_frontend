@@ -139,15 +139,20 @@ export function AdminPage() {
         </ScrollArea>
       </Paper>
 
+      {/*
+        A plain scrollable box rather than a ScrollArea: tabs whose tables scroll
+        internally set height:100%, which only resolves against a parent with a
+        definite height. With a nested ScrollArea viewport it did not, so those
+        tables grew to full length and the whole panel scrolled instead.
+      */}
       <Paper
         withBorder
         radius="md"
-        p="md"
         style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
       >
-        <ScrollArea style={{ flex: 1 }} type="auto">
-          <Box style={{ minHeight: '100%' }}>{active.element}</Box>
-        </ScrollArea>
+        <Box p="md" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+          {active.element}
+        </Box>
       </Paper>
     </Box>
   )

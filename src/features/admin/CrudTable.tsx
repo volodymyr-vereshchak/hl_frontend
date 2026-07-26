@@ -228,7 +228,7 @@ export function CrudTable<T extends { id: number }>({
         </Center>
       ) : (
         <Box style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-          <ScrollArea style={{ flex: 1 }} type="auto">
+          <ScrollArea className="hlv-table-scroll" style={{ flex: 1 }} type="auto">
             <Table striped highlightOnHover stickyHeader verticalSpacing={6}>
               <Table.Thead>
                 <Table.Tr>

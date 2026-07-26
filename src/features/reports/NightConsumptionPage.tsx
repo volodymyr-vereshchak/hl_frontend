@@ -230,7 +230,7 @@ export function NightConsumptionPage() {
     >
       {rows.length > 0 && (
         <Paper withBorder radius="md">
-          <ScrollArea type="auto">
+          <ScrollArea className="hlv-table-scroll" type="auto">
             <Table striped highlightOnHover stickyHeader verticalSpacing={6}>
               <Table.Thead>
                 <Table.Tr>

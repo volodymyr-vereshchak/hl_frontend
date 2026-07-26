@@ -173,7 +173,7 @@ export function EnterprisePollPage() {
               size="xs"
             />
           </Box>
-          <ScrollArea style={{ flex: 1 }} type="hover">
+          <ScrollArea className="hlv-table-scroll" style={{ flex: 1 }} type="hover">
             {mappingsLoading ? (
               <Center py={40}>
                 <Loader size="sm" color="petrol" />
