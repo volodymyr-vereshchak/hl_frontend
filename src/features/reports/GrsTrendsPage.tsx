@@ -217,11 +217,14 @@ export function GrsTrendsPage() {
               setTo(t2)
             }}
           />
+          {/* Flips immediately; the run it triggers reports itself through the
+              central spinner. Locked meanwhile so a second flip cannot race it. */}
           <Switch
             size="sm"
             color="grape"
             checked={withEnterprise}
             onChange={(e) => setWithEnterprise(e.currentTarget.checked)}
+            disabled={running}
             label={t('enterpriseOverlay')}
             styles={{ label: { whiteSpace: 'nowrap' } }}
           />

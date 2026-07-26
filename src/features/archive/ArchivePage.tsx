@@ -1,6 +1,18 @@
 import { useState, useEffect } from 'react'
 import { Navigate, useParams, useNavigate, useSearchParams } from 'react-router-dom'
-import { Paper, Stack, Text, Loader, Center, Alert, Box, Divider } from '@mantine/core'
+import {
+  Paper,
+  Stack,
+  Text,
+  Loader,
+  Center,
+  Alert,
+  Box,
+  Divider,
+  Group,
+  SegmentedControl,
+} from '@mantine/core'
+import { useLocalStorage } from '@mantine/hooks'
 import { IconAlertTriangle, IconInfoCircle } from '@tabler/icons-react'
 import { useSelectionStore } from '@/store/selectionStore'
 import { useLanguage } from '@/locales/LanguageContext'
@@ -27,6 +39,7 @@ function commercialWindow(fromDate: string, toDate: string) {
 }
 
 // Height reserved for app header (56) + main padding + the single-line toolbar.
+/** Tree + pane fill the screen; nothing else sits below them. */
 const SPLIT_HEIGHT = 'calc(100dvh - 150px)'
 
 export function ArchivePage() {
@@ -65,6 +78,12 @@ export function ArchivePage() {
 
   const enabled = !!lineId && !!lineMeta && dateFilterEnabled && !restricted
   const paged = isPagedArchive(archiveType)
+  // Table or chart in the same pane — no scrolling to reach the plot. Kept per
+  // archive type: the daily view and the hourly view are used differently.
+  const [view, setView] = useLocalStorage<'table' | 'chart'>({
+    key: `hlv-archive-view-${archiveType}`,
+    defaultValue: 'table',
+  })
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(50)
 
@@ -141,9 +160,6 @@ export function ArchivePage() {
     param: t('parameters'),
   }
 
-  const showChart =
-    rows && rows.length > 0 && lineMeta && (archiveType === 'daily' || archiveType === 'hourly')
-
   return (
     <Stack gap="sm">
       <DateRangeControls
@@ -197,15 +213,43 @@ export function ArchivePage() {
             </Center>
           ) : rows && lineMeta ? (
             <>
-              <Box style={{ flex: 1, minHeight: 0 }}>
-                <ArchiveTable
+              {/* daily/hourly only: the other archives have nothing to plot. */}
+              {canOverlay && rows.length > 0 && (
+                <Group
+                  px="sm"
+                  py={6}
+                  style={{ borderBottom: '1px solid var(--hlv-border)', flexShrink: 0 }}
+                >
+                  <SegmentedControl
+                    size="xs"
+                    value={view}
+                    onChange={(v) => setView(v as 'table' | 'chart')}
+                    data={[
+                      { value: 'table', label: t('table') },
+                      { value: 'chart', label: t('chart') },
+                    ]}
+                  />
+                </Group>
+              )}
+              {canOverlay && view === 'chart' && rows.length > 0 ? (
+                <ArchiveChart
                   rows={rows}
                   type={archiveType}
                   meta={lineMeta}
-                  overlay={canOverlay && overlay.enabled && !!overlay.byPeriod}
-                  onDrillDown={drillToHourly}
+                  overlay={overlay.enabled && !!overlay.byPeriod}
+                  embedded
                 />
-              </Box>
+              ) : (
+                <Box style={{ flex: 1, minHeight: 0 }}>
+                  <ArchiveTable
+                    rows={rows}
+                    type={archiveType}
+                    meta={lineMeta}
+                    overlay={canOverlay && overlay.enabled && !!overlay.byPeriod}
+                    onDrillDown={drillToHourly}
+                  />
+                </Box>
+              )}
               {paged && total > 0 && (
                 <>
                   <Divider />
@@ -223,16 +267,6 @@ export function ArchivePage() {
           ) : null}
         </Paper>
       </Box>
-
-      {/* Chart: full width, below the split — revealed on page scroll. */}
-      {showChart && (
-        <ArchiveChart
-          rows={rows}
-          type={archiveType}
-          meta={lineMeta}
-          overlay={overlay.enabled && !!overlay.byPeriod}
-        />
-      )}
     </Stack>
   )
 }

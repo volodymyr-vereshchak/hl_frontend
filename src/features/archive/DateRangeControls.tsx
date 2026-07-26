@@ -2,6 +2,7 @@ import { Group, Switch, Button, Title, Badge, Loader, Text } from '@mantine/core
 import { IconFileSpreadsheet } from '@tabler/icons-react'
 import { useSelectionStore } from '@/store/selectionStore'
 import { useLanguage } from '@/locales/LanguageContext'
+import { pollPhaseLabel } from '@/features/reports/pollPhase'
 import { PeriodPicker } from './PeriodPicker'
 
 interface Props {
@@ -67,9 +68,13 @@ export function DateRangeControls({
 
       {overlay && (
         <Group gap={6} wrap="nowrap">
+          {/* Locked while the poll runs: a second flip mid-flight would race the
+              in-flight request, and the switch is the only thing telling the
+              user what state was asked for. */}
           <Switch
             checked={overlay.enabled}
             onChange={(e) => overlay.setEnabled(e.currentTarget.checked)}
+            disabled={overlay.loading}
             label={t('enterpriseOverlay')}
             color="grape"
             size="sm"
@@ -79,7 +84,7 @@ export function DateRangeControls({
             <Group gap={4} wrap="nowrap">
               <Loader size={14} color="grape" />
               <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
-                {prog?.total ? `${prog.done ?? 0}/${prog.total}` : (prog?.phase ?? '...')}
+                {prog ? pollPhaseLabel(prog, t) : t('phaseEnterprise')}
               </Text>
             </Group>
           )}

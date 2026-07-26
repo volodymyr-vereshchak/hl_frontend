@@ -21,6 +21,12 @@ interface Props {
   meta: LineMeta
   /** Enterprise overlay active → add Net / Total-enterprise series. */
   overlay?: boolean
+  /**
+   * Rendered inside a pane that already owns the border and the height (the
+   * archive's table/chart switch). Drops the card chrome and stretches instead
+   * of using a fixed height.
+   */
+  embedded?: boolean
 }
 
 interface Series {
@@ -93,7 +99,7 @@ function getSeries(type: ArchiveType, meta: LineMeta, t: (k: string) => string):
   return []
 }
 
-export function ArchiveChart({ rows, type, meta, overlay }: Props) {
+export function ArchiveChart({ rows, type, meta, overlay, embedded = false }: Props) {
   const { t, getLocale } = useLanguage()
   const { colorScheme } = useMantineColorScheme()
   const dark = colorScheme === 'dark'
@@ -173,12 +179,14 @@ export function ArchiveChart({ rows, type, meta, overlay }: Props) {
   const gridStrong = dark ? 'rgba(255,255,255,0.28)' : 'rgba(0,0,0,0.28)'
   const axis = dark ? '#9aa7ad' : '#5a6b75'
 
-  return (
-    <Paper p="md" radius="md" withBorder>
-      <Group justify="space-between" mb="sm" wrap="wrap">
-        <Text fw={600} ff="'Space Grotesk Variable', sans-serif">
-          {t('chartTitle')}
-        </Text>
+  const body = (
+    <>
+      <Group justify={embedded ? 'flex-end' : 'space-between'} mb="sm" wrap="wrap">
+        {!embedded && (
+          <Text fw={600} ff="'Space Grotesk Variable', sans-serif">
+            {t('chartTitle')}
+          </Text>
+        )}
         <Group gap={6}>
           {series.map((s) => {
             const on = isVisible(s.key)
@@ -203,7 +211,7 @@ export function ArchiveChart({ rows, type, meta, overlay }: Props) {
         </Group>
       </Group>
 
-      <ResponsiveContainer width="100%" height={620}>
+      <ResponsiveContainer width="100%" height={embedded ? '100%' : 620}>
         <LineChart data={data} margin={{ top: 8, right: 16, bottom: 8, left: 8 }}>
           {/* Dense grid: minor lines everywhere, both axes get many ticks. */}
           <CartesianGrid stroke={grid} strokeDasharray="3 3" horizontal vertical />
@@ -264,6 +272,19 @@ export function ArchiveChart({ rows, type, meta, overlay }: Props) {
           </Text>
         </Box>
       )}
+    </>
+  )
+
+  if (embedded) {
+    return (
+      <Box p="md" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+        {body}
+      </Box>
+    )
+  }
+  return (
+    <Paper p="md" radius="md" withBorder>
+      {body}
     </Paper>
   )
 }
