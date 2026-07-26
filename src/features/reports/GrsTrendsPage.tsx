@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Paper,
   Text,
@@ -37,11 +37,12 @@ import { useBranchLines, type ReportLine } from './useBranchLines'
 
 const pad = (n: number) => String(n).padStart(2, '0')
 
+/** Reports open on the current month: 1st → today. */
 function defaultRange() {
   const now = new Date()
-  const to = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
-  const prev = new Date(now.getTime() - 7 * 864e5)
-  return { from: `${prev.getFullYear()}-${pad(prev.getMonth() + 1)}-${pad(prev.getDate())}`, to }
+  const y = now.getFullYear()
+  const m = pad(now.getMonth() + 1)
+  return { from: `${y}-${m}-01`, to: `${y}-${m}-${pad(now.getDate())}` }
 }
 
 export function GrsTrendsPage() {
@@ -136,6 +137,18 @@ export function GrsTrendsPage() {
       setProgress(null)
     }
   }
+
+  // Flipping the industry switch after a run must show its effect right away —
+  // otherwise the toggle looks dead until the button is pressed again.
+  const firstRender = useRef(true)
+  useEffect(() => {
+    if (firstRender.current) {
+      firstRender.current = false
+      return
+    }
+    if (data) void run()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [withEnterprise])
 
   const exportExcel = () => {
     if (!data) return

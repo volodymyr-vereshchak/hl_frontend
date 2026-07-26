@@ -11,6 +11,7 @@ import {
   Table,
   Alert,
   Badge,
+  Collapse,
   UnstyledButton,
   Box,
   ScrollArea,
@@ -21,12 +22,16 @@ import {
 import { DatePickerInput } from '@mantine/dates'
 import {
   IconAlertTriangle,
+  IconBuildingCommunity,
   IconCalendar,
+  IconChevronRight,
+  IconRipple,
   IconFileSpreadsheet,
   IconPlayerPlay,
   IconSearch,
   IconPlayerStop,
 } from '@tabler/icons-react'
+import { useLocalStorage } from '@mantine/hooks'
 import { useQuery } from '@tanstack/react-query'
 import * as XLSX from 'xlsx'
 import { branchAdminApi, dpdLineAdminApi, lineAdminApi } from '@/api/admin'
@@ -47,6 +52,29 @@ import type { ArchiveRow } from '@/api/entities'
 
 type PeriodType = 'daily' | 'hourly'
 
+/** Per-device readings inside one enterprise record. */
+interface PollDevice {
+  volume?: number | null
+  temperature?: number | null
+  pressure?: number | null
+  pressure_unit?: string | null
+}
+
+interface PollRow {
+  period: string
+  volume: number
+  temperature: number | null
+  pressure: number | null
+  pressureUnit: string | null
+}
+
+const NO_BRANCH = '__no_branch__'
+const NO_LINE = '__no_line__'
+
+/** Numeric cell: '—' when there is nothing to show. */
+const fmtNum = (v: number | null | undefined, digits = 2) =>
+  v == null || isNaN(v) ? '—' : v.toLocaleString('uk-UA', { maximumFractionDigits: digits })
+
 function today(offsetDays = 0) {
   const d = new Date(Date.now() + offsetDays * 864e5)
   return d.toISOString().split('T')[0]
@@ -61,6 +89,13 @@ export function EnterprisePollPage() {
   const { branchId, setBranchId } = useSelectionStore()
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<number | null>(null)
+  // Collapsed groups survive reloads; the tree is long and reopening it every
+  // time would be busywork.
+  const [collapsed, setCollapsed] = useLocalStorage<Record<string, boolean>>({
+    key: 'hlv-poll-collapsed',
+    defaultValue: {},
+  })
+  const toggleGroup = (key: string) => setCollapsed((p) => ({ ...p, [key]: !p[key] }))
   const [periodType, setPeriodType] = useState<PeriodType>('daily')
   const [from, setFrom] = useState(today(-7))
   const [to, setTo] = useState(today())
@@ -90,15 +125,20 @@ export function EnterprisePollPage() {
     staleTime: 5 * 60_000,
   })
 
-  const lineLabel = useMemo(() => {
+  const lineNameById = useMemo(() => {
     const m = new Map<number, string>()
     ;(lines ?? []).forEach((l) => m.set(l.id, l.name))
     ;(dpdLines ?? []).forEach((d) => m.set(d.id, `[ДПД] ${d.name}`))
-    return (row: EnterpriseMappingRow) => {
-      const id = row.line_id ?? row.dpd_line_id
-      return id != null ? (m.get(id) ?? `#${id}`) : null
-    }
+    return (id: number) => m.get(id) ?? null
   }, [lines, dpdLines])
+
+  const lineLabel = useMemo(
+    () => (row: EnterpriseMappingRow) => {
+      const id = row.line_id ?? row.dpd_line_id
+      return id != null ? (lineNameById(id) ?? `#${id}`) : null
+    },
+    [lineNameById],
+  )
 
   const list = useMemo(() => {
     const all = mappings ?? []
@@ -114,6 +154,42 @@ export function EnterprisePollPage() {
         )
       })
   }, [mappings, branchId, search, lineLabel])
+
+  /**
+   * Branch → line → enterprises, the same shape as the old poll screen. A flat
+   * list of a few hundred devices is unreadable; grouping by the line they sit
+   * behind is what makes an enterprise findable.
+   */
+  const tree = useMemo(() => {
+    const byBranch = new Map<string, Map<string, EnterpriseMappingRow[]>>()
+    for (const m of list) {
+      const bKey = m.branch_id != null ? String(m.branch_id) : NO_BRANCH
+      const lKey = (m.line_id ?? m.dpd_line_id) != null ? String(m.line_id ?? m.dpd_line_id) : NO_LINE
+      if (!byBranch.has(bKey)) byBranch.set(bKey, new Map())
+      const lines = byBranch.get(bKey)!
+      if (!lines.has(lKey)) lines.set(lKey, [])
+      lines.get(lKey)!.push(m)
+    }
+    const branchOrder = (branches ?? []).map((b) => String(b.id))
+    const sortKey = (k: string, order: string[]) => (k === NO_BRANCH || k === NO_LINE ? 1e9 : order.indexOf(k))
+    return [...byBranch.entries()]
+      .sort((a, b) => sortKey(a[0], branchOrder) - sortKey(b[0], branchOrder))
+      .map(([bKey, lines]) => ({
+        key: bKey,
+        name:
+          bKey === NO_BRANCH
+            ? 'Без філії'
+            : ((branches ?? []).find((b) => String(b.id) === bKey)?.name ?? `Філія ${bKey}`),
+        count: [...lines.values()].reduce((n, arr) => n + arr.length, 0),
+        lines: [...lines.entries()]
+          .sort((a, b) => (a[0] === NO_LINE ? 1 : b[0] === NO_LINE ? -1 : Number(a[0]) - Number(b[0])))
+          .map(([lKey, items]) => ({
+            key: lKey,
+            name: lKey === NO_LINE ? 'Без лінії' : (lineNameById(Number(lKey)) ?? `Лінія ${lKey}`),
+            items,
+          })),
+      }))
+  }, [list, branches, lineNameById])
 
   const selectedMapping = list.find((m) => m.id === selected) ?? null
 
@@ -157,23 +233,50 @@ export function EnterprisePollPage() {
     setLoading(false)
   }
 
-  const rows: ArchiveRow[] = useMemo(
+  /**
+   * Temperature, pressure and its unit live on the DEVICE, not on the record:
+   * the record only carries the period and the rolled-up volume. Reading them
+   * off the record left both columns permanently empty.
+   */
+  const rows: PollRow[] = useMemo(
     () =>
-      (records ?? []).map((r) => ({
-        period: String(r.period),
-        volume: enterpriseRecordTotal(r as never),
-        temperature: r.temperature,
-        pressure: r.pressure,
-      })),
+      (records ?? [])
+        .map((r) => {
+          const device = (r as { devices?: PollDevice[] }).devices?.[0]
+          return {
+            period: String(r.period),
+            volume: enterpriseRecordTotal(r as never),
+            temperature: device?.temperature ?? null,
+            pressure: device?.pressure ?? null,
+            pressureUnit: device?.pressure_unit ?? null,
+          }
+        })
+        .sort((a, b) => a.period.localeCompare(b.period)),
     [records],
   )
 
-  const totalVolume = rows.reduce((s, r) => s + (Number(r.volume) || 0), 0)
+  // One unit for the whole poll (same device) — take the first the API gave us.
+  // Older records may carry none; those meters report in кгс/см².
+  const pressureUnit = useMemo(
+    () => rows.find((r) => r.pressureUnit)?.pressureUnit ?? 'кгс/см²',
+    [rows],
+  )
+
+  /** Volume sums; temperature and pressure average, like the archive footer. */
+  const totals = useMemo(() => {
+    const avg = (vals: number[]) => (vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null)
+    return {
+      volume: rows.reduce((sum, r) => sum + (Number(r.volume) || 0), 0),
+      temperature: avg(rows.map((r) => r.temperature).filter((v): v is number => v != null)),
+      pressure: avg(rows.map((r) => r.pressure).filter((v): v is number => v != null)),
+    }
+  }, [rows])
 
   const exportExcel = () => {
     if (!rows.length) return
-    const header = ['Період', 'Обʼєм, м³', 'Температура', 'Тиск']
-    const body = rows.map((r) => [r.period, Number(r.volume) || 0, r.temperature ?? '', r.pressure ?? ''])
+    const header = ['Період', 'Обʼєм, м³', 'Температура, °C', `Тиск, ${pressureUnit}`]
+    const body = rows.map((r) => [r.period, r.volume, r.temperature ?? '', r.pressure ?? ''])
+    body.push(['Разом', totals.volume, totals.temperature ?? '', totals.pressure ?? ''])
     const ws = XLSX.utils.aoa_to_sheet([header, ...body])
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Підприємство')
@@ -218,35 +321,124 @@ export function EnterprisePollPage() {
               </Center>
             ) : (
               <Stack gap={2} p="xs">
-                {list.map((m) => {
-                  const line = lineLabel(m)
-                  const on = selected === m.id
+                {tree.map((branch) => {
+                  // While searching, every group is forced open: a hit hidden
+                  // inside a collapsed branch reads as "nothing found".
+                  const bOpen = !!search.trim() || !collapsed[branch.key]
                   return (
-                    <UnstyledButton
-                      key={m.id}
-                      onClick={() => setSelected(m.id)}
-                      px="xs"
-                      py={6}
-                      style={{
-                        borderRadius: 6,
-                        background: on ? 'var(--mantine-color-petrol-light)' : undefined,
-                      }}
-                      className={on ? undefined : 'hlv-picker-row'}
-                    >
-                      <Text size="xs" fw={on ? 600 : 400} lh={1.3}>
-                        {enterpriseLabel(m)}
-                      </Text>
-                      <Group gap={6} mt={2} wrap="nowrap">
-                        <Text size="10px" c={line ? 'petrol' : 'amber.6'} lineClamp={1}>
-                          {line ?? 'без лінії'}
-                        </Text>
-                        {m.ser_num != null && (
-                          <Text size="10px" c="dimmed" style={numericStyle} ml="auto">
-                            {m.ser_num}
+                    <Box key={branch.key}>
+                      <UnstyledButton
+                        onClick={() => toggleGroup(branch.key)}
+                        px={6}
+                        py={5}
+                        w="100%"
+                        style={{ borderRadius: 6 }}
+                        className="hlv-picker-row"
+                      >
+                        <Group gap={6} wrap="nowrap">
+                          <IconChevronRight
+                            size={13}
+                            style={{
+                              transform: bOpen ? 'rotate(90deg)' : 'none',
+                              transition: 'transform 150ms',
+                              flexShrink: 0,
+                            }}
+                          />
+                          <IconBuildingCommunity size={13} color="var(--mantine-color-petrol-5)" />
+                          <Text size="xs" fw={600} lineClamp={1} style={{ flex: 1 }}>
+                            {branch.name}
                           </Text>
-                        )}
-                      </Group>
-                    </UnstyledButton>
+                          <Badge size="xs" variant="default">
+                            {branch.count}
+                          </Badge>
+                        </Group>
+                      </UnstyledButton>
+
+                      <Collapse expanded={bOpen}>
+                        {branch.lines.map((line) => {
+                          const lKey = `${branch.key}/${line.key}`
+                          const lOpen = !!search.trim() || !collapsed[lKey]
+                          return (
+                            <Box key={lKey}>
+                              <UnstyledButton
+                                onClick={() => toggleGroup(lKey)}
+                                pl={20}
+                                pr={6}
+                                py={4}
+                                w="100%"
+                                style={{ borderRadius: 6 }}
+                                className="hlv-picker-row"
+                              >
+                                <Group gap={6} wrap="nowrap">
+                                  <IconChevronRight
+                                    size={12}
+                                    style={{
+                                      transform: lOpen ? 'rotate(90deg)' : 'none',
+                                      transition: 'transform 150ms',
+                                      flexShrink: 0,
+                                    }}
+                                  />
+                                  <IconRipple size={12} color="var(--mantine-color-steel-6)" />
+                                  <Text
+                                    size="11px"
+                                    c={line.key === NO_LINE ? 'amber.6' : undefined}
+                                    lineClamp={1}
+                                    style={{ flex: 1 }}
+                                    title={line.name}
+                                  >
+                                    {line.name}
+                                  </Text>
+                                  <Text size="10px" c="dimmed">
+                                    {line.items.length}
+                                  </Text>
+                                </Group>
+                              </UnstyledButton>
+
+                              <Collapse expanded={lOpen}>
+                                {line.items.map((m) => {
+                                  const on = selected === m.id
+                                  return (
+                                    <UnstyledButton
+                                      key={m.id}
+                                      onClick={() => setSelected(m.id)}
+                                      pl={38}
+                                      pr={6}
+                                      py={4}
+                                      w="100%"
+                                      style={{
+                                        borderRadius: 6,
+                                        background: on
+                                          ? 'var(--mantine-color-petrol-light)'
+                                          : undefined,
+                                      }}
+                                      className={on ? undefined : 'hlv-picker-row'}
+                                    >
+                                      <Group gap={6} wrap="nowrap">
+                                        <Text
+                                          size="xs"
+                                          fw={on ? 600 : 400}
+                                          c={on ? 'petrol' : undefined}
+                                          lineClamp={1}
+                                          style={{ flex: 1 }}
+                                          title={enterpriseLabel(m)}
+                                        >
+                                          {enterpriseLabel(m)}
+                                        </Text>
+                                        {m.ser_num != null && (
+                                          <Text size="10px" c="dimmed" style={numericStyle}>
+                                            {m.ser_num}
+                                          </Text>
+                                        )}
+                                      </Group>
+                                    </UnstyledButton>
+                                  )
+                                })}
+                              </Collapse>
+                            </Box>
+                          )
+                        })}
+                      </Collapse>
+                    </Box>
                   )
                 })}
                 {list.length === 0 && (
@@ -369,41 +561,67 @@ export function EnterprisePollPage() {
                   <Text fw={600} size="sm">
                     {t('records')}: {rows.length}
                   </Text>
-                  <Text fw={700} style={numericStyle}>
-                    {totalVolume.toLocaleString('uk-UA', { maximumFractionDigits: 3 })} м³
-                  </Text>
                 </Group>
-                <ScrollArea.Autosize mah={320} type="auto">
+                <ScrollArea.Autosize className="hlv-table-scroll" mah={360} type="auto">
                   <Table striped highlightOnHover stickyHeader verticalSpacing={6}>
                     <Table.Thead>
                       <Table.Tr>
                         <Table.Th>Період</Table.Th>
                         <Table.Th ta="right">Обʼєм, м³</Table.Th>
-                        <Table.Th ta="right">Температура</Table.Th>
-                        <Table.Th ta="right">Тиск</Table.Th>
+                        <Table.Th ta="right">Температура, °C</Table.Th>
+                        <Table.Th ta="right">Тиск, {pressureUnit}</Table.Th>
                       </Table.Tr>
                     </Table.Thead>
                     <Table.Tbody>
                       {rows.map((r, i) => (
                         <Table.Tr key={i}>
-                          <Table.Td>{String(r.period).replace('T', ' ').slice(0, 16)}</Table.Td>
+                          <Table.Td>{r.period.replace('T', ' ').slice(0, 16)}</Table.Td>
                           <Table.Td ta="right" style={numericStyle}>
-                            {Number(r.volume).toLocaleString('uk-UA', { maximumFractionDigits: 3 })}
+                            {fmtNum(r.volume, 3)}
                           </Table.Td>
                           <Table.Td ta="right" style={numericStyle}>
-                            {r.temperature ?? '—'}
+                            {fmtNum(r.temperature)}
                           </Table.Td>
                           <Table.Td ta="right" style={numericStyle}>
-                            {r.pressure ?? '—'}
+                            {fmtNum(r.pressure)}
                           </Table.Td>
                         </Table.Tr>
                       ))}
                     </Table.Tbody>
+                    {/* Same footer semantics as the archives: volume sums, the
+                        rest averages. */}
+                    <Table.Tfoot
+                      style={{
+                        position: 'sticky',
+                        bottom: 0,
+                        background: 'var(--hlv-surface-2)',
+                        borderTop: '2px solid var(--hlv-border)',
+                      }}
+                    >
+                      <Table.Tr>
+                        <Table.Td fw={700}>Разом</Table.Td>
+                        <Table.Td ta="right" fw={700} style={numericStyle}>
+                          {fmtNum(totals.volume, 3)}
+                        </Table.Td>
+                        <Table.Td ta="right" fw={700} style={numericStyle}>
+                          {fmtNum(totals.temperature)}
+                          <Text span size="9px" c="dimmed" ml={4}>
+                            сер.
+                          </Text>
+                        </Table.Td>
+                        <Table.Td ta="right" fw={700} style={numericStyle}>
+                          {fmtNum(totals.pressure)}
+                          <Text span size="9px" c="dimmed" ml={4}>
+                            сер.
+                          </Text>
+                        </Table.Td>
+                      </Table.Tr>
+                    </Table.Tfoot>
                   </Table>
                 </ScrollArea.Autosize>
               </Paper>
 
-              <ArchiveChart rows={rows} type={periodType} meta={{ kind: 'dpd' }} />
+              <ArchiveChart rows={rows as unknown as ArchiveRow[]} type={periodType} meta={{ kind: 'dpd' }} />
             </>
           )}
 

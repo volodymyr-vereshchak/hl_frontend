@@ -34,18 +34,27 @@ import { useTopologySelects } from './useTopologySelects'
 
 const pad = (n: number) => String(n).padStart(2, '0')
 
+/** Timestamp cell: monospaced digits, never wrapped onto a second line. */
+const stampStyle = { ...numericStyle, whiteSpace: 'nowrap' as const }
+
+/** Reports open on the current month: 1st → today. */
 function defaultRange() {
   const now = new Date()
-  const to = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
-  const prev = new Date(now.getTime() - 7 * 864e5)
-  const from = `${prev.getFullYear()}-${pad(prev.getMonth() + 1)}-${pad(prev.getDate())}`
-  return { from, to }
+  const y = now.getFullYear()
+  const m = pad(now.getMonth() + 1)
+  return { from: `${y}-${m}-01`, to: `${y}-${m}-${pad(now.getDate())}` }
 }
 
+/**
+ * Timestamp on ONE line: two-digit year and no seconds. The full value stays
+ * available in the cell's title, so nothing is actually lost — accidents are
+ * bounded by hourly records anyway, and the seconds only made every row two
+ * lines tall.
+ */
 const fmtTime = (iso: string) => {
   const d = new Date(iso)
   if (isNaN(d.getTime())) return iso
-  return `${d.toLocaleDateString('uk-UA')} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+  return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${String(d.getFullYear()).slice(2)} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
 const fmtNum = (n: number) => n.toLocaleString('uk-UA', { maximumFractionDigits: 2 })
@@ -87,10 +96,10 @@ function GroupRow({
             </Group>
           </UnstyledButton>
         </Table.Td>
-        <Table.Td ta="center" style={numericStyle}>
+        <Table.Td ta="center" style={stampStyle} title={bounds.firstStart}>
           {fmtTime(bounds.firstStart)}
         </Table.Td>
-        <Table.Td ta="center" style={numericStyle}>
+        <Table.Td ta="center" style={stampStyle} title={bounds.lastEnd}>
           {group.isStandalone ? '—' : fmtTime(bounds.lastEnd)}
         </Table.Td>
         <Table.Td ta="center" style={numericStyle}>
@@ -123,10 +132,10 @@ function GroupRow({
                     {perLine.map((l) => (
                       <Table.Tr key={l.line_id}>
                         <Table.Td>{lineNames.get(l.line_id) ?? `Лінія ${l.line_id}`}</Table.Td>
-                        <Table.Td ta="center" style={numericStyle}>
+                        <Table.Td ta="center" style={stampStyle} title={l.firstStart}>
                           {fmtTime(l.firstStart)}
                         </Table.Td>
-                        <Table.Td ta="center" style={numericStyle}>
+                        <Table.Td ta="center" style={stampStyle} title={l.lastEnd}>
                           {group.isStandalone ? '—' : fmtTime(l.lastEnd)}
                         </Table.Td>
                         <Table.Td ta="center" style={numericStyle}>
@@ -384,7 +393,7 @@ export function AccidentsPage() {
       {groups && groups.length > 0 && (
         /* Height follows the content; the page scrolls, not the table. */
         <Paper withBorder radius="md">
-          <Table striped highlightOnHover verticalSpacing={6}>
+          <Table striped highlightOnHover verticalSpacing={4} fz="sm">
             <Table.Thead>
               <Table.Tr>
                 <Table.Th>{t('accidentType')}</Table.Th>
