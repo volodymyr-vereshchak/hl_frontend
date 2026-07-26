@@ -202,7 +202,7 @@ export function LineCard({ lineName, pressure, flow, volume, referenceTime }: Li
                 {fmtVol(flow.lastHour)}
               </Text>
               <Text size="10px" c="dimmed">
-                {t('volumeUnit')}/ч
+                {t('flowUnit')}
               </Text>
             </Group>
             <ChangeRow {...flow} />
@@ -232,24 +232,24 @@ export function LineCard({ lineName, pressure, flow, volume, referenceTime }: Li
               {dp.isMeter ? t('flowInWorkingConditions') : t('differentialPressure')}
             </Text>
             <DpBar dp={dp} />
-            <Group justify="space-between" mt={8} gap={4}>
-              <Stack gap={0}>
-                <Text size="9px" c="dimmed">
-                  {t('currentValue')}
-                </Text>
-                <Text size="xs" fw={600} c="petrol.4" style={numericStyle}>
-                  {dp.currentDp.toFixed(2)} {dp.isMeter ? t('flowUnit') : pressure.dpUnit}
-                </Text>
-              </Stack>
-              <Stack gap={0} align="flex-end">
-                <Text size="9px" c="dimmed">
-                  {t('maxValue24h')}
-                </Text>
-                <Text size="xs" fw={600} c="amber.5" style={numericStyle}>
-                  {dp.maxDp24h.toFixed(2)} {dp.isMeter ? t('flowUnit') : pressure.dpUnit}
-                </Text>
-              </Stack>
-            </Group>
+            {/* Always the same shape: two centred caption-over-value blocks.
+                Side by side, these wrapped on some cards and not on others,
+                which made the grid look ragged. */}
+            <Stack gap={5} mt={6} align="center">
+              {[
+                { label: t('currentValue'), value: dp.currentDp, color: 'petrol.4' },
+                { label: t('maxValue24h'), value: dp.maxDp24h, color: 'amber.5' },
+              ].map((row) => (
+                <Stack key={row.label} gap={0} align="center">
+                  <Text size="9px" c="dimmed" ta="center">
+                    {row.label}
+                  </Text>
+                  <Text size="xs" fw={600} c={row.color} ta="center" style={numericStyle}>
+                    {row.value.toFixed(2)} {dp.isMeter ? t('flowUnit') : pressure.dpUnit}
+                  </Text>
+                </Stack>
+              ))}
+            </Stack>
           </DataSection>
         )}
       </Stack>
