@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Popover, Button, Group, Text, Divider, Box, Stack, ScrollArea } from '@mantine/core'
+import { Popover, Button, Group, Input, Text, Divider, Box, Stack, ScrollArea } from '@mantine/core'
 import { DatePicker, TimeGrid } from '@mantine/dates'
 import { IconCalendar } from '@tabler/icons-react'
 import { useLanguage } from '@/locales/LanguageContext'
@@ -78,19 +78,27 @@ export function HourDateTimePicker({
       transitionProps={{ duration: 0 }}
     >
       <Popover.Target>
-        <Button
-          variant="default"
+        {/*
+          An Input rendered as a button, not a Button — which is exactly what
+          Mantine's own DatePickerInput does. The date-only archives use that
+          component, and a Button target next to it was visibly off: same face
+          and size, but a button's line-height (11px vs 17px) and text inset
+          differ, so the two pickers in one toolbar did not look like the same
+          control. Sharing the primitive keeps them identical for free.
+        */}
+        <Input
+          component="button"
+          type="button"
+          pointer
           size="xs"
           onClick={toggle}
           disabled={disabled}
           leftSection={<IconCalendar size={15} />}
           w={width}
-          justify="flex-start"
           aria-label={ariaLabel}
-          styles={{ label: { fontWeight: 400 } }}
         >
           {fmt(value)}
-        </Button>
+        </Input>
       </Popover.Target>
       {/* Explicit opaque surface: the dropdown overlaps the tree sidebar. */}
       <Popover.Dropdown

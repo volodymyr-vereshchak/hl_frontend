@@ -325,6 +325,12 @@ export function EnterprisePollPage() {
             const id = selectedMapping.line_id ?? selectedMapping.dpd_line_id
             return id != null ? [id] : undefined
           })(),
+          // This screen exists to ASK the meter, so the DPD API is the source:
+          // `live` re-polls the whole range and only falls back to the archive
+          // when the API cannot be reached. Without it the button read the DB
+          // and answered with whatever the last scheduled import had left —
+          // the one thing an operator opening "Опитування" is not asking for.
+          live: true,
         },
         { onProgress: setProgress, signal: ctrl.signal },
       )

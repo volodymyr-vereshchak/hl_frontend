@@ -654,18 +654,11 @@ export function FlowCalcPage() {
 
         {/* ── Results ── */}
         <Grid.Col span={{ base: 12, lg: 5 }}>
-          {/* Stays in view while the form is scrolled; scrolls internally when
-              the full readout is taller than the viewport. */}
-          <Box
-            style={{
-              position: 'sticky',
-              top: 'calc(var(--hlv-header-height) + 16px)',
-              maxHeight: 'calc(100dvh - var(--hlv-header-height) - 32px)',
-              overflowY: 'auto',
-            }}
-          >
-            <FlowCalcResultsPanel results={results} device={device} />
-          </Box>
+          {/* One sheet, at whatever height the readout needs. It used to be a
+              sticky pane with its own scrollbar, which meant the answer to a
+              calculation arrived in a box you then had to scroll — with the
+              page scrollbar right next to it. The page scrolls; this doesn't. */}
+          <FlowCalcResultsPanel results={results} device={device} />
         </Grid.Col>
       </Grid>
     </Stack>
