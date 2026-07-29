@@ -9,6 +9,7 @@ import {
   Paper,
   ScrollArea,
   SegmentedControl,
+  Select,
   SimpleGrid,
   Stack,
   Table,
@@ -41,7 +42,8 @@ export interface UnpolledReportProps {
   correctorName: (row: EnterpriseMappingRow) => string
   onSelect: (id: number) => void
   onClose: () => void
-  onExport: () => void
+  /** Exports exactly what the filters left on screen, not the whole result. */
+  onExport: (rows: EnterpriseMappingRow[]) => void
   /** Run the check again over the same branch. */
   onRefresh: () => void
 }
@@ -114,19 +116,37 @@ export function UnpolledReport({
     return isNaN(d.getTime()) ? v : d.toLocaleDateString(getLocale())
   }
   const [search, setSearch] = useState('')
+  const [status, setStatus] = useState<string | null>(null)
+  const [corrector, setCorrector] = useState<string | null>(null)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(50)
   // No totals row here, so only the sticky header needs measuring.
   const { containerRef, theadRef, theadHeight } = useStickyRowHeights()
 
+  const modelOf = useMemo(
+    () => (m: EnterpriseMappingRow) => correctorName(m) || t('unknownCorrector'),
+    [correctorName, t],
+  )
+
+  /**
+   * The filtered set, and the single source every part of the report reads:
+   * the list, the summary and the Excel export. A filter that visibly narrows
+   * one of them while another quietly keeps the full set is a trap.
+   */
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
-    const match = (m: EnterpriseMappingRow) =>
-      !q ||
-      enterpriseLabel(m).toLowerCase().includes(q) ||
-      String(m.ser_num ?? '').includes(q) ||
-      (lineLabel(m) ?? '').toLowerCase().includes(q) ||
-      branchName(m.branch_id).toLowerCase().includes(q)
+    const match = (m: EnterpriseMappingRow) => {
+      if (status === 'on' && !isActionable(m)) return false
+      if (status === 'off' && isActionable(m)) return false
+      if (corrector && modelOf(m) !== corrector) return false
+      return (
+        !q ||
+        enterpriseLabel(m).toLowerCase().includes(q) ||
+        String(m.ser_num ?? '').includes(q) ||
+        (lineLabel(m) ?? '').toLowerCase().includes(q) ||
+        branchName(m.branch_id).toLowerCase().includes(q)
+      )
+    }
     // Enabled-but-silent first: those are the ones somebody has to act on.
     // Everything else keeps a stable branch → name order.
     return rows.filter(match).sort((a, b) => {
@@ -134,13 +154,18 @@ export function UnpolledReport({
       const byBranch = branchName(a.branch_id).localeCompare(branchName(b.branch_id))
       return byBranch || enterpriseLabel(a).localeCompare(enterpriseLabel(b))
     })
-  }, [rows, search, lineLabel, branchName])
+  }, [rows, search, status, corrector, modelOf, lineLabel, branchName])
 
   const pageRows = useMemo(
     () => filtered.slice((page - 1) * pageSize, page * pageSize),
     [filtered, page, pageSize],
   )
-  const actionable = rows.filter(isActionable).length
+  const actionable = filtered.filter(isActionable).length
+  const isFiltered = filtered.length !== rows.length
+  /** Colour of the headline badge comes from the WHOLE check, not the filtered
+   *  slice: teal means the branch answered, and filtering down to the switched
+   *  off ones must not turn a branch with faults green. */
+  const allClear = rows.every((m) => !isActionable(m))
 
   /**
    * Silent enterprises grouped by corrector model, split by whether they are
@@ -149,15 +174,33 @@ export function UnpolledReport({
    */
   const byCorrector = useMemo(() => {
     const map = new Map<string, { name: string; on: number; off: number }>()
-    for (const m of rows) {
-      const name = correctorName(m) || t('unknownCorrector')
+    for (const m of filtered) {
+      const name = modelOf(m)
       const e = map.get(name) ?? { name, on: 0, off: 0 }
       if (isActionable(m)) e.on += 1
       else e.off += 1
       map.set(name, e)
     }
     return [...map.values()].sort((a, b) => b.on + b.off - (a.on + a.off) || a.name.localeCompare(b.name))
-  }, [rows, correctorName, t])
+  }, [filtered, modelOf])
+
+  /** Filter options carry their own counts — over the WHOLE result, so the
+   *  numbers do not shift as you narrow, which would make them unreadable. */
+  const statusOptions = useMemo(() => {
+    const on = rows.filter(isActionable).length
+    return [
+      { value: 'on', label: `${t('unpolledOn')} (${on})` },
+      { value: 'off', label: `${t('unpolledOff')} (${rows.length - on})` },
+    ]
+  }, [rows, t])
+
+  const correctorOptions = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const m of rows) counts.set(modelOf(m), (counts.get(modelOf(m)) ?? 0) + 1)
+    return [...counts.entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([name, n]) => ({ value: name, label: `${name} (${n})` }))
+  }, [rows, modelOf])
 
   return (
     <>
@@ -181,14 +224,47 @@ export function UnpolledReport({
           {t('unpolledEnterprises')}
         </Text>
         {/* The count is the headline, so it carries the colour: amber while
-            something is silent, teal when the whole branch answered. */}
-        <Badge size="sm" variant="light" color={actionable > 0 ? 'amber' : 'teal'}>
-          {rows.length}
+            something is silent, teal when the whole branch answered. Under a
+            filter it counts what is on screen, with the full result after the
+            slash — otherwise the number would contradict the rows below it. */}
+        <Badge size="sm" variant="light" color={allClear ? 'teal' : 'amber'}>
+          {isFiltered ? `${filtered.length} / ${rows.length}` : rows.length}
         </Badge>
         <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
           {day(from)} — {day(to)} · {t('unpolledChecked')}: {checked}
         </Text>
-        {rows.length > 0 && (
+        <Button
+          size="xs"
+          variant="default"
+          leftSection={<IconRefresh size={15} />}
+          onClick={onRefresh}
+          ml="auto"
+        >
+          {t('refresh')}
+        </Button>
+        <Button
+          size="xs"
+          variant="light"
+          color="teal"
+          leftSection={<IconFileSpreadsheet size={15} />}
+          onClick={() => onExport(filtered)}
+          disabled={filtered.length === 0}
+        >
+          {t('excel')}
+        </Button>
+      </Group>
+
+      {/* Filters get their own row rather than competing with the title for
+          space — nine controls on one line wrapped the Excel button onto a
+          line of its own, which read as a mistake. */}
+      {rows.length > 0 && (
+        <Group
+          px="sm"
+          py={6}
+          gap="xs"
+          wrap="wrap"
+          style={{ borderBottom: '1px solid var(--hlv-border)', flexShrink: 0 }}
+        >
           <SegmentedControl
             size="xs"
             value={mode}
@@ -198,42 +274,62 @@ export function UnpolledReport({
               { value: 'summary', label: t('unpolledSummary') },
             ]}
           />
-        )}
-        {/* Search belongs to the list; the summary has nothing to filter. */}
-        {mode === 'list' && rows.length > 0 && (
-          <TextInput
-            placeholder={t('searchEnterprise')}
-            leftSection={<IconSearch size={14} />}
-            value={search}
-            onChange={(e) => {
-              setSearch(e.currentTarget.value)
+          <Select
+            placeholder={t('status')}
+            data={statusOptions}
+            value={status}
+            onChange={(v) => {
+              setStatus(v)
               setPage(1)
             }}
+            clearable
             size="xs"
-            w={220}
-            ml="auto"
+            w={175}
           />
-        )}
-        <Button
-          size="xs"
-          variant="default"
-          leftSection={<IconRefresh size={15} />}
-          onClick={onRefresh}
-          ml={mode === 'list' && rows.length > 0 ? undefined : 'auto'}
-        >
-          {t('refresh')}
-        </Button>
-        <Button
-          size="xs"
-          variant="light"
-          color="teal"
-          leftSection={<IconFileSpreadsheet size={15} />}
-          onClick={onExport}
-          disabled={rows.length === 0}
-        >
-          {t('excel')}
-        </Button>
-      </Group>
+          <Select
+            placeholder={t('correctorType')}
+            data={correctorOptions}
+            value={corrector}
+            onChange={(v) => {
+              setCorrector(v)
+              setPage(1)
+            }}
+            clearable
+            searchable
+            size="xs"
+            w={240}
+          />
+          {/* Free-text search is only meaningful against the named rows. */}
+          {mode === 'list' && (
+            <TextInput
+              placeholder={t('searchEnterprise')}
+              leftSection={<IconSearch size={14} />}
+              value={search}
+              onChange={(e) => {
+                setSearch(e.currentTarget.value)
+                setPage(1)
+              }}
+              size="xs"
+              w={220}
+            />
+          )}
+          {isFiltered && (
+            <Button
+              size="compact-xs"
+              variant="subtle"
+              color="gray"
+              onClick={() => {
+                setStatus(null)
+                setCorrector(null)
+                setSearch('')
+                setPage(1)
+              }}
+            >
+              {t('resetFilters')}
+            </Button>
+          )}
+        </Group>
+      )}
 
       {rows.length === 0 ? (
         <Center style={{ flex: 1 }}>
@@ -253,14 +349,14 @@ export function UnpolledReport({
             <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="sm">
               <Stat
                 label={t('unpolledTotal')}
-                value={rows.length}
-                of={`${t('unpolledOutOf')} ${checked}`}
-                color={actionable > 0 ? 'amber.5' : 'teal.5'}
+                value={filtered.length}
+                of={`${t('unpolledOutOf')} ${isFiltered ? rows.length : checked}`}
+                color={allClear ? 'teal.5' : 'amber.5'}
               />
               {/* The split that decides what to do: a live corrector that went
                   quiet is a fault, a switched-off one is a setting. */}
               <Stat label={t('unpolledOn')} value={actionable} color="amber.5" />
-              <Stat label={t('unpolledOff')} value={rows.length - actionable} />
+              <Stat label={t('unpolledOff')} value={filtered.length - actionable} />
             </SimpleGrid>
 
             <Text size="10px" fw={700} tt="uppercase" c="petrol" mt="lg" mb={6} style={{ letterSpacing: 0.6 }}>
@@ -315,10 +411,10 @@ export function UnpolledReport({
                       {actionable}
                     </Table.Td>
                     <Table.Td ta="center" fw={700} style={numericStyle}>
-                      {rows.length - actionable}
+                      {filtered.length - actionable}
                     </Table.Td>
                     <Table.Td ta="center" fw={700} style={numericStyle}>
-                      {rows.length}
+                      {filtered.length}
                     </Table.Td>
                   </Table.Tr>
                 </Table.Tfoot>

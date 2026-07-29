@@ -290,8 +290,8 @@ export function EnterprisePollPage() {
     }
   }
 
-  const exportUnpolled = () => {
-    if (!unpolled?.length) return
+  const exportUnpolled = (rowsToExport: EnterpriseMappingRow[]) => {
+    if (!rowsToExport.length) return
     const header = [
       t('branch'),
       t('enterprise'),
@@ -301,7 +301,7 @@ export function EnterprisePollPage() {
       t('lineName'),
       t('status'),
     ]
-    const body = unpolled.map((m) => [
+    const body = rowsToExport.map((m) => [
       (branches ?? []).find((b) => b.id === m.branch_id)?.name ?? '',
       enterpriseLabel(m),
       [m.manufacturer_short_name, m.model_name].filter(Boolean).join(' '),
@@ -316,9 +316,9 @@ export function EnterprisePollPage() {
 
     // Both views go into the file regardless of which one is on screen: whoever
     // opens it later wants the totals, and re-exporting to get them is busywork.
-    const on = unpolled.filter((m) => m.enabled !== false).length
+    const on = rowsToExport.filter((m) => m.enabled !== false).length
     const byCorrector = new Map<string, { on: number; off: number }>()
-    for (const m of unpolled) {
+    for (const m of rowsToExport) {
       const name = [m.manufacturer_short_name, m.model_name].filter(Boolean).join(' ') || t('unknownCorrector')
       const e = byCorrector.get(name) ?? { on: 0, off: 0 }
       if (m.enabled === false) e.off += 1
@@ -327,9 +327,9 @@ export function EnterprisePollPage() {
     }
     const summary: (string | number)[][] = [
       [t('unpolledChecked'), checkedRange.count],
-      [t('unpolledTotal'), unpolled.length],
+      [t('unpolledTotal'), rowsToExport.length],
       [t('unpolledOn'), on],
-      [t('unpolledOff'), unpolled.length - on],
+      [t('unpolledOff'), rowsToExport.length - on],
       [],
       [t('correctorType'), t('unpolledOn'), t('unpolledOff'), t('total')],
       ...[...byCorrector.entries()]
