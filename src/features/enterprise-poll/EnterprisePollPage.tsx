@@ -232,21 +232,30 @@ export function EnterprisePollPage() {
   /**
    * "Немає опитування" — which enterprises have gone silent.
    *
-   * Ported from the old screen: poll the last three days for every line that
-   * has an active enterprise behind it, and call a device polled if ANY period
+   * Poll the last four COMPLETED days for every line that has an active
+   * enterprise behind it, and call a device polled if ANY period in that window
    * came back with a volume. A null volume is the whole signal here — it means
-   * the corrector was not reached — so `include_devices` must stay on and
-   * `live` must be set, or the check reports on the archive instead of on the
-   * meters.
+   * the corrector was not reached — so `include_devices` must stay on (the
+   * endpoint defaults it to true) and `live` must be set, or the check reports
+   * on the archive instead of on the meters.
+   *
+   * The window ends YESTERDAY. Today's commercial day is still running, so DPD
+   * has no daily record for it yet for anybody — including it polled a day that
+   * can only come back empty and pushed the whole window a day short of what it
+   * claimed to check. On the 25th the check covers the 21st through the 24th.
    */
   const checkUnpolled = async () => {
     const active = (mappings ?? []).filter(
       (m) => m.active !== false && (!branchId || m.branch_id === branchId),
     )
-    const today = new Date()
-    const start = new Date(today.getTime() - 3 * 864e5)
+    // setDate, not millisecond arithmetic: subtracting 24h across a DST switch
+    // lands on the wrong calendar day.
+    const end = new Date()
+    end.setDate(end.getDate() - 1)
+    const start = new Date(end)
+    start.setDate(start.getDate() - 3)
     const day = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
-    setCheckedRange({ from: day(start), to: day(today), count: active.length })
+    setCheckedRange({ from: day(start), to: day(end), count: active.length })
     const lineIds = [...new Set(active.map((m) => m.line_id ?? m.dpd_line_id).filter((id): id is number => id != null))]
     if (lineIds.length === 0) {
       setUnpolled([])
@@ -267,7 +276,7 @@ export function EnterprisePollPage() {
         {
           line_id: lineIds,
           from_date: day(start),
-          to_date: day(today),
+          to_date: day(end),
           period_type: 'daily',
           live: true,
         },
