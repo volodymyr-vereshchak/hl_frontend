@@ -7,7 +7,7 @@ import {
   getEnterpriseFetchFn,
   type PeriodType,
 } from '@/domain/enterpriseVolumes'
-import { dayOnly } from '@/domain/commercialDay'
+import { enterpriseDayWindow } from '@/domain/commercialDay'
 import type { ArchiveRow } from '@/api/entities'
 
 export interface OverlayState {
@@ -57,10 +57,10 @@ export function useEnterpriseOverlay(
 
     // The enterprise endpoint takes BARE COMMERCIAL DAYS and expands them
     // itself (hourly: from D1 07:00 to D2+1 06:00). Passing an already-expanded
-    // window made it expand twice and poll a day that is never displayed — and
-    // when the archive controls carry a time part, the doubled string did not
-    // denote the requested range at all. Send the plain dates, like the old UI.
-    const win = { from: dayOnly(range.fromDate), to: dayOnly(range.toDate) }
+    // window made it expand twice and poll a day that is never displayed. The
+    // days are also not the calendar ones the picker shows: an hourly range
+    // starting at 00:00 begins on the PREVIOUS commercial day.
+    const win = enterpriseDayWindow(range.fromDate, range.toDate, periodType)
 
     setLoading(true)
     setError(null)

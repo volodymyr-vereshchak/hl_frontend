@@ -31,6 +31,7 @@ import { calculateTrendPercentages, trendColor, type TrendPoint } from '@/domain
 import { useLanguage } from '@/locales/LanguageContext'
 import { useSelectionStore } from '@/store/selectionStore'
 import { PeriodPicker } from '@/features/archive/PeriodPicker'
+import { TimeAxisTick, timeAxisHeight } from '@/features/archive/TimeAxisTick'
 import { ChartLinePicker } from './ChartLinePicker'
 import { pollPhaseLabel } from './pollPhase'
 import { ReportShell } from './ReportShell'
@@ -169,14 +170,19 @@ export function GrsTrendsPage() {
     XLSX.writeFile(wb, `grs_trends_${from}_${to}.xlsx`)
   }
 
-  const fmtX = (value: string) => {
+  /** Date on the first line, hour on the second — see TimeAxisTick. Daily gets
+   *  the full date: the report spans months, and '01.07' alone was ambiguous. */
+  const fmtX = (value: string): [string, string] => {
     const d = new Date(value.length === 13 ? `${value}:00:00` : value)
-    if (isNaN(d.getTime())) return value
+    if (isNaN(d.getTime())) return [value, '']
     const locale = getLocale()
-    return periodType === 'daily'
-      ? d.toLocaleDateString(locale, { day: '2-digit', month: '2-digit' })
-      : `${d.toLocaleDateString(locale, { day: '2-digit', month: '2-digit' })} ${pad(d.getHours())}`
+    if (periodType === 'daily') return [d.toLocaleDateString(locale), '']
+    return [
+      d.toLocaleDateString(locale, { day: '2-digit', month: '2-digit' }),
+      `${pad(d.getHours())}:00`,
+    ]
   }
+  const fmtXLabel = (value: string) => fmtX(value).filter(Boolean).join(' ')
 
   const pickerLines = useMemo(
     () => usedLines.map((l, i) => ({ id: l.id, name: l.name, color: trendColor(i, usedLines.length) })),
@@ -245,12 +251,9 @@ export function GrsTrendsPage() {
               <CartesianGrid stroke={grid} strokeDasharray="3 3" />
               <XAxis
                 dataKey="period"
-                tickFormatter={fmtX}
-                tick={{ fontSize: 11, fill: axis }}
                 interval={tickInterval}
-                angle={-45}
-                textAnchor="end"
-                height={periodType === 'hourly' ? 78 : 62}
+                tick={<TimeAxisTick format={fmtX} fill={axis} />}
+                height={timeAxisHeight(periodType === 'hourly')}
               />
               <YAxis
                 tick={{ fontSize: 11, fill: axis }}
@@ -266,7 +269,7 @@ export function GrsTrendsPage() {
                   fontSize: 12,
                 }}
                 formatter={(v) => `${Number(v).toFixed(2)}%`}
-                labelFormatter={(label) => fmtX(String(label))}
+                labelFormatter={(label) => fmtXLabel(String(label))}
               />
               {usedLines.map((l, i) =>
                 hidden[l.id] ? null : (

@@ -97,6 +97,27 @@ body {
 }
 
 /*
+ * Underline under the label of the active top-nav button. The tinted
+ * `variant="light"` background on its own was too quiet to pick out of a row of
+ * eight buttons; the colour is set per button through --hlv-nav-underline and is
+ * transparent when the button is not active.
+ *
+ * Inside the button, not below it: the nav lives in a ScrollArea whose viewport
+ * ends exactly at the buttons' bottom edge, so anything drawn outside is clipped
+ * away and never appears.
+ */
+.hlv-nav-button::after {
+  content: '';
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 4px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--hlv-nav-underline, transparent);
+}
+
+/*
  * Scroll region of a table with a sticky header and, in the archives, a sticky
  * totals row. Neither of those scrolls, so the scrollbar must not run across
  * them: the track starts below the header and stops above the totals row, and

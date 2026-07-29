@@ -32,6 +32,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { deviceCatalogApi, dpdLineAdminApi, type DpdJobStatus } from '@/api/admin'
 import type { DpdLine } from '@/types'
+import { invalidateTopology } from '@/lib/invalidateTopology'
 import { numericStyle } from '@/theme/theme'
 import { useAdminTopology, toOptions } from '../useAdminTopology'
 import { LoadingState } from '@/components/LoadingState'
@@ -102,7 +103,11 @@ export function DpdLinesTab() {
   const [jobs, setJobs] = useState<Record<number, DpdJobStatus>>({})
   const timers = useRef<Record<number, ReturnType<typeof setInterval>>>({})
 
-  const invalidate = () => qc.invalidateQueries({ queryKey: ['admin', 'dpd-lines'] })
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ['admin', 'dpd-lines'] })
+    // ДПД lines appear in every tree and report — refresh those names too.
+    invalidateTopology(qc)
+  }
 
   // ── Init job polling ──────────────────────────────────────────────────────
   const startPolling = (lineId: number) => {

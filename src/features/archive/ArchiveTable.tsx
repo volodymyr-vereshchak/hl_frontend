@@ -35,8 +35,10 @@ function fmtPeriod(period: string, type: ArchiveType): string {
   if (isNaN(d.getTime())) return period
   const date = d.toLocaleDateString('uk-UA')
   if (type === 'hourly') return `${date} ${pad(d.getHours())}:00`
-  // sys/edit events carry a real time-of-day — show seconds too.
-  if (type === 'sys' || type === 'edit') {
+  // sys/edit events and parameter records carry a real time-of-day — show
+  // seconds too. Two parameter records can share a date, so the date alone
+  // does not identify a row.
+  if (type === 'sys' || type === 'edit' || type === 'param') {
     return `${date} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
   }
   return date

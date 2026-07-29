@@ -1,4 +1,5 @@
-import { useQuery } from '@tanstack/react-query'
+import { useEffect, useRef } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   branchApi,
   lumgApi,
@@ -56,6 +57,40 @@ export function useTopology() {
 }
 
 /**
+ * Watches for a new hostlib import and refreshes the overview when one lands.
+ *
+ * The overview itself is expensive — a dozen requests and a full recompute —
+ * so it is not what gets polled. `/hourly_last_period/` is a single
+ * `SELECT max(period)`, cheap enough to ask once a minute; the overview is
+ * invalidated only when that value actually moves. Without this the screen sat
+ * on whatever it loaded and only refreshed if the user navigated away and back.
+ */
+function useRefreshOnNewData() {
+  const qc = useQueryClient()
+  const { data: lastPeriod } = useQuery({
+    queryKey: ['hourly-last-period'],
+    queryFn: () => archiveDataApi.getLastPeriod(),
+    refetchInterval: 60_000,
+    // A hidden tab has nothing to show; it catches up on focus instead.
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
+    staleTime: 0,
+  })
+
+  const seen = useRef<number | null>(null)
+  useEffect(() => {
+    const ts = lastPeriod ? lastPeriod.getTime() : null
+    if (ts == null) return
+    // First reading only records the baseline: the data it describes is the
+    // data already on screen.
+    if (seen.current !== null && ts !== seen.current) {
+      qc.invalidateQueries({ queryKey: ['overview'] })
+    }
+    seen.current = ts
+  }, [lastPeriod, qc])
+}
+
+/**
  * Overview metrics for a branch — ported from the old useOverviewData.loadData:
  * load report lines (physical + DPD), dP params, and last-24h hourly data, then
  * compute totals/comparisons/pressures via OverviewCalculator.
@@ -63,10 +98,14 @@ export function useTopology() {
 export function useOverviewData(branchId: number | null) {
   const topology = useTopology()
   const lumgs = topology.data?.lumgs ?? []
+  useRefreshOnNewData()
 
   const query = useQuery({
     queryKey: ['overview', branchId],
     enabled: branchId != null && topology.isSuccess,
+    // Coming back to the tab should show the current state of the station, not
+    // whatever was true when it was last opened.
+    refetchOnWindowFocus: true,
     queryFn: async (): Promise<OverviewData> => {
       const branchLumgIds = lumgs.filter((l) => l.branch_id === branchId).map((l) => l.id)
       if (branchLumgIds.length === 0) throw new Error('Немає ЛУМГ для філії')

@@ -12,6 +12,7 @@ interface Props {
   todayValue: string
   ariaLabel?: string
   width?: number
+  disabled?: boolean
 }
 
 const pad = (n: number) => String(n).padStart(2, '0')
@@ -33,7 +34,14 @@ function fmt(value: string): string {
  * GRID instead of a scrolling time list — every hour is one click away, which
  * is what these archives actually need (values are always on the hour).
  */
-export function HourDateTimePicker({ value, onChange, todayValue, ariaLabel, width = 185 }: Props) {
+export function HourDateTimePicker({
+  value,
+  onChange,
+  todayValue,
+  ariaLabel,
+  width = 185,
+  disabled,
+}: Props) {
   const { t } = useLanguage()
   const [opened, setOpened] = useState(false)
   const close = () => setOpened(false)
@@ -74,6 +82,7 @@ export function HourDateTimePicker({ value, onChange, todayValue, ariaLabel, wid
           variant="default"
           size="xs"
           onClick={toggle}
+          disabled={disabled}
           leftSection={<IconCalendar size={15} />}
           w={width}
           justify="flex-start"

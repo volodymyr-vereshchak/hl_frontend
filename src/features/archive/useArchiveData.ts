@@ -110,7 +110,16 @@ async function fetchArchive(
   // sys / edit / param — physical lines only.
   if (type === 'sys') return byPeriod(await sysArchiveApi.getData(ids, toIso(fromDate), toIso(toDate)))
   if (type === 'edit') return byPeriod(await editArchiveApi.getData(ids, toIso(fromDate), toIso(toDate)))
-  return paramArchiveApi.getParamsForLines(ids) as Promise<ArchiveRow[]>
+  // Parameters honour the date filter like every other archive. `to_date` is
+  // pushed to the end of its day: the pickers here are date-only, and a bare
+  // date means midnight, which would drop everything recorded on the last day.
+  return byPeriod(
+    (await paramArchiveApi.getParamsForLines(
+      ids,
+      toIso(fromDate),
+      hasTime(toDate) ? toIso(toDate) : `${dateOnly(toDate)}T23:59:59`,
+    )) as ArchiveRow[],
+  )
 }
 
 /**

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useLocalStorage } from '@mantine/hooks'
 import {
   Box,
@@ -185,7 +185,7 @@ export function TreeView({ fill = false }: { fill?: boolean } = {}) {
   const { data, isLoading } = useTreeData()
   const [search, setSearch] = useState('')
   const q = search.trim().toLowerCase()
-  const { lineId } = useSelectionStore()
+  const { lineId, lineMeta, selectLine } = useSelectionStore()
 
   // Which nodes are unfolded, kept across reloads and page changes.
   const [openMap, setOpenMap] = useLocalStorage<Record<string, boolean>>({
@@ -212,6 +212,18 @@ export function TreeView({ fill = false }: { fill?: boolean } = {}) {
     }
     return null
   }, [data, lineId])
+
+  /**
+   * The selection is persisted in localStorage, meta and all — so a line
+   * renamed (or re-unitised) in the admin panel kept showing its old name in
+   * the toolbar and the export file name until it was picked again. The tree is
+   * the source of truth; when it disagrees, adopt it.
+   */
+  useEffect(() => {
+    if (!selectedLine || lineId == null) return
+    if (JSON.stringify(selectedLine.meta) === JSON.stringify(lineMeta)) return
+    selectLine(lineId, selectedLine.meta)
+  }, [selectedLine, lineId, lineMeta, selectLine])
 
   const filtered = useMemo(() => {
     if (!data) return []

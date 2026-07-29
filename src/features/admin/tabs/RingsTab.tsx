@@ -29,6 +29,7 @@ import {
 } from '@tabler/icons-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { dpdLineAdminApi, virtualLineAdminApi } from '@/api/admin'
+import { invalidateTopology } from '@/lib/invalidateTopology'
 import type { VirtualLine } from '@/types'
 import { useAdminTopology, toOptions } from '../useAdminTopology'
 import { LoadingState } from '@/components/LoadingState'
@@ -76,7 +77,11 @@ export function RingsTab() {
   const [pickerOpened, picker] = useDisclosure(false)
   const [pickerSearch, setPickerSearch] = useState('')
 
-  const invalidate = () => qc.invalidateQueries({ queryKey: ['admin', 'virtual-lines'] })
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ['admin', 'virtual-lines'] })
+    // Rings are lines everywhere else — the trees must pick the change up now.
+    invalidateTopology(qc)
+  }
 
   const save = useMutation({
     mutationFn: (payload: Partial<VirtualLine>) =>
@@ -204,8 +209,15 @@ export function RingsTab() {
     })
   }
 
+  // Sorted by id, and deliberately not by anything that a switch can change:
+  // the list used to reshuffle on every toggle, because the endpoint returned
+  // rows in heap order and an UPDATE moves the touched row to the end.
   const visibleRings = useMemo(
-    () => (rings ?? []).filter((r) => !branchFilter || String(r.branch_id) === branchFilter),
+    () =>
+      (rings ?? [])
+        .filter((r) => !branchFilter || String(r.branch_id) === branchFilter)
+        .slice()
+        .sort((a, b) => a.id - b.id),
     [rings, branchFilter],
   )
 
@@ -372,7 +384,10 @@ export function RingsTab() {
                   <Table.Th>Філія</Table.Th>
                   <Table.Th>ЛУМГ</Table.Th>
                   <Table.Th ta="center">Ліній</Table.Th>
-                  <Table.Th ta="center">У звіт</Table.Th>
+                  {/* No "У звіт": nothing reads include_in_report for a ring.
+                      The overview builds from physical and DPD lines only, and
+                      the night report takes every ring regardless — so the
+                      switch promised a setting that did not exist. */}
                   <Table.Th ta="center">У тренди</Table.Th>
                   <Table.Th ta="center">Активне</Table.Th>
                   <Table.Th w={80} />
@@ -393,7 +408,7 @@ export function RingsTab() {
                     <Table.Td c="dimmed">{branchName(ring.branch_id)}</Table.Td>
                     <Table.Td c="dimmed">{lumgName(ring.lumg_id)}</Table.Td>
                     <Table.Td ta="center">{(ring.physical_line_ids ?? []).length}</Table.Td>
-                    {(['include_in_report', 'include_in_trends', 'active'] as const).map((field) => (
+                    {(['include_in_trends', 'active'] as const).map((field) => (
                       <Table.Td key={field} ta="center">
                         <Switch
                           size="xs"

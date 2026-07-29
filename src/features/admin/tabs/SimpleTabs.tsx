@@ -1,7 +1,9 @@
 import { useMemo, useState } from 'react'
 import { Select } from '@mantine/core'
+import { useQuery } from '@tanstack/react-query'
 import { CrudTable, type CrudField } from '../CrudTable'
 import { useAdminTopology, toOptions } from '../useAdminTopology'
+import { UNIT_LABELS } from '@/domain/pressureUnits'
 import {
   branchAdminApi,
   lumgAdminApi,
@@ -101,6 +103,34 @@ export function LinesConfigTab() {
     [calcs, branchCalcIds],
   )
 
+  const { data: lines } = useQuery({
+    queryKey: ['admin', 'lines'],
+    queryFn: () => lineAdminApi.getAll(),
+  })
+
+  /**
+   * Units come from a fixed list, not free text.
+   *
+   * The output pressure of a low-pressure line is computed as P − dP, with dP
+   * converted from its own unit into the pressure unit. That conversion looks
+   * the unit up by its exact label; a hand-typed "кгс/см2" (no superscript) is
+   * not found, and `convertPressureValue` then returns the value UNCONVERTED —
+   * silently, with no sign on screen that the number is wrong.
+   *
+   * Anything already stored that is not in the list is kept as an option, so
+   * opening a line for an unrelated edit cannot quietly rewrite its unit. Such
+   * a value is marked, because it is exactly the case that skips conversion.
+   */
+  const unitOptions = (key: 'pressure_unit' | 'dp_unit') => {
+    const stored = new Set(
+      (lines ?? []).map((l) => l[key]).filter((u): u is string => !!u && !UNIT_LABELS.includes(u)),
+    )
+    return [
+      ...UNIT_LABELS.map((u) => ({ value: u, label: u })),
+      ...[...stored].map((u) => ({ value: u, label: `${u} — не розпізнано, без перерахунку` })),
+    ]
+  }
+
   const fields: CrudField<Line>[] = [
     { key: 'id', label: 'ID', numeric: true, hideInForm: true },
     { key: 'name', label: 'Назва', required: true },
@@ -117,8 +147,8 @@ export function LinesConfigTab() {
     { key: 'is_high_pressure', label: 'Високий тиск', type: 'checkbox' },
     { key: 'include_in_report', label: 'У звіт', type: 'checkbox' },
     { key: 'include_in_trends', label: 'У тренди', type: 'checkbox' },
-    { key: 'pressure_unit', label: 'Од. тиску' },
-    { key: 'dp_unit', label: 'Од. перепаду' },
+    { key: 'pressure_unit', label: 'Од. тиску', type: 'select', options: unitOptions('pressure_unit') },
+    { key: 'dp_unit', label: 'Од. перепаду', type: 'select', options: unitOptions('dp_unit') },
   ]
   return (
     <CrudTable<Line>
@@ -273,12 +303,28 @@ export function DeviceMappingsTab() {
 }
 
 export function CorrectorTypesTab() {
+  // A corrector type stores `manufacturer_id`, not the manufacturer's DPD code,
+  // and has no `name` at all. The old columns read `mf_dev` and `name` off the
+  // row, so both rendered as an em dash on every line.
+  const { data: manufacturers } = useQuery({
+    queryKey: ['admin', 'manufacturers'],
+    queryFn: deviceCatalogApi.manufacturers,
+    staleTime: 5 * 60_000,
+  })
+  const manufacturerName = useMemo(() => {
+    const byId = new Map((manufacturers ?? []).map((m) => [m.id, m.short_name]))
+    return (id: number | null | undefined) => (id == null ? '—' : (byId.get(id) ?? `#${id}`))
+  }, [manufacturers])
+
   const fields: CrudField<CorectorType>[] = [
     { key: 'id', label: 'ID', numeric: true },
     { key: 'type_dev', label: 'Код типу', numeric: true },
-    { key: 'mf_dev', label: 'Виробник', numeric: true },
+    {
+      key: 'manufacturer_id',
+      label: 'Виробник',
+      render: (c) => manufacturerName(c.manufacturer_id),
+    },
     { key: 'model_name', label: 'Модель' },
-    { key: 'name', label: 'Назва' },
   ]
   return (
     <CrudTable<CorectorType>
@@ -287,7 +333,7 @@ export function CorrectorTypesTab() {
       queryKey={['admin', 'corrector-types']}
       fetchAll={deviceCatalogApi.correctorTypes}
       fields={fields}
-      searchKeys={['model_name', 'name']}
+      searchKeys={['model_name']}
     />
   )
 }

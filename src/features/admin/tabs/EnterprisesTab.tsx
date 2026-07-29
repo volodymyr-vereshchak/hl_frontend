@@ -39,6 +39,7 @@ import {
   type UploadResult,
 } from '@/api/admin'
 import { TablePagination } from '@/components/TablePagination'
+import { invalidateTopology } from '@/lib/invalidateTopology'
 import { numericStyle } from '@/theme/theme'
 import { useAdminTopology, toOptions } from '../useAdminTopology'
 import { LoadingState } from '@/components/LoadingState'
@@ -268,7 +269,11 @@ export function EnterprisesTab() {
   )
 
   // ── Mutations ─────────────────────────────────────────────────────────────
-  const invalidate = () => qc.invalidateQueries({ queryKey: ['admin', 'enterprise-mappings'] })
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ['admin', 'enterprise-mappings'] })
+    // The poll page reads the same enterprises under its own key.
+    invalidateTopology(qc)
+  }
 
   /** One form field holds the line; on save it routes to line_id or dpd_line_id. */
   const splitLine = (raw: string | null) => {

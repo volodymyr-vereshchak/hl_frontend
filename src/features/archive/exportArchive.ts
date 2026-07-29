@@ -8,7 +8,7 @@ import {
   getEnterpriseFetchFn,
   type PeriodType,
 } from '@/domain/enterpriseVolumes'
-import { dayOnly } from '@/domain/commercialDay'
+import { enterpriseDayWindow } from '@/domain/commercialDay'
 import type { ArchiveRow } from '@/api/entities'
 import type { ArchiveType } from '@/types'
 import type { DateRange } from '@/store/selectionStore'
@@ -71,10 +71,9 @@ export async function exportWithEnterpriseBreakdown(
 ) {
   const periodType: PeriodType = type === 'hourly' ? 'hourly' : 'daily'
   // Bare commercial days: the endpoint expands them itself (hourly → D 07:00 to
-  // D+1 06:00). The archive controls hand out an already-expanded range for the
-  // hourly view, and re-expanding that yielded to_date=NaN-NaN-NaN and a 400.
-  // Same window the on-screen overlay asks for, so file and screen agree.
-  const win = { from: dayOnly(range.fromDate), to: dayOnly(range.toDate) }
+  // D+1 06:00). Exactly the window the on-screen overlay asks for — same helper,
+  // so a file can never disagree with the table it was exported from.
+  const win = enterpriseDayWindow(range.fromDate, range.toDate, periodType)
 
   // include_devices → per-enterprise columns.
   const records = await getEnterpriseFetchFn(isVirtual, { includeDevices: true })(

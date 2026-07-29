@@ -11,6 +11,9 @@ interface Props {
   from: string
   to: string
   onChange: (next: { from: string; to: string }) => void
+  /** Locked while a report is being built — the period is part of what is
+   *  being computed, so it must not move mid-run. */
+  disabled?: boolean
 }
 
 const pad = (n: number) => String(n).padStart(2, '0')
@@ -35,7 +38,7 @@ function addDaysStr(date: string, delta: number): string {
  * picker on today CONTRACT_HOUR:00, the end picker on the next day's
  * (CONTRACT_HOUR-1):00, i.e. the default 07:00 → 06:00 window.
  */
-export function PeriodPicker({ withTime, from, to, onChange }: Props) {
+export function PeriodPicker({ withTime, from, to, onChange, disabled }: Props) {
   const { t } = useLanguage()
   const h = getContractHour()
   const today = todayDate()
@@ -44,6 +47,7 @@ export function PeriodPicker({ withTime, from, to, onChange }: Props) {
     leftSection: <IconCalendar size={15} />,
     size: 'xs' as const,
     popoverProps: { zIndex: 500, withinPortal: true },
+    disabled,
   }
 
   if (!withTime) {
@@ -80,12 +84,14 @@ export function PeriodPicker({ withTime, from, to, onChange }: Props) {
         value={from}
         onChange={(v) => onChange({ from: v, to })}
         todayValue={`${today} ${pad(h)}:00:00`}
+        disabled={disabled}
       />
       <HourDateTimePicker
         ariaLabel={t('to')}
         value={to}
         onChange={(v) => onChange({ from, to: v })}
         todayValue={`${addDaysStr(today, 1)} ${pad(h - 1)}:00:00`}
+        disabled={disabled}
       />
     </Group>
   )

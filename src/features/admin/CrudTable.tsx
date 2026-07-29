@@ -30,6 +30,7 @@ import {
   IconRefresh,
 } from '@tabler/icons-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { invalidateTopology } from '@/lib/invalidateTopology'
 import { numericStyle } from '@/theme/theme'
 import { TablePagination } from '@/components/TablePagination'
 import { LoadingState } from '@/components/LoadingState'
@@ -69,6 +70,12 @@ export interface CrudTableProps<T extends { id: number }> {
   filter?: (row: T) => boolean
   /** Values merged into the payload of every create (e.g. a pre-selected branch). */
   createDefaults?: Record<string, unknown>
+  /**
+   * Row order. Defaults to `id`, which is what the admin panel needs: several
+   * of these endpoints return rows in Postgres heap order, so editing a row
+   * moved it to the end of the list and everything below it shifted up.
+   */
+  sortBy?: (row: T) => number | string
 }
 
 const PAGE_SIZE_DEFAULT = 50
@@ -92,6 +99,7 @@ export function CrudTable<T extends { id: number }>({
   toolbarExtra,
   filter,
   createDefaults,
+  sortBy = (row) => row.id,
 }: CrudTableProps<T>) {
   const qc = useQueryClient()
   const { data, isLoading, error, refetch, isFetching } = useQuery({ queryKey, queryFn: fetchAll })
@@ -102,7 +110,12 @@ export function CrudTable<T extends { id: number }>({
   const [editing, setEditing] = useState<T | null>(null)
   const [form, setForm] = useState<Record<string, unknown>>({})
 
-  const invalidate = () => qc.invalidateQueries({ queryKey })
+  // The tab's own list, plus every screen that shows these names — a renamed
+  // line has to reach the archive tree without a reload.
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey })
+    invalidateTopology(qc)
+  }
 
   const saveMutation = useMutation({
     mutationFn: async (values: Record<string, unknown>) => {
@@ -128,14 +141,22 @@ export function CrudTable<T extends { id: number }>({
   })
 
   const rows = useMemo(() => {
-    const all = filter ? (data ?? []).filter(filter) : (data ?? [])
+    let all = filter ? (data ?? []).filter(filter) : (data ?? [])
     const q = search.trim().toLowerCase()
-    if (!q) return all
-    const keys = searchKeys ?? fields.map((f) => f.key)
-    return all.filter((row) =>
-      keys.some((k) => String((row as Record<string, unknown>)[k] ?? '').toLowerCase().includes(q)),
-    )
-  }, [data, search, searchKeys, fields, filter])
+    if (q) {
+      const keys = searchKeys ?? fields.map((f) => f.key)
+      all = all.filter((row) =>
+        keys.some((k) => String((row as Record<string, unknown>)[k] ?? '').toLowerCase().includes(q)),
+      )
+    }
+    return [...all].sort((a, b) => {
+      const x = sortBy(a)
+      const y = sortBy(b)
+      return typeof x === 'number' && typeof y === 'number'
+        ? x - y
+        : String(x).localeCompare(String(y))
+    })
+  }, [data, search, searchKeys, fields, filter, sortBy])
 
   const pageRows = useMemo(
     () => rows.slice((page - 1) * pageSize, page * pageSize),

@@ -18,6 +18,9 @@ import {
   TextInput,
   Loader,
   Center,
+  ActionIcon,
+  Modal,
+  Tooltip,
 } from '@mantine/core'
 import { DatePickerInput } from '@mantine/dates'
 import {
@@ -25,9 +28,12 @@ import {
   IconBuildingCommunity,
   IconCalendar,
   IconChevronRight,
+  IconChevronsDown,
+  IconChevronsUp,
   IconRipple,
   IconFileSpreadsheet,
   IconPlayerPlay,
+  IconPlugConnectedX,
   IconSearch,
   IconPlayerStop,
 } from '@tabler/icons-react'
@@ -103,6 +109,10 @@ export function EnterprisePollPage() {
     defaultValue: {},
   })
   const toggleGroup = (key: string) => setCollapsed((p) => ({ ...p, [key]: !p[key] }))
+  const [unpolled, setUnpolled] = useState<EnterpriseMappingRow[] | null>(null)
+  const [checking, setChecking] = useState(false)
+  const [checkProgress, setCheckProgress] = useState<{ done?: number; total?: number; phase?: string } | null>(null)
+  const checkAbortRef = useRef<AbortController | null>(null)
   const [periodType, setPeriodType] = useState<PeriodType>('daily')
   const initialRange = defaultRange()
   const [from, setFrom] = useState(initialRange.from)
@@ -199,7 +209,98 @@ export function EnterprisePollPage() {
       }))
   }, [list, branches, lineNameById])
 
+  // Every collapsible key in the tree — branches and the lines under them.
+  const allGroupKeys = useMemo(
+    () => tree.flatMap((b) => [b.key, ...b.lines.map((l) => `${b.key}/${l.key}`)]),
+    [tree],
+  )
+  const collapseAll = () => setCollapsed(Object.fromEntries(allGroupKeys.map((k) => [k, true])))
+  const expandAll = () => setCollapsed({})
+
   const selectedMapping = list.find((m) => m.id === selected) ?? null
+
+  /**
+   * "Немає опитування" — which enterprises have gone silent.
+   *
+   * Ported from the old screen: poll the last three days for every line that
+   * has an active enterprise behind it, and call a device polled if ANY period
+   * came back with a volume. A null volume is the whole signal here — it means
+   * the corrector was not reached — so `include_devices` must stay on and
+   * `live` must be set, or the check reports on the archive instead of on the
+   * meters.
+   */
+  const checkUnpolled = async () => {
+    const active = (mappings ?? []).filter(
+      (m) => m.active !== false && (!branchId || m.branch_id === branchId),
+    )
+    const lineIds = [...new Set(active.map((m) => m.line_id ?? m.dpd_line_id).filter((id): id is number => id != null))]
+    if (lineIds.length === 0) {
+      setUnpolled([])
+      return
+    }
+    checkAbortRef.current?.abort()
+    const ctrl = new AbortController()
+    checkAbortRef.current = ctrl
+    setChecking(true)
+    setError(null)
+    setCheckProgress(null)
+    try {
+      const today = new Date()
+      const start = new Date(today.getTime() - 3 * 864e5)
+      const day = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+      const records = await streamEnterpriseVolumes(
+        {
+          line_id: lineIds,
+          from_date: day(start),
+          to_date: day(today),
+          period_type: 'daily',
+          live: true,
+        },
+        { onProgress: setCheckProgress, signal: ctrl.signal },
+      )
+      const polled = new Set<string>()
+      for (const record of records) {
+        for (const d of record.devices ?? []) {
+          if (d.volume != null) polled.add(`${d.serNum}_${d.chNum}`)
+        }
+      }
+      setUnpolled(active.filter((m) => !polled.has(`${m.ser_num}_${m.ch_num}`)))
+    } catch (e) {
+      const err = e as Error
+      if (err.name !== 'AbortError') setError(err.message)
+    } finally {
+      setChecking(false)
+      setCheckProgress(null)
+    }
+  }
+
+  const exportUnpolled = () => {
+    if (!unpolled?.length) return
+    const header = [
+      t('branch'),
+      t('selectEnterprise'),
+      t('correctorType'),
+      t('correctorNumber'),
+      t('channelNumber'),
+      t('lineName'),
+      t('status'),
+    ]
+    const body = unpolled.map((m) => [
+      (branches ?? []).find((b) => b.id === m.branch_id)?.name ?? '',
+      enterpriseLabel(m),
+      [m.manufacturer_short_name, m.model_name].filter(Boolean).join(' '),
+      m.ser_num ?? '',
+      m.ch_num ?? '',
+      lineLabel(m) ?? t('withoutLine'),
+      m.enabled === false ? t('statusDisabled') : t('statusEnabled'),
+    ])
+    const ws = XLSX.utils.aoa_to_sheet([header, ...body])
+    ws['!cols'] = [{ wch: 20 }, { wch: 30 }, { wch: 20 }, { wch: 18 }, { wch: 14 }, { wch: 20 }, { wch: 12 }]
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, t('unpolledEnterprises'))
+    const d = new Date()
+    XLSX.writeFile(wb, `unpolled_enterprises_${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}.xlsx`)
+  }
 
   const run = async () => {
     if (!selectedMapping) return
@@ -348,6 +449,19 @@ export function EnterprisePollPage() {
             Опитати
           </Button>
         )}
+        {/* Answers "is anything not reporting?" without picking a device
+            first — the reason it is a toolbar button and not a row action. */}
+        <Button
+          size="xs"
+          variant="light"
+          color="amber"
+          leftSection={<IconPlugConnectedX size={15} />}
+          onClick={() => void checkUnpolled()}
+          loading={checking}
+          disabled={loading}
+        >
+          {t('unpolledEnterprises')}
+        </Button>
         <Select
           placeholder="Всі філії"
           data={(branches ?? []).map((b) => ({ value: String(b.id), label: b.name }))}
@@ -379,13 +493,28 @@ export function EnterprisePollPage() {
           style={{ width: 420, flexShrink: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
         >
           <Box p="sm" pb={4}>
-            <TextInput
-              placeholder={t('searchEnterprise')}
-              leftSection={<IconSearch size={15} />}
-              value={search}
-              onChange={(e) => setSearch(e.currentTarget.value)}
-              size="xs"
-            />
+            <Group gap={4} wrap="nowrap">
+              <TextInput
+                placeholder={t('searchEnterprise')}
+                leftSection={<IconSearch size={15} />}
+                value={search}
+                onChange={(e) => setSearch(e.currentTarget.value)}
+                size="xs"
+                style={{ flex: 1 }}
+              />
+              {/* A few hundred devices across a dozen branches: opening or
+                  closing them one at a time is the slow part of finding one. */}
+              <Tooltip label={t('expandAll')} withArrow>
+                <ActionIcon variant="default" size="md" onClick={expandAll} aria-label={t('expandAll')}>
+                  <IconChevronsDown size={15} />
+                </ActionIcon>
+              </Tooltip>
+              <Tooltip label={t('collapseAll')} withArrow>
+                <ActionIcon variant="default" size="md" onClick={collapseAll} aria-label={t('collapseAll')}>
+                  <IconChevronsUp size={15} />
+                </ActionIcon>
+              </Tooltip>
+            </Group>
           </Box>
           <ScrollArea className="hlv-table-scroll" style={{ flex: 1 }} type="hover">
             {mappingsLoading ? (
@@ -679,6 +808,91 @@ export function EnterprisePollPage() {
           )}
         </Paper>
       </Box>
+
+      {/* Result of the "no poll" check. A row is a shortcut: clicking it selects
+          that enterprise so it can be polled on its own straight away. */}
+      <Modal
+        opened={unpolled !== null}
+        onClose={() => setUnpolled(null)}
+        title={`${t('unpolledEnterprises')} (${unpolled?.length ?? 0})`}
+        size="xl"
+      >
+        <Group justify="flex-end" mb="xs">
+          <Button
+            size="xs"
+            variant="light"
+            color="teal"
+            leftSection={<IconFileSpreadsheet size={15} />}
+            onClick={exportUnpolled}
+            disabled={!unpolled?.length}
+          >
+            {t('exportExcel')}
+          </Button>
+        </Group>
+        {unpolled?.length ? (
+          <ScrollArea.Autosize mah="60vh" type="auto">
+            <Table striped highlightOnHover verticalSpacing={6}>
+              <Table.Thead>
+                <Table.Tr>
+                  <Table.Th>{t('branch')}</Table.Th>
+                  <Table.Th>{t('selectEnterprise')}</Table.Th>
+                  <Table.Th>{t('correctorType')}</Table.Th>
+                  <Table.Th>{t('correctorNumber')}</Table.Th>
+                  <Table.Th>{t('channelNumber')}</Table.Th>
+                  <Table.Th>{t('lineName')}</Table.Th>
+                  <Table.Th>{t('status')}</Table.Th>
+                </Table.Tr>
+              </Table.Thead>
+              <Table.Tbody>
+                {unpolled.map((m) => (
+                  <Table.Tr
+                    key={m.id}
+                    style={{ cursor: 'pointer' }}
+                    onClick={() => {
+                      setSelected(m.id)
+                      setUnpolled(null)
+                    }}
+                  >
+                    <Table.Td>{(branches ?? []).find((b) => b.id === m.branch_id)?.name ?? '—'}</Table.Td>
+                    <Table.Td>{enterpriseLabel(m)}</Table.Td>
+                    <Table.Td>
+                      {[m.manufacturer_short_name, m.model_name].filter(Boolean).join(' ') || '—'}
+                    </Table.Td>
+                    <Table.Td style={numericStyle}>{m.ser_num ?? '—'}</Table.Td>
+                    <Table.Td style={numericStyle}>{m.ch_num ?? '—'}</Table.Td>
+                    <Table.Td>{lineLabel(m) ?? t('withoutLine')}</Table.Td>
+                    <Table.Td>
+                      <Badge size="xs" variant="light" color={m.enabled === false ? 'gray' : 'teal'}>
+                        {m.enabled === false ? t('statusDisabled') : t('statusEnabled')}
+                      </Badge>
+                    </Table.Td>
+                  </Table.Tr>
+                ))}
+              </Table.Tbody>
+            </Table>
+          </ScrollArea.Autosize>
+        ) : (
+          <Text c="dimmed" ta="center" py="xl">
+            {t('noData')}
+          </Text>
+        )}
+      </Modal>
+
+      {/* The check polls every device of the branch — minutes, not seconds. */}
+      <Modal opened={checking} onClose={() => {}} withCloseButton={false} title={t('unpolledEnterprises')}>
+        <PollProgress progress={checkProgress ?? { phase: 'polling' }} />
+        <Group justify="flex-end" mt="md">
+          <Button
+            size="xs"
+            variant="light"
+            color="red"
+            leftSection={<IconPlayerStop size={15} />}
+            onClick={() => checkAbortRef.current?.abort()}
+          >
+            Зупинити
+          </Button>
+        </Group>
+      </Modal>
     </Stack>
   )
 }

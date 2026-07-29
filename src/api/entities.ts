@@ -163,10 +163,23 @@ export interface ParamRecord {
 }
 
 export const paramArchiveApi = {
-  async getParamsForLines(lineIds: number[]): Promise<ParamRecord[]> {
+  /**
+   * Gas-composition parameters.
+   *
+   * Without dates the endpoint returns ONE record per line — the current
+   * configuration, which is what the overview needs for min_dp/max_dp. Pass
+   * both dates and it returns every record in the range instead; the
+   * parameters archive does that so its date filter actually filters.
+   */
+  async getParamsForLines(
+    lineIds: number[],
+    fromDate?: string,
+    toDate?: string,
+  ): Promise<ParamRecord[]> {
     if (!lineIds || lineIds.length === 0) return []
     try {
-      const result = await api.get<ParamRecord[]>('/param/', { line_id: lineIds })
+      const range = fromDate && toDate ? { from_date: fromDate, to_date: toDate } : {}
+      const result = await api.get<ParamRecord[]>('/param/', { line_id: lineIds, ...range })
       return Array.isArray(result) ? result : []
     } catch {
       return []

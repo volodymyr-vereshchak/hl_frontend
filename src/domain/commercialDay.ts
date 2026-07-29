@@ -61,3 +61,39 @@ export function commercialHourlyRange(fromDate: string, toDate: string): { from:
 export function commercialDayOf(dateStr: string, hour: number): string {
   return hour < getContractHour() ? addDays(dateStr, -1) : dateStr
 }
+
+/** Hour of a picker value ('YYYY-MM-DD' or 'YYYY-MM-DD HH:mm:ss'), or null. */
+function hourOf(v: string): number | null {
+  const m = String(v).match(/[T ](\d{2}):/)
+  return m ? Number(m[1]) : null
+}
+
+/**
+ * The bare commercial days the enterprise endpoints must be asked for to cover
+ * a picked range.
+ *
+ * Those endpoints take days, not timestamps, and expand them themselves — for
+ * hourly data, day D means [D CONTRACT_HOUR, (D+1) CONTRACT_HOUR). So a range
+ * that starts at 00:00 does NOT start on its own calendar day: the hours before
+ * the contract hour belong to the day before, and asking for the calendar day
+ * left them out of the response entirely — the archive showed rows for them and
+ * the overlay filled every one with a zero.
+ *
+ * Only the bounds are widened; joining stays on the exact period key, so the
+ * extra hours at the edges are simply never looked up.
+ */
+export function enterpriseDayWindow(
+  from: string,
+  to: string,
+  periodType: 'daily' | 'hourly',
+): { from: string; to: string } {
+  const fromDay = dayOnly(from)
+  const toDay = dayOnly(to)
+  if (periodType !== 'hourly') return { from: fromDay, to: toDay }
+  const fromHour = hourOf(from)
+  const toHour = hourOf(to)
+  return {
+    from: fromHour == null ? fromDay : commercialDayOf(fromDay, fromHour),
+    to: toHour == null ? toDay : commercialDayOf(toDay, toHour),
+  }
+}

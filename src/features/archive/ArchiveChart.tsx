@@ -11,6 +11,7 @@ import {
   ResponsiveContainer,
 } from 'recharts'
 import { useLanguage } from '@/locales/LanguageContext'
+import { TimeAxisTick, timeAxisHeight } from './TimeAxisTick'
 import type { ArchiveType } from '@/types'
 import type { LineMeta } from '@/store/selectionStore'
 import type { ArchiveRow } from '@/api/entities'
@@ -111,7 +112,9 @@ export function ArchiveChart({ rows, type, meta, overlay, embedded = false }: Pr
     return [
       ...base,
       { key: 'netVolume', label: t('netVolume'), color: '#22c55e', axis: 'left' as const },
-      { key: 'totalEnterprise', label: t('totalEnterpriseVolume'), color: '#a855f7', axis: 'left' as const },
+      // Cyan, not the violet it used to be: next to `volume` (#7b6cf0) two
+      // purples on the same axis read as one curve.
+      { key: 'totalEnterprise', label: t('totalEnterpriseVolume'), color: '#06b6d4', axis: 'left' as const },
     ]
   }, [type, meta, t, overlay])
 
@@ -139,15 +142,17 @@ export function ArchiveChart({ rows, type, meta, overlay, embedded = false }: Pr
       })
   }, [rows, series])
 
-  const fmtX = (value: string) => {
+  // Only the time-of-day archives get a second line; a daily point has no time
+  // to show, and a lone date reads better across the full width.
+  const twoLine = type !== 'daily'
+  const fmtX = (value: string): [string, string] => {
     const d = new Date(value)
-    if (isNaN(d.getTime())) return String(value)
-    if (type === 'daily') return d.toLocaleDateString(locale)
-    return (
-      d.toLocaleDateString(locale, { day: '2-digit', month: '2-digit' }) +
-      ' ' +
-      d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })
-    )
+    if (isNaN(d.getTime())) return [String(value), '']
+    if (!twoLine) return [d.toLocaleDateString(locale), '']
+    return [
+      d.toLocaleDateString(locale, { day: '2-digit', month: '2-digit' }),
+      d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' }),
+    ]
   }
 
   const CustomTooltip = ({ active, payload, label }: TooltipContentProps) => {
@@ -215,16 +220,13 @@ export function ArchiveChart({ rows, type, meta, overlay, embedded = false }: Pr
         <LineChart data={data} margin={{ top: 8, right: 16, bottom: 8, left: 8 }}>
           {/* Dense grid: minor lines everywhere, both axes get many ticks. */}
           <CartesianGrid stroke={grid} strokeDasharray="3 3" horizontal vertical />
-          {/* Angled labels at a fixed interval: even spacing beats recharts'
+          {/* Upright labels at a fixed interval: even spacing beats recharts'
               auto-thinning, which clumps ticks in the middle of the range. */}
           <XAxis
             dataKey="period"
-            tickFormatter={fmtX}
-            tick={{ fontSize: 11, fill: axis }}
             interval={tickInterval}
-            angle={-45}
-            textAnchor="end"
-            height={type === 'hourly' ? 78 : 62}
+            tick={<TimeAxisTick format={fmtX} fill={axis} />}
+            height={timeAxisHeight(twoLine)}
             stroke={gridStrong}
           />
           <YAxis

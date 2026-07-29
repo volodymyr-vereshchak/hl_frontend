@@ -41,6 +41,7 @@ import { useLanguage } from '@/locales/LanguageContext'
 import { useSelectionStore } from '@/store/selectionStore'
 import { numericStyle } from '@/theme/theme'
 import { PeriodPicker } from '@/features/archive/PeriodPicker'
+import { TimeAxisTick, timeAxisHeight } from '@/features/archive/TimeAxisTick'
 import { ChartLinePicker } from './ChartLinePicker'
 import { pollPhaseLabel } from './pollPhase'
 import { ReportShell } from './ReportShell'
@@ -163,12 +164,13 @@ export function NightConsumptionPage() {
     [usedLines],
   )
 
-  const fmtX = (value: string) => {
+  /** Full date, not day/month: the report spans months and '01.07' alone was
+   *  ambiguous. Upright and on one line, so nothing gets clipped. */
+  const fmtX = (value: string): [string, string] => {
     const d = new Date(value)
-    return isNaN(d.getTime())
-      ? value
-      : d.toLocaleDateString(getLocale(), { day: '2-digit', month: '2-digit' })
+    return [isNaN(d.getTime()) ? value : d.toLocaleDateString(getLocale()), '']
   }
+  const fmtXLabel = (value: string) => fmtX(value)[0]
 
   const grid = dark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.14)'
   const axis = dark ? '#9aa7ad' : '#5a6b75'
@@ -211,10 +213,14 @@ export function NightConsumptionPage() {
       error={error}
       controls={
         <>
+          {/* Locked while the poll runs. The variant and the period decide what
+              is being built, and the header already says "формується" — letting
+              either change mid-run would describe a report nobody asked for. */}
           <SegmentedControl
             size="xs"
             value={mode}
             onChange={(v) => setMode(v as NightMode)}
+            disabled={running}
             data={[
               { value: 'min', label: t('nightReportMin') },
               { value: 'avg23', label: t('nightReportAvg') },
@@ -222,6 +228,7 @@ export function NightConsumptionPage() {
           />
           <PeriodPicker
             withTime={false}
+            disabled={running}
             from={from}
             to={to}
             onChange={({ from: f, to: t2 }) => {
@@ -310,12 +317,9 @@ export function NightConsumptionPage() {
                   <CartesianGrid stroke={grid} strokeDasharray="3 3" />
                   <XAxis
                     dataKey="date"
-                    tickFormatter={fmtX}
-                    tick={{ fontSize: 11, fill: axis }}
                     interval={tickInterval}
-                    angle={-45}
-                    textAnchor="end"
-                    height={62}
+                    tick={<TimeAxisTick format={fmtX} fill={axis} />}
+                    height={timeAxisHeight(false)}
                   />
                   <YAxis tick={{ fontSize: 11, fill: axis }} width={72} tickFormatter={(v) => fmt(v)} />
                   <Tooltip
@@ -326,7 +330,7 @@ export function NightConsumptionPage() {
                       fontSize: 12,
                     }}
                     formatter={(v) => `${fmt(v)} ${t('volumeUnit')}`}
-                    labelFormatter={(label) => fmtX(String(label))}
+                    labelFormatter={(label) => fmtXLabel(String(label))}
                   />
                   {usedLines.map((l, i) =>
                     hidden[l.id] ? null : (
