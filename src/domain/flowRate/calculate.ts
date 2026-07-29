@@ -227,10 +227,15 @@ export function calculateFlowRate(s: FlowCalcInput, t: Translate): FlowCalcOutco
   }
 }
 
-/** Blank form, matching the original INIT. */
+/**
+ * Blank form. Matches the original INIT except for the two choices the station
+ * makes every time anyway: GERG-91 mod. for Kc and the inter-check interval for
+ * the orifice age. Leaving them unset only bought a validation error on the
+ * first calculation and a second trip through the same two dropdowns.
+ */
 export const INITIAL_INPUT: FlowCalcInput = {
   device: 'orifice',
-  kst: 0,
+  kst: 1,
   rho: '',
   co2: '',
   n2: '',
@@ -249,7 +254,7 @@ export const INITIAL_INPUT: FlowCalcInput = {
   d20: '',
   matOrifice: 15,
   rEdge: '0',
-  timeType: 0,
+  timeType: 1,
   timeOrifice: '',
   qw: '',
 }

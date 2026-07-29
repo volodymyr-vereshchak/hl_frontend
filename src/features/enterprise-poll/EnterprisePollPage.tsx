@@ -19,7 +19,6 @@ import {
   Loader,
   Center,
   ActionIcon,
-  Modal,
   Tooltip,
 } from '@mantine/core'
 import { DatePickerInput } from '@mantine/dates'
@@ -49,6 +48,7 @@ import {
   type EnterpriseRecord,
 } from '@/api/enterprise'
 import { PollProgress } from '@/components/PollProgress'
+import { UnpolledReport } from './UnpolledReport'
 import { useStickyRowHeights } from '@/components/useMeasuredHeight'
 import { enterpriseRecordTotal } from '@/domain/enterpriseVolumes'
 import { useLanguage } from '@/locales/LanguageContext'
@@ -110,6 +110,9 @@ export function EnterprisePollPage() {
   })
   const toggleGroup = (key: string) => setCollapsed((p) => ({ ...p, [key]: !p[key] }))
   const [unpolled, setUnpolled] = useState<EnterpriseMappingRow[] | null>(null)
+  /** What the last check covered — shown above the report so the number means
+   *  something ("3 of 340" reads differently from a bare "3"). */
+  const [checkedRange, setCheckedRange] = useState({ from: '', to: '', count: 0 })
   const [checking, setChecking] = useState(false)
   const [checkProgress, setCheckProgress] = useState<{ done?: number; total?: number; phase?: string } | null>(null)
   const checkAbortRef = useRef<AbortController | null>(null)
@@ -233,6 +236,10 @@ export function EnterprisePollPage() {
     const active = (mappings ?? []).filter(
       (m) => m.active !== false && (!branchId || m.branch_id === branchId),
     )
+    const today = new Date()
+    const start = new Date(today.getTime() - 3 * 864e5)
+    const day = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+    setCheckedRange({ from: day(start), to: day(today), count: active.length })
     const lineIds = [...new Set(active.map((m) => m.line_id ?? m.dpd_line_id).filter((id): id is number => id != null))]
     if (lineIds.length === 0) {
       setUnpolled([])
@@ -241,13 +248,12 @@ export function EnterprisePollPage() {
     checkAbortRef.current?.abort()
     const ctrl = new AbortController()
     checkAbortRef.current = ctrl
+    // Drop the previous report so the pane shows this check's progress.
+    setUnpolled(null)
     setChecking(true)
     setError(null)
     setCheckProgress(null)
     try {
-      const today = new Date()
-      const start = new Date(today.getTime() - 3 * 864e5)
-      const day = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
       const records = await streamEnterpriseVolumes(
         {
           line_id: lineIds,
@@ -278,7 +284,7 @@ export function EnterprisePollPage() {
     if (!unpolled?.length) return
     const header = [
       t('branch'),
-      t('selectEnterprise'),
+      t('enterprise'),
       t('correctorType'),
       t('correctorNumber'),
       t('channelNumber'),
@@ -666,6 +672,28 @@ export function EnterprisePollPage() {
           radius="md"
           style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
         >
+          {/* The "no poll" result takes the whole pane: it is a report in its
+              own right, and as a modal it covered the tree its rows link into. */}
+          {unpolled !== null ? (
+            <UnpolledReport
+              rows={unpolled}
+              checked={checkedRange.count}
+              from={checkedRange.from}
+              to={checkedRange.to}
+              branchName={(id) => (branches ?? []).find((b) => b.id === id)?.name ?? '—'}
+              lineLabel={lineLabel}
+              correctorName={(m) =>
+                [m.manufacturer_short_name, m.model_name].filter(Boolean).join(' ')
+              }
+              onSelect={(id) => {
+                setSelected(id)
+                setUnpolled(null)
+              }}
+              onClose={() => setUnpolled(null)}
+              onExport={exportUnpolled}
+            />
+          ) : (
+          <>
           {/* Header of the pane: what was polled, plus the table/chart switch. */}
           <Group
             px="sm"
@@ -714,7 +742,23 @@ export function EnterprisePollPage() {
             )}
           </Group>
 
-          {loading ? (
+          {checking ? (
+            // The check polls every device of the branch — minutes, not seconds.
+            <Box p="md">
+              <PollProgress progress={checkProgress ?? { phase: 'polling' }} />
+              <Group justify="flex-end" mt="md">
+                <Button
+                  size="xs"
+                  variant="light"
+                  color="red"
+                  leftSection={<IconPlayerStop size={15} />}
+                  onClick={() => checkAbortRef.current?.abort()}
+                >
+                  {t('stop')}
+                </Button>
+              </Group>
+            </Box>
+          ) : loading ? (
             <Box p="md">
               <PollProgress progress={progress ?? { phase: 'polling' }} />
             </Box>
@@ -812,93 +856,10 @@ export function EnterprisePollPage() {
               )}
             </>
           )}
+          </>
+          )}
         </Paper>
       </Box>
-
-      {/* Result of the "no poll" check. A row is a shortcut: clicking it selects
-          that enterprise so it can be polled on its own straight away. */}
-      <Modal
-        opened={unpolled !== null}
-        onClose={() => setUnpolled(null)}
-        title={`${t('unpolledEnterprises')} (${unpolled?.length ?? 0})`}
-        size="xl"
-      >
-        <Group justify="flex-end" mb="xs">
-          <Button
-            size="xs"
-            variant="light"
-            color="teal"
-            leftSection={<IconFileSpreadsheet size={15} />}
-            onClick={exportUnpolled}
-            disabled={!unpolled?.length}
-          >
-            {t('exportExcel')}
-          </Button>
-        </Group>
-        {unpolled?.length ? (
-          <ScrollArea.Autosize mah="60vh" type="auto">
-            <Table striped highlightOnHover verticalSpacing={6}>
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th>{t('branch')}</Table.Th>
-                  <Table.Th>{t('selectEnterprise')}</Table.Th>
-                  <Table.Th>{t('correctorType')}</Table.Th>
-                  <Table.Th>{t('correctorNumber')}</Table.Th>
-                  <Table.Th>{t('channelNumber')}</Table.Th>
-                  <Table.Th>{t('lineName')}</Table.Th>
-                  <Table.Th>{t('status')}</Table.Th>
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {unpolled.map((m) => (
-                  <Table.Tr
-                    key={m.id}
-                    style={{ cursor: 'pointer' }}
-                    onClick={() => {
-                      setSelected(m.id)
-                      setUnpolled(null)
-                    }}
-                  >
-                    <Table.Td>{(branches ?? []).find((b) => b.id === m.branch_id)?.name ?? '—'}</Table.Td>
-                    <Table.Td>{enterpriseLabel(m)}</Table.Td>
-                    <Table.Td>
-                      {[m.manufacturer_short_name, m.model_name].filter(Boolean).join(' ') || '—'}
-                    </Table.Td>
-                    <Table.Td style={numericStyle}>{m.ser_num ?? '—'}</Table.Td>
-                    <Table.Td style={numericStyle}>{m.ch_num ?? '—'}</Table.Td>
-                    <Table.Td>{lineLabel(m) ?? t('withoutLine')}</Table.Td>
-                    <Table.Td>
-                      <Badge size="xs" variant="light" color={m.enabled === false ? 'gray' : 'teal'}>
-                        {m.enabled === false ? t('statusDisabled') : t('statusEnabled')}
-                      </Badge>
-                    </Table.Td>
-                  </Table.Tr>
-                ))}
-              </Table.Tbody>
-            </Table>
-          </ScrollArea.Autosize>
-        ) : (
-          <Text c="dimmed" ta="center" py="xl">
-            {t('noData')}
-          </Text>
-        )}
-      </Modal>
-
-      {/* The check polls every device of the branch — minutes, not seconds. */}
-      <Modal opened={checking} onClose={() => {}} withCloseButton={false} title={t('unpolledEnterprises')}>
-        <PollProgress progress={checkProgress ?? { phase: 'polling' }} />
-        <Group justify="flex-end" mt="md">
-          <Button
-            size="xs"
-            variant="light"
-            color="red"
-            leftSection={<IconPlayerStop size={15} />}
-            onClick={() => checkAbortRef.current?.abort()}
-          >
-            Зупинити
-          </Button>
-        </Group>
-      </Modal>
     </Stack>
   )
 }
