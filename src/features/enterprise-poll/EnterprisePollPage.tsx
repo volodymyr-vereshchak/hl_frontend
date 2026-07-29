@@ -110,6 +110,13 @@ export function EnterprisePollPage() {
   })
   const toggleGroup = (key: string) => setCollapsed((p) => ({ ...p, [key]: !p[key] }))
   const [unpolled, setUnpolled] = useState<EnterpriseMappingRow[] | null>(null)
+  /**
+   * Whether the report is on screen — kept apart from the data behind it.
+   * Picking an enterprise off the report switches the pane to the poll, and
+   * dropping the rows at that moment meant the only way back was to re-run the
+   * whole check.
+   */
+  const [reportOpen, setReportOpen] = useState(false)
   /** What the last check covered — shown above the report so the number means
    *  something ("3 of 340" reads differently from a bare "3"). */
   const [checkedRange, setCheckedRange] = useState({ from: '', to: '', count: 0 })
@@ -243,6 +250,7 @@ export function EnterprisePollPage() {
     const lineIds = [...new Set(active.map((m) => m.line_id ?? m.dpd_line_id).filter((id): id is number => id != null))]
     if (lineIds.length === 0) {
       setUnpolled([])
+      setReportOpen(true)
       return
     }
     checkAbortRef.current?.abort()
@@ -250,6 +258,7 @@ export function EnterprisePollPage() {
     checkAbortRef.current = ctrl
     // Drop the previous report so the pane shows this check's progress.
     setUnpolled(null)
+    setReportOpen(false)
     setChecking(true)
     setError(null)
     setCheckProgress(null)
@@ -271,6 +280,7 @@ export function EnterprisePollPage() {
         }
       }
       setUnpolled(active.filter((m) => !polled.has(`${m.ser_num}_${m.ch_num}`)))
+      setReportOpen(true)
     } catch (e) {
       const err = e as Error
       if (err.name !== 'AbortError') setError(err.message)
@@ -303,7 +313,33 @@ export function EnterprisePollPage() {
     const ws = XLSX.utils.aoa_to_sheet([header, ...body])
     ws['!cols'] = [{ wch: 20 }, { wch: 30 }, { wch: 20 }, { wch: 18 }, { wch: 14 }, { wch: 20 }, { wch: 12 }]
     const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, t('unpolledEnterprises'))
+
+    // Both views go into the file regardless of which one is on screen: whoever
+    // opens it later wants the totals, and re-exporting to get them is busywork.
+    const on = unpolled.filter((m) => m.enabled !== false).length
+    const byCorrector = new Map<string, { on: number; off: number }>()
+    for (const m of unpolled) {
+      const name = [m.manufacturer_short_name, m.model_name].filter(Boolean).join(' ') || t('unknownCorrector')
+      const e = byCorrector.get(name) ?? { on: 0, off: 0 }
+      if (m.enabled === false) e.off += 1
+      else e.on += 1
+      byCorrector.set(name, e)
+    }
+    const summary: (string | number)[][] = [
+      [t('unpolledChecked'), checkedRange.count],
+      [t('unpolledTotal'), unpolled.length],
+      [t('unpolledOn'), on],
+      [t('unpolledOff'), unpolled.length - on],
+      [],
+      [t('correctorType'), t('unpolledOn'), t('unpolledOff'), t('total')],
+      ...[...byCorrector.entries()]
+        .sort((a, b) => b[1].on + b[1].off - (a[1].on + a[1].off))
+        .map(([name, c]) => [name, c.on, c.off, c.on + c.off]),
+    ]
+    const wsSummary = XLSX.utils.aoa_to_sheet(summary)
+    wsSummary['!cols'] = [{ wch: 34 }, { wch: 14 }, { wch: 14 }, { wch: 12 }]
+    XLSX.utils.book_append_sheet(wb, wsSummary, t('unpolledSummary'))
+    XLSX.utils.book_append_sheet(wb, ws, t('unpolledByName'))
     const d = new Date()
     XLSX.writeFile(wb, `unpolled_enterprises_${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}.xlsx`)
   }
@@ -462,13 +498,22 @@ export function EnterprisePollPage() {
           </Button>
         )}
         {/* Answers "is anything not reporting?" without picking a device
-            first — the reason it is a toolbar button and not a row action. */}
+            first — the reason it is a toolbar button and not a row action.
+            Once a report exists the button re-opens it rather than spending
+            another multi-minute poll; re-running is «Оновити» inside it. */}
         <Button
           size="xs"
           variant="light"
           color="amber"
           leftSection={<IconPlugConnectedX size={15} />}
-          onClick={() => void checkUnpolled()}
+          rightSection={
+            unpolled !== null && !reportOpen ? (
+              <Badge size="xs" circle variant="filled" color={unpolled.length ? 'amber' : 'teal'}>
+                {unpolled.length}
+              </Badge>
+            ) : undefined
+          }
+          onClick={() => (unpolled !== null ? setReportOpen(true) : void checkUnpolled())}
           loading={checking}
           disabled={loading}
         >
@@ -674,7 +719,7 @@ export function EnterprisePollPage() {
         >
           {/* The "no poll" result takes the whole pane: it is a report in its
               own right, and as a modal it covered the tree its rows link into. */}
-          {unpolled !== null ? (
+          {unpolled !== null && reportOpen ? (
             <UnpolledReport
               rows={unpolled}
               checked={checkedRange.count}
@@ -687,10 +732,12 @@ export function EnterprisePollPage() {
               }
               onSelect={(id) => {
                 setSelected(id)
-                setUnpolled(null)
+                // Hide, don't discard: the toolbar button brings it straight back.
+                setReportOpen(false)
               }}
-              onClose={() => setUnpolled(null)}
+              onClose={() => setReportOpen(false)}
               onExport={exportUnpolled}
+              onRefresh={() => void checkUnpolled()}
             />
           ) : (
           <>

@@ -6,7 +6,10 @@ import {
   Center,
   Divider,
   Group,
+  Paper,
   ScrollArea,
+  SegmentedControl,
+  SimpleGrid,
   Stack,
   Table,
   Text,
@@ -17,12 +20,14 @@ import {
   IconChevronRight,
   IconCircleCheck,
   IconFileSpreadsheet,
+  IconRefresh,
   IconSearch,
 } from '@tabler/icons-react'
 import { TablePagination } from '@/components/TablePagination'
 import { useStickyRowHeights } from '@/components/useMeasuredHeight'
 import { enterpriseLabel, type EnterpriseMappingRow } from '@/api/enterprise'
 import { useLanguage } from '@/locales/LanguageContext'
+import { numericStyle } from '@/theme/theme'
 
 export interface UnpolledReportProps {
   rows: EnterpriseMappingRow[]
@@ -37,10 +42,47 @@ export interface UnpolledReportProps {
   onSelect: (id: number) => void
   onClose: () => void
   onExport: () => void
+  /** Run the check again over the same branch. */
+  onRefresh: () => void
 }
 
 /** A switched-off enterprise is *expected* to be silent; a live one is not. */
 const isActionable = (m: EnterpriseMappingRow) => m.enabled !== false
+
+/**
+ * One headline number with its label. Not a chart: three counts and a
+ * denominator are read exactly, and a bar chart of three bars would say less
+ * than the digits do.
+ */
+function Stat({
+  label,
+  value,
+  of,
+  color,
+}: {
+  label: string
+  value: number
+  of?: string
+  color?: string
+}) {
+  return (
+    <Paper radius="md" withBorder p="md">
+      <Text size="10px" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: 0.6 }}>
+        {label}
+      </Text>
+      <Group align="baseline" gap={6} mt={4} wrap="nowrap">
+        <Text fz={30} fw={700} lh={1.05} c={color} style={numericStyle}>
+          {value}
+        </Text>
+        {of && (
+          <Text size="xs" c="dimmed">
+            {of}
+          </Text>
+        )}
+      </Group>
+    </Paper>
+  )
+}
 
 /**
  * Result of the "no poll" check, rendered in the pane the poll results use.
@@ -62,8 +104,10 @@ export function UnpolledReport({
   onSelect,
   onClose,
   onExport,
+  onRefresh,
 }: UnpolledReportProps) {
   const { t, getLocale } = useLanguage()
+  const [mode, setMode] = useState<'list' | 'summary'>('list')
   // The window is built from ISO days; show it the way the pickers do.
   const day = (v: string) => {
     const d = new Date(v)
@@ -98,6 +142,23 @@ export function UnpolledReport({
   )
   const actionable = rows.filter(isActionable).length
 
+  /**
+   * Silent enterprises grouped by corrector model, split by whether they are
+   * switched on. A whole model going quiet points at the model — a firmware or
+   * a channel-addressing problem — where a scatter of names does not.
+   */
+  const byCorrector = useMemo(() => {
+    const map = new Map<string, { name: string; on: number; off: number }>()
+    for (const m of rows) {
+      const name = correctorName(m) || t('unknownCorrector')
+      const e = map.get(name) ?? { name, on: 0, off: 0 }
+      if (isActionable(m)) e.on += 1
+      else e.off += 1
+      map.set(name, e)
+    }
+    return [...map.values()].sort((a, b) => b.on + b.off - (a.on + a.off) || a.name.localeCompare(b.name))
+  }, [rows, correctorName, t])
+
   return (
     <>
       <Group
@@ -127,18 +188,41 @@ export function UnpolledReport({
         <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
           {day(from)} — {day(to)} · {t('unpolledChecked')}: {checked}
         </Text>
-        <TextInput
-          placeholder={t('searchEnterprise')}
-          leftSection={<IconSearch size={14} />}
-          value={search}
-          onChange={(e) => {
-            setSearch(e.currentTarget.value)
-            setPage(1)
-          }}
+        {rows.length > 0 && (
+          <SegmentedControl
+            size="xs"
+            value={mode}
+            onChange={(v) => setMode(v as 'list' | 'summary')}
+            data={[
+              { value: 'list', label: t('unpolledByName') },
+              { value: 'summary', label: t('unpolledSummary') },
+            ]}
+          />
+        )}
+        {/* Search belongs to the list; the summary has nothing to filter. */}
+        {mode === 'list' && rows.length > 0 && (
+          <TextInput
+            placeholder={t('searchEnterprise')}
+            leftSection={<IconSearch size={14} />}
+            value={search}
+            onChange={(e) => {
+              setSearch(e.currentTarget.value)
+              setPage(1)
+            }}
+            size="xs"
+            w={220}
+            ml="auto"
+          />
+        )}
+        <Button
           size="xs"
-          w={220}
-          ml="auto"
-        />
+          variant="default"
+          leftSection={<IconRefresh size={15} />}
+          onClick={onRefresh}
+          ml={mode === 'list' && rows.length > 0 ? undefined : 'auto'}
+        >
+          {t('refresh')}
+        </Button>
         <Button
           size="xs"
           variant="light"
@@ -163,6 +247,85 @@ export function UnpolledReport({
             </Text>
           </Stack>
         </Center>
+      ) : mode === 'summary' ? (
+        <ScrollArea className="hlv-table-scroll" type="auto" style={{ flex: 1 }}>
+          <Box p="md">
+            <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="sm">
+              <Stat
+                label={t('unpolledTotal')}
+                value={rows.length}
+                of={`${t('unpolledOutOf')} ${checked}`}
+                color={actionable > 0 ? 'amber.5' : 'teal.5'}
+              />
+              {/* The split that decides what to do: a live corrector that went
+                  quiet is a fault, a switched-off one is a setting. */}
+              <Stat label={t('unpolledOn')} value={actionable} color="amber.5" />
+              <Stat label={t('unpolledOff')} value={rows.length - actionable} />
+            </SimpleGrid>
+
+            <Text size="10px" fw={700} tt="uppercase" c="petrol" mt="lg" mb={6} style={{ letterSpacing: 0.6 }}>
+              {t('unpolledByCorrector')}
+            </Text>
+            <Paper radius="md" withBorder style={{ overflow: 'hidden' }}>
+              <Table striped highlightOnHover verticalSpacing={6}>
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>{t('correctorType')}</Table.Th>
+                    <Table.Th ta="center" w={140}>
+                      {t('unpolledOn')}
+                    </Table.Th>
+                    <Table.Th ta="center" w={140}>
+                      {t('unpolledOff')}
+                    </Table.Th>
+                    <Table.Th ta="center" w={110}>
+                      {t('total')}
+                    </Table.Th>
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {byCorrector.map((c) => (
+                    <Table.Tr key={c.name}>
+                      <td className="hlv-cell" style={{ textAlign: 'left' }}>
+                        {c.name}
+                      </td>
+                      {/* A zero is not a finding — dimmed, so the counts that
+                          matter are the ones the eye lands on. */}
+                      <td className="hlv-cell hlv-cell-num">
+                        <Text span size="sm" fw={c.on ? 700 : 400} c={c.on ? 'amber.5' : 'dimmed'}>
+                          {c.on}
+                        </Text>
+                      </td>
+                      <td className="hlv-cell hlv-cell-num">
+                        <Text span size="sm" c={c.off ? undefined : 'dimmed'}>
+                          {c.off}
+                        </Text>
+                      </td>
+                      <td className="hlv-cell hlv-cell-num">
+                        <Text span size="sm" fw={600}>
+                          {c.on + c.off}
+                        </Text>
+                      </td>
+                    </Table.Tr>
+                  ))}
+                </Table.Tbody>
+                <Table.Tfoot style={{ background: 'var(--hlv-surface-2)' }}>
+                  <Table.Tr>
+                    <Table.Td fw={700}>{t('total')}</Table.Td>
+                    <Table.Td ta="center" fw={700} style={numericStyle}>
+                      {actionable}
+                    </Table.Td>
+                    <Table.Td ta="center" fw={700} style={numericStyle}>
+                      {rows.length - actionable}
+                    </Table.Td>
+                    <Table.Td ta="center" fw={700} style={numericStyle}>
+                      {rows.length}
+                    </Table.Td>
+                  </Table.Tr>
+                </Table.Tfoot>
+              </Table>
+            </Paper>
+          </Box>
+        </ScrollArea>
       ) : (
         <>
           <Box style={{ flex: 1, minHeight: 0 }}>
