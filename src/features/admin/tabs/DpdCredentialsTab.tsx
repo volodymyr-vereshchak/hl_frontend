@@ -80,6 +80,9 @@ function ArchiveControls() {
   })
 
   const times = job?.refresh_times ?? []
+  // What applies when nothing is chosen — from the backend, so the hint cannot
+  // drift from the DPD_REFRESH_TIMES a deployment actually runs on.
+  const defaults = job?.default_refresh_times ?? []
 
   const saveSchedule = useMutation({
     mutationFn: () => enterpriseArchiveApi.setSchedule(draftTimes),
@@ -104,8 +107,19 @@ function ArchiveControls() {
             Архів даних ДПД
           </Text>
           <Text size="xs" c="dimmed">
-            Оновлюється автоматично {times.length ? `о ${times.join(', ')}` : 'за розкладом'} —
-            останні 30 днів по всіх підприємствах{' '}
+            Останні 30 днів по всіх підприємствах
+          </Text>
+          {/* The hours are the setting an admin comes here to check, so they
+              are chips, not words buried in a dimmed sentence. */}
+          <Group gap={6} mt={6} wrap="wrap">
+            <Text size="xs" c="dimmed">
+              Оновлення о
+            </Text>
+            {times.map((time) => (
+              <Badge key={time} size="sm" variant="light" color="petrol" tt="none">
+                {time}
+              </Badge>
+            ))}
             <Anchor
               component="button"
               type="button"
@@ -115,9 +129,9 @@ function ArchiveControls() {
                 setEditingSchedule(true)
               }}
             >
-              Змінити години
+              Змінити
             </Anchor>
-          </Text>
+          </Group>
         </Box>
         <Group gap="xs">
           <Button
@@ -158,23 +172,25 @@ function ArchiveControls() {
         <Group gap="sm" mt="sm" align="flex-end" wrap="wrap">
           <MultiSelect
             label="Години оновлення"
-            description="Скільки завгодно годин. Зміни діють протягом ~2 хв, перезапуск не потрібен"
+            description={
+              defaults.length
+                ? `Скільки завгодно годин. Без вибору — типові ${defaults.join(' і ')}. Зміни діють протягом ~2 хв, перезапуск не потрібен`
+                : 'Скільки завгодно годин. Зміни діють протягом ~2 хв, перезапуск не потрібен'
+            }
             size="xs"
             style={{ flex: 1, minWidth: 280, maxWidth: 460 }}
             data={scheduleOptions(times)}
             value={draftTimes}
             onChange={setDraftTimes}
             searchable
-            hidePickedOptions
             clearable
-            placeholder={draftTimes.length ? '' : 'Оберіть години'}
+            placeholder={draftTimes.length ? '' : 'Типовий графік'}
           />
           <Button
             size="xs"
             leftSection={<IconDeviceFloppy size={14} />}
             onClick={() => saveSchedule.mutate()}
             loading={saveSchedule.isPending}
-            disabled={!draftTimes.length}
           >
             Зберегти
           </Button>

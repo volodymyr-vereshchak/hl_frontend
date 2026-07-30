@@ -283,6 +283,8 @@ export interface ArchiveRefreshStatus {
   error?: string | null
   /** Local times (HH:MM) the scheduler refreshes at. */
   refresh_times?: string[]
+  /** What applies when the schedule is cleared (DPD_REFRESH_TIMES). */
+  default_refresh_times?: string[]
 }
 
 export const enterpriseArchiveApi = {
