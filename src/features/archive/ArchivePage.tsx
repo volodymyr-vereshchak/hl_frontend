@@ -19,6 +19,7 @@ import { useSelectionStore } from '@/store/selectionStore'
 import { useLanguage } from '@/locales/LanguageContext'
 import { getArchiveColumns } from '@/domain/archiveColumns'
 import { commercialHourlyRange } from '@/domain/commercialDay'
+import { DP_UNIT_DEFAULT, PRESSURE_UNIT_DEFAULT } from '@/domain/pressureUnits'
 import { TablePagination } from '@/components/TablePagination'
 import type { ArchiveType } from '@/types'
 import { TreeView } from './TreeView'
@@ -150,8 +151,8 @@ export function ArchivePage() {
       isDpdLine: lineMeta.kind === 'dpd',
       lineUnits: lineMeta,
       showOutputPressure: lineMeta.kind === 'physical' && !lineMeta.is_high_pressure && !lineMeta.meter,
-      pressureUnit: lineMeta.pressure_unit || 'кгс/см²',
-      dpUnit: lineMeta.dp_unit || 'кгс/м²',
+      pressureUnit: lineMeta.pressure_unit || PRESSURE_UNIT_DEFAULT,
+      dpUnit: lineMeta.dp_unit || DP_UNIT_DEFAULT,
       t,
     })
     // Paged archives export the whole range, not just the visible page.

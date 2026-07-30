@@ -908,7 +908,9 @@ export function EnterprisePollPage() {
                 <ArchiveChart
                   rows={rows as unknown as ArchiveRow[]}
                   type={periodType}
-                  meta={{ kind: 'dpd' }}
+                  // Same unit the table header shows: it comes from the poll
+                  // response, not from any line configuration.
+                  meta={{ kind: 'dpd', pressure_unit: pressureUnit }}
                   embedded
                 />
               )}

@@ -10,6 +10,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts'
+import { DP_UNIT_DEFAULT, PRESSURE_UNIT_DEFAULT } from '@/domain/pressureUnits'
 import { useLanguage } from '@/locales/LanguageContext'
 import { TimeAxisTick, timeAxisHeight } from './TimeAxisTick'
 import type { ArchiveType } from '@/types'
@@ -51,8 +52,8 @@ interface TooltipContentProps {
 
 // Series definitions ported from InteractiveChart.getChartColumns (colors kept).
 function getSeries(type: ArchiveType, meta: LineMeta, t: (k: string) => string): Series[] {
-  const pUnit = meta.pressure_unit || 'кгс/см²'
-  const dpUnit = meta.dp_unit || 'кгс/м²'
+  const pUnit = meta.pressure_unit || PRESSURE_UNIT_DEFAULT
+  const dpUnit = meta.dp_unit || DP_UNIT_DEFAULT
   const wLabel = meta.meter
     ? `${t('workingVolume')}, ${t('volumeUnit')}`
     : `${t('differentialPressure')}, ${dpUnit}`

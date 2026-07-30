@@ -13,6 +13,7 @@ import { useStickyRowHeights } from '@/components/useMeasuredHeight'
 import { numericStyle } from '@/theme/theme'
 import { useLanguage } from '@/locales/LanguageContext'
 import { getArchiveColumns, resolveEditName } from '@/domain/archiveColumns'
+import { DP_UNIT_DEFAULT, PRESSURE_UNIT_DEFAULT } from '@/domain/pressureUnits'
 import { formatEditValue } from '@/domain/valueConverter'
 import type { ArchiveType } from '@/types'
 import type { LineMeta } from '@/store/selectionStore'
@@ -83,8 +84,8 @@ export const ArchiveTable = memo(function ArchiveTable({
       isDpdLine: meta.kind === 'dpd',
       lineUnits: meta,
       showOutputPressure: meta.kind === 'physical' && !meta.is_high_pressure && !meta.meter,
-      pressureUnit: meta.pressure_unit || 'кгс/см²',
-      dpUnit: meta.dp_unit || 'кгс/м²',
+      pressureUnit: meta.pressure_unit || PRESSURE_UNIT_DEFAULT,
+      dpUnit: meta.dp_unit || DP_UNIT_DEFAULT,
       t,
     })
     if (!overlay) return base
