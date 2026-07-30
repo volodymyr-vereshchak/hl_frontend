@@ -1,4 +1,4 @@
-import { startTransition, useCallback, useEffect, useState } from 'react'
+import { startTransition, useCallback, useEffect, useMemo, useState } from 'react'
 import { Navigate, useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Paper,
@@ -19,7 +19,7 @@ import { useSelectionStore } from '@/store/selectionStore'
 import { useLanguage } from '@/locales/LanguageContext'
 import { getArchiveColumns } from '@/domain/archiveColumns'
 import { commercialHourlyRange } from '@/domain/commercialDay'
-import { DP_UNIT_DEFAULT, PRESSURE_UNIT_DEFAULT } from '@/domain/pressureUnits'
+import { DP_UNIT_DEFAULT, normalizeUnit, PRESSURE_UNIT_DEFAULT } from '@/domain/pressureUnits'
 import { TablePagination } from '@/components/TablePagination'
 import type { ArchiveType } from '@/types'
 import { TreeView } from './TreeView'
@@ -134,6 +134,16 @@ export function ArchivePage() {
   const overlay = useEnterpriseOverlay(canOverlay ? lineId : null, lineMeta, archiveType, dateRange)
   const rows =
     canOverlay && overlay.enabled && rawRows ? applyOverlay(rawRows, overlay.byPeriod, archiveType) : rawRows
+  // A DPD line has no unit configuration of its own — its pressure unit comes
+  // with the data, as the device reported it. Everything below (table, chart,
+  // export) reads units off `meta`, so fold it in there once.
+  const meta = useMemo(() => {
+    if (!lineMeta || lineMeta.kind !== 'dpd') return lineMeta
+    const withUnit = rows?.find((r) => normalizeUnit(r.press_unit))
+    if (!withUnit) return lineMeta
+    return { ...lineMeta, pressure_unit: normalizeUnit(withUnit.press_unit) }
+  }, [lineMeta, rows])
+
   const showChart = canOverlay && view === 'chart' && !!rows?.length
   // Once the chart has been opened it stays in the tree, hidden.
   const [chartMounted, setChartMounted] = useState(false)
@@ -144,22 +154,22 @@ export function ArchivePage() {
 
   const canExport = !!rows && rows.length > 0
   const runExport = async () => {
-    if (!rows || !lineMeta || !lineId) return
+    if (!rows || !meta || !lineId) return
     const columns = getArchiveColumns({
       archiveType,
-      isVirtualLine: lineMeta.kind === 'virtual',
-      isDpdLine: lineMeta.kind === 'dpd',
-      lineUnits: lineMeta,
-      showOutputPressure: lineMeta.kind === 'physical' && !lineMeta.is_high_pressure && !lineMeta.meter,
-      pressureUnit: lineMeta.pressure_unit || PRESSURE_UNIT_DEFAULT,
-      dpUnit: lineMeta.dp_unit || DP_UNIT_DEFAULT,
+      isVirtualLine: meta.kind === 'virtual',
+      isDpdLine: meta.kind === 'dpd',
+      lineUnits: meta,
+      showOutputPressure: meta.kind === 'physical' && !meta.is_high_pressure && !meta.meter,
+      pressureUnit: meta.pressure_unit || PRESSURE_UNIT_DEFAULT,
+      dpUnit: meta.dp_unit || DP_UNIT_DEFAULT,
       t,
     })
     // Paged archives export the whole range, not just the visible page.
     const data = paged ? await fetchFullArchive(lineId, archiveType, dateRange) : rows
     // Name the file after the line, not its database id: a folder of exports
     // should be readable without looking anything up.
-    const lineName = sanitizeForFileName(lineMeta.name || `#${lineId}`)
+    const lineName = sanitizeForFileName(meta.name || `#${lineId}`)
     const fileBase = `${t(FILE_NAME_KEY[archiveType])}_${lineName}`
     // With the overlay on, export a per-enterprise breakdown instead.
     if (canOverlay && overlay.enabled) {
@@ -169,7 +179,7 @@ export function ArchivePage() {
         archiveType,
         `${fileBase}_${t('enterpriseFile')}`,
         lineId,
-        lineMeta.kind === 'virtual',
+        meta.kind === 'virtual',
         dateRange,
       )
       return
@@ -260,7 +270,7 @@ export function ArchivePage() {
             <Center style={{ flex: 1 }}>
               <Loader color="petrol" />
             </Center>
-          ) : rows && lineMeta ? (
+          ) : rows && meta ? (
             <>
               {/* daily/hourly only: the other archives have nothing to plot. */}
               {canOverlay && rows.length > 0 && (
@@ -294,7 +304,7 @@ export function ArchivePage() {
                 <ArchiveTable
                   rows={rows}
                   type={archiveType}
-                  meta={lineMeta}
+                  meta={meta}
                   overlay={canOverlay && overlay.enabled && !!overlay.byPeriod}
                   onDrillDown={drillToHourly}
                 />
@@ -313,7 +323,7 @@ export function ArchivePage() {
                   <ArchiveChart
                     rows={rows}
                     type={archiveType}
-                    meta={lineMeta}
+                    meta={meta}
                     overlay={overlay.enabled && !!overlay.byPeriod}
                     embedded
                   />

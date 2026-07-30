@@ -92,6 +92,8 @@ export interface ArchiveRow {
   pressure?: number
   output_pressure?: number
   temperature?: number
+  /** DPD lines only: the pressure unit the device reported, no line config. */
+  press_unit?: string | null
   density?: number
   edit_counts?: number
   sys_counts?: number
