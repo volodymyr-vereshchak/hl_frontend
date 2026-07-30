@@ -51,6 +51,7 @@ import { PollProgress } from '@/components/PollProgress'
 import { UnpolledReport } from './UnpolledReport'
 import { useStickyRowHeights } from '@/components/useMeasuredHeight'
 import { enterpriseRecordTotal } from '@/domain/enterpriseVolumes'
+import { normalizeUnit, PRESSURE_UNIT_DEFAULT } from '@/domain/pressureUnits'
 import { useLanguage } from '@/locales/LanguageContext'
 import { useSelectionStore } from '@/store/selectionStore'
 import { numericStyle } from '@/theme/theme'
@@ -414,7 +415,7 @@ export function EnterprisePollPage() {
             volume: enterpriseRecordTotal(r),
             temperature: device?.temperature ?? null,
             pressure: device?.pressure ?? null,
-            pressureUnit: device?.pressure_unit ?? null,
+            pressureUnit: normalizeUnit(device?.pressure_unit),
           }
         })
         .sort((a, b) => a.period.localeCompare(b.period)),
@@ -422,9 +423,10 @@ export function EnterprisePollPage() {
   )
 
   // One unit for the whole poll (same device) — take the first the API gave us.
-  // Older records may carry none; those meters report in кгс/см².
+  // Records with no unit (never sent, or sent as the literal "None") fall back
+  // to the project default; those meters report in кгс/см².
   const pressureUnit = useMemo(
-    () => rows.find((r) => r.pressureUnit)?.pressureUnit ?? 'кгс/см²',
+    () => rows.find((r) => r.pressureUnit)?.pressureUnit ?? PRESSURE_UNIT_DEFAULT,
     [rows],
   )
 

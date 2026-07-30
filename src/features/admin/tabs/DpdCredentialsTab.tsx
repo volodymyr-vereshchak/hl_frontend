@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import {
   Alert,
+  Anchor,
   Badge,
   Box,
   Button,
   Code,
   Group,
+  MultiSelect,
   NumberInput,
   Paper,
   PasswordInput,
@@ -29,10 +31,23 @@ import type { Branch } from '@/types'
 
 const notifyErr = (e: Error) => notifications.show({ message: e.message, color: 'red' })
 
+/** 00:00 … 23:00 — the schedule is set in whole hours. */
+const HOUR_OPTIONS = Array.from({ length: 24 }, (_, h) => `${String(h).padStart(2, '0')}:00`)
+
+/**
+ * Options for the schedule picker. A stored time that is not a whole hour (set
+ * through DPD_REFRESH_TIMES in the env file, e.g. 10:30) is kept as its own
+ * option — opening the form must not silently drop it.
+ */
+const scheduleOptions = (times: string[]) =>
+  [...new Set([...HOUR_OPTIONS, ...times])].sort()
+
 /** Shared DPD data cache: one refresh job covering all branches. */
 function ArchiveControls() {
   const qc = useQueryClient()
   const [polling, setPolling] = useState(false)
+  const [editingSchedule, setEditingSchedule] = useState(false)
+  const [draftTimes, setDraftTimes] = useState<string[]>([])
 
   const { data: job } = useQuery<ArchiveRefreshStatus | null>({
     queryKey: ['admin', 'dpd-archive-status'],
@@ -64,6 +79,18 @@ function ArchiveControls() {
     onError: notifyErr,
   })
 
+  const times = job?.refresh_times ?? []
+
+  const saveSchedule = useMutation({
+    mutationFn: () => enterpriseArchiveApi.setSchedule(draftTimes),
+    onSuccess: () => {
+      notifications.show({ message: 'Графік збережено', color: 'teal' })
+      setEditingSchedule(false)
+      qc.invalidateQueries({ queryKey: ['admin', 'dpd-archive-status'] })
+    },
+    onError: notifyErr,
+  })
+
   const running = job?.status === 'running'
   // The job counts each device twice (daily + hourly pass) — report devices.
   const done = Math.floor((job?.progress_done ?? 0) / 2)
@@ -77,7 +104,19 @@ function ArchiveControls() {
             Архів даних ДПД
           </Text>
           <Text size="xs" c="dimmed">
-            Оновлюється автоматично о 10:00 та 16:00 — останні 30 днів по всіх підприємствах
+            Оновлюється автоматично {times.length ? `о ${times.join(', ')}` : 'за розкладом'} —
+            останні 30 днів по всіх підприємствах{' '}
+            <Anchor
+              component="button"
+              type="button"
+              size="xs"
+              onClick={() => {
+                setDraftTimes(times)
+                setEditingSchedule(true)
+              }}
+            >
+              Змінити години
+            </Anchor>
           </Text>
         </Box>
         <Group gap="xs">
@@ -114,6 +153,36 @@ function ArchiveControls() {
           </Button>
         </Group>
       </Group>
+
+      {editingSchedule && (
+        <Group gap="sm" mt="sm" align="flex-end" wrap="wrap">
+          <MultiSelect
+            label="Години оновлення"
+            description="Скільки завгодно годин. Зміни діють протягом ~2 хв, перезапуск не потрібен"
+            size="xs"
+            style={{ flex: 1, minWidth: 280, maxWidth: 460 }}
+            data={scheduleOptions(times)}
+            value={draftTimes}
+            onChange={setDraftTimes}
+            searchable
+            hidePickedOptions
+            clearable
+            placeholder={draftTimes.length ? '' : 'Оберіть години'}
+          />
+          <Button
+            size="xs"
+            leftSection={<IconDeviceFloppy size={14} />}
+            onClick={() => saveSchedule.mutate()}
+            loading={saveSchedule.isPending}
+            disabled={!draftTimes.length}
+          >
+            Зберегти
+          </Button>
+          <Button size="xs" variant="default" onClick={() => setEditingSchedule(false)}>
+            Скасувати
+          </Button>
+        </Group>
+      )}
 
       {running && total > 0 && (
         <Box mt="sm">

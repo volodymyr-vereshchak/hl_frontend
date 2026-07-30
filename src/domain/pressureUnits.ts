@@ -20,6 +20,19 @@ export const UNIT_LABELS = P_UNITS.map((u) => u.label)
 export const PRESSURE_UNIT_DEFAULT = 'кгс/см²'
 export const DP_UNIT_DEFAULT = 'кгс/м²'
 
+// Values that mean "the device reported no unit". Part of the DPD correctors
+// answer with the literal string "None"/"null" instead of omitting the field;
+// taken at face value it shows up in a column header as «Тиск, None». The
+// backend cleans these on ingest too — this is the guard for rows written
+// before that landed.
+const ABSENT_UNITS = new Set(['', 'none', 'null', 'nan', 'n/a', '-', '—', '--'])
+
+/** A unit reported by a device, or null when it reported nothing usable. */
+export function normalizeUnit(raw: string | null | undefined): string | null {
+  const text = String(raw ?? '').trim()
+  return ABSENT_UNITS.has(text.toLowerCase()) ? null : text
+}
+
 const UNIT_K: Record<string, number> = Object.fromEntries(P_UNITS.map((u) => [u.label, u.k]))
 
 /**

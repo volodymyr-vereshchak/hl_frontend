@@ -281,12 +281,16 @@ export interface ArchiveRefreshStatus {
   progress_done?: number | null
   progress_total?: number | null
   error?: string | null
+  /** Local times (HH:MM) the scheduler refreshes at. */
+  refresh_times?: string[]
 }
 
 export const enterpriseArchiveApi = {
   status: () => api.get<ArchiveRefreshStatus>('/enterprise/archive/refresh/status'),
   refresh: () => api.post<unknown>('/enterprise/archive/refresh'),
   clearCache: () => api.delete<unknown>('/enterprise/cache/'),
+  setSchedule: (times: string[]) =>
+    api.put<{ refresh_times: string[] }>('/enterprise/archive/refresh/schedule', { times }),
 }
 
 // ── DPD credentials ─────────────────────────────────────────────────────────
