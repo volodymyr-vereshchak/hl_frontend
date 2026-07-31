@@ -68,9 +68,14 @@ function fmtPeriod(period: string, type: ArchiveType): string {
   return date
 }
 
-/** Two decimals everywhere; density keeps four, event counters are integers. */
+/** Two decimals everywhere; event counters are integers, small values keep more. */
 function decimalsFor(key: string): number {
   if (key === 'density') return 4
+  // Pipe roughness and the orifice edge radius are fractions of a millimetre:
+  // real values in the archive go down to 0.0032 mm, which two decimals
+  // flattened to "0,00" — indistinguishable from the genuine zero a meter
+  // (no orifice at all) carries.
+  if (key === 'roughness' || key === 'radius') return 5
   if (key === 'edit_counts' || key === 'sys_counts') return 0
   return 2
 }

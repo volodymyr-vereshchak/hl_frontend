@@ -22,6 +22,7 @@ import {
   IconRotate,
 } from '@tabler/icons-react'
 import { branchApi, lumgApi, gasVolumeApi, lineApi } from '@/api/entities'
+import { HourDateTimePicker } from '@/features/archive/HourDateTimePicker'
 import { P_UNITS } from '@/domain/pressureUnits'
 import { MATERIALS } from '@/domain/flowRate/materials'
 import { KST_METHOD_NAMES } from '@/domain/flowRate/standards'
@@ -39,9 +40,16 @@ import type { Line } from '@/types'
 import { FlowCalcResultsPanel } from './FlowCalcResults'
 import { OrificeDiagram } from './OrificeDiagram'
 import { RichLabel } from './RichLabel'
-import { pullFromLine } from './lineAutofill'
+import { formatPeriodShort, pullFromLine } from './lineAutofill'
 
 const stripColon = (s: string) => s.replace(/\s*:\s*$/, '')
+
+/** Current hour as the picker's string — where "at a moment" starts from. */
+function defaultAsOf(): string {
+  const now = new Date()
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())} ${p(now.getHours())}:00:00`
+}
 
 /** Panel with a titled header strip — the screen's repeating container. */
 function Panel({ title, children }: { title: string; children: React.ReactNode }) {
@@ -147,6 +155,9 @@ export function FlowCalcPage() {
   const [selBranch, setSelBranch] = useState<string | null>(null)
   const [selCalc, setSelCalc] = useState<string | null>(null)
   const [selLine, setSelLine] = useState<string | null>(null)
+  // null = the latest values the line has; a 'YYYY-MM-DD HH:mm:ss' moment =
+  // the configuration in force then, with that hour's working values.
+  const [asOf, setAsOf] = useState<string | null>(null)
   const [pullStatus, setPullStatus] = useState<PullStatus>(null)
   const [pulling, setPulling] = useState(false)
 
@@ -243,9 +254,8 @@ export function FlowCalcPage() {
     setPullStatus(null)
   }, [])
 
-  const handleSelLine = useCallback(
-    async (v: string | null) => {
-      setSelLine(v)
+  const pull = useCallback(
+    async (v: string | null, asOf: string | null) => {
       if (!v) {
         setPullStatus(null)
         return
@@ -255,14 +265,20 @@ export function FlowCalcPage() {
       setPulling(true)
       setPullStatus(null)
       try {
-        const res = await pullFromLine(line, s, wantMeter)
+        const res = await pullFromLine(line, s, wantMeter, asOf)
         setS((prev) => ({ ...prev, ...res.patch }))
         setErrors({})
         setResults(null)
 
         const warns: string[] = []
         if (!res.hadParams) warns.push(t('fcLineFillNoParams'))
-        if (!res.hadHourly) warns.push(t('fcLineFillNoHourly'))
+        if (!res.hadHourly) {
+          // At a chosen moment the miss is about THAT hour — saying "the line
+          // has no hourly data" would be untrue and unhelpful.
+          warns.push(
+            asOf ? `${t('fcAsOfNoRecord')} ${formatPeriodShort(asOf)}` : t('fcLineFillNoHourly'),
+          )
+        }
         if (!res.hadParams && !res.hadHourly) {
           setPullStatus({ type: 'warn', text: warns.join('. '), warns: [] })
         } else {
@@ -280,6 +296,23 @@ export function FlowCalcPage() {
       }
     },
     [lines, s, wantMeter, t],
+  )
+
+  const handleSelLine = useCallback(
+    (v: string | null) => {
+      setSelLine(v)
+      void pull(v, asOf)
+    },
+    [pull, asOf],
+  )
+
+  /** Switching to a moment (or moving it) re-reads the same line for that time. */
+  const handleAsOf = useCallback(
+    (v: string | null) => {
+      setAsOf(v)
+      void pull(selLine, v)
+    },
+    [pull, selLine],
   )
 
   const handleCalc = useCallback(() => {
@@ -379,6 +412,34 @@ export function FlowCalcPage() {
                   disabled={pulling}
                 />
               </SimpleGrid>
+
+              {/* Which moment to read the line at. Parameters change rarely but
+                  they do change, so recalculating a past measurement needs the
+                  configuration that was in force then, not today's. */}
+              <Group gap="sm" mt="sm" align="center" wrap="wrap">
+                <SegmentedControl
+                  size="xs"
+                  value={asOf ? 'moment' : 'latest'}
+                  onChange={(v) => handleAsOf(v === 'latest' ? null : asOf || defaultAsOf())}
+                  disabled={pulling}
+                  data={[
+                    { value: 'latest', label: t('fcAsOfLatest') },
+                    { value: 'moment', label: t('fcAsOfMoment') },
+                  ]}
+                />
+                {asOf && (
+                  <HourDateTimePicker
+                    value={asOf}
+                    onChange={handleAsOf}
+                    todayValue={defaultAsOf()}
+                    ariaLabel={t('fcAsOfMoment')}
+                    disabled={pulling}
+                  />
+                )}
+                <Text size="xs" c="dimmed">
+                  {asOf ? t('fcAsOfMomentHint') : t('fcAsOfLatestHint')}
+                </Text>
+              </Group>
 
               {pulling && (
                 <Text size="xs" c="dimmed" mt="xs">

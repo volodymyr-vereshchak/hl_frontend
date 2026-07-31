@@ -30,9 +30,15 @@ function fmt(value: string): string {
 }
 
 /**
- * Date + hour picker for the hourly / sys / edit archives. Uses a 24-cell hour
- * GRID instead of a scrolling time list — every hour is one click away, which
- * is what these archives actually need (values are always on the hour).
+ * Date + hour picker for the hourly / sys / edit archives and the flow
+ * calculator. Uses a 24-cell hour GRID instead of a scrolling time list —
+ * every hour is one click away, which is what these views actually need
+ * (values are always on the hour).
+ *
+ * Date and hour are picked TOGETHER and committed by the button: closing on
+ * the date click meant reopening the popover just to reach the hour, which is
+ * the one thing you always want to do next. Nothing leaves this component
+ * until "Застосувати", so an abandoned popover changes nothing.
  */
 export function HourDateTimePicker({
   value,
@@ -44,13 +50,23 @@ export function HourDateTimePicker({
 }: Props) {
   const { t } = useLanguage()
   const [opened, setOpened] = useState(false)
-  const close = () => setOpened(false)
-  const toggle = () => setOpened((o) => !o)
-  const { date, time } = split(value)
+  // Draft, seeded from the current value every time the popover opens — which
+  // is also what makes it open ON the selected month instead of on today.
+  const [draft, setDraft] = useState(() => split(value))
   const scrollRef = useRef<HTMLDivElement>(null)
   const selectedRef = useRef<HTMLButtonElement | null>(null)
 
-  // Bring the current hour into view when the popover opens.
+  const open = () => {
+    setDraft(split(value))
+    setOpened(true)
+  }
+  const close = () => setOpened(false)
+  const apply = () => {
+    onChange(`${draft.date} ${draft.time}:00`)
+    close()
+  }
+
+  // Bring the drafted hour into view when the popover opens.
   useEffect(() => {
     if (!opened) return
     const id = requestAnimationFrame(() => {
@@ -63,14 +79,10 @@ export function HourDateTimePicker({
     return () => cancelAnimationFrame(id)
   }, [opened])
 
-  const commit = (nextDate: string, nextTime: string) => {
-    onChange(`${nextDate} ${nextTime}:00`)
-  }
-
   return (
     <Popover
       opened={opened}
-      onChange={setOpened}
+      onChange={(o) => (o ? open() : close())}
       position="bottom-start"
       withinPortal
       zIndex={500}
@@ -91,7 +103,7 @@ export function HourDateTimePicker({
           type="button"
           pointer
           size="xs"
-          onClick={toggle}
+          onClick={() => (opened ? close() : open())}
           disabled={disabled}
           leftSection={<IconCalendar size={15} />}
           w={width}
@@ -110,20 +122,16 @@ export function HourDateTimePicker({
             <Button
               variant="light"
               size="compact-xs"
-              onClick={() => {
-                onChange(todayValue)
-                close()
-              }}
+              onClick={() => setDraft(split(todayValue))}
             >
               {t('today')}
             </Button>
             <DatePicker
-              value={date}
-              onChange={(v) => {
-                if (!v) return
-                commit(v, time)
-                close()
-              }}
+              value={draft.date}
+              /* Without this the calendar opens on the current month whatever
+                 is selected — `value` alone does not move the view. */
+              defaultDate={draft.date || undefined}
+              onChange={(v) => v && setDraft((d) => ({ ...d, date: v }))}
               size="sm"
             />
           </Stack>
@@ -136,18 +144,14 @@ export function HourDateTimePicker({
             <ScrollArea h={248} w={78} type="auto" viewportRef={scrollRef} offsetScrollbars>
               <TimeGrid
                 data={HOURS}
-                value={time}
-                onChange={(v) => {
-                  if (!v) return
-                  commit(date, v)
-                  close()
-                }}
+                value={draft.time}
+                onChange={(v) => v && setDraft((d) => ({ ...d, time: v }))}
                 simpleGridProps={{ cols: 1, spacing: 4 }}
                 size="xs"
                 getControlProps={(hour) => ({
                   'data-hour': hour,
                   ref:
-                    hour === time
+                    hour === draft.time
                       ? (node: HTMLButtonElement | null) => {
                           selectedRef.current = node
                         }
@@ -156,6 +160,20 @@ export function HourDateTimePicker({
               />
             </ScrollArea>
           </Box>
+        </Group>
+        <Divider my="sm" />
+        <Group justify="space-between" wrap="nowrap">
+          <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
+            {fmt(`${draft.date} ${draft.time}:00`)}
+          </Text>
+          <Group gap="xs" wrap="nowrap">
+            <Button variant="default" size="compact-xs" onClick={close}>
+              {t('cancel')}
+            </Button>
+            <Button size="compact-xs" color="petrol" onClick={apply} disabled={!draft.date}>
+              {t('apply')}
+            </Button>
+          </Group>
         </Group>
       </Popover.Dropdown>
     </Popover>

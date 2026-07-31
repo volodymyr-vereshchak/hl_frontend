@@ -168,10 +168,14 @@ export const paramArchiveApi = {
   /**
    * Gas-composition parameters.
    *
-   * Without dates the endpoint returns ONE record per line — the current
-   * configuration, which is what the overview needs for min_dp/max_dp. Pass
-   * both dates and it returns every record in the range instead; the
-   * parameters archive does that so its date filter actually filters.
+   * Three ways to ask, and the endpoint answers differently for each:
+   *   - no dates → the current configuration, one record per line (the
+   *     overview reads min_dp/max_dp from this);
+   *   - `toDate` alone → the configuration AS OF that moment: the last record
+   *     not later than it, which is what the flow calculator needs to
+   *     reconstruct a past measurement;
+   *   - both dates → the last record inside the range, or nothing when the
+   *     line has no record there (the parameters archive).
    */
   async getParamsForLines(
     lineIds: number[],
@@ -180,7 +184,11 @@ export const paramArchiveApi = {
   ): Promise<ParamRecord[]> {
     if (!lineIds || lineIds.length === 0) return []
     try {
-      const range = fromDate && toDate ? { from_date: fromDate, to_date: toDate } : {}
+      const range = toDate
+        ? fromDate
+          ? { from_date: fromDate, to_date: toDate }
+          : { to_date: toDate }
+        : {}
       const result = await api.get<ParamRecord[]>('/param/', { line_id: lineIds, ...range })
       return Array.isArray(result) ? result : []
     } catch {
