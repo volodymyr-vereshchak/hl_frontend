@@ -40,6 +40,29 @@ export function useMeasuredHeight(
   return height
 }
 
+/**
+ * Width of the element in `ref`, followed through resizes.
+ *
+ * For deciding how many things fit across it — an axis cannot know how many
+ * labels it has room for from the number of data points alone.
+ */
+export function useMeasuredWidth(ref: RefObject<HTMLElement | null>): number {
+  const [width, setWidth] = useState(0)
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const observer = new ResizeObserver(([entry]) => {
+      setWidth(entry.contentRect.width)
+    })
+    observer.observe(el)
+    setWidth(el.getBoundingClientRect().width)
+    return () => observer.disconnect()
+  }, [ref])
+
+  return width
+}
+
 /** Convenience for the common shape: a scroll container with a sticky header
  *  and, optionally, a sticky totals row. */
 export function useStickyRowHeights() {

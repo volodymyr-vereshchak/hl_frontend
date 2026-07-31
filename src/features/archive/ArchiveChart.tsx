@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useRef } from 'react'
 import { Paper, Text, Group, Button, useMantineColorScheme, Box } from '@mantine/core'
 import { useLocalStorage } from '@mantine/hooks'
 import {
@@ -10,9 +10,17 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts'
+import { useMeasuredWidth } from '@/components/useMeasuredHeight'
 import { DP_UNIT_DEFAULT, PRESSURE_UNIT_DEFAULT } from '@/domain/pressureUnits'
 import { useLanguage } from '@/locales/LanguageContext'
-import { TimeAxisTick, timeAxisHeight } from './TimeAxisTick'
+import {
+  TimeAxisTick,
+  timeAxisHeight,
+  labelPixels,
+  SLANTED_LABEL_W,
+  SLANT_ABOVE,
+  UPRIGHT_LABEL_W,
+} from './TimeAxisTick'
 import type { ArchiveType } from '@/types'
 import type { LineMeta } from '@/store/selectionStore'
 import type { ArchiveRow } from '@/api/entities'
@@ -103,6 +111,8 @@ function getSeries(type: ArchiveType, meta: LineMeta, t: (k: string) => string):
 
 export function ArchiveChart({ rows, type, meta, overlay, embedded = false }: Props) {
   const { t, getLocale } = useLanguage()
+  const plotRef = useRef<HTMLDivElement>(null)
+  const plotWidth = useMeasuredWidth(plotRef)
   const { colorScheme } = useMantineColorScheme()
   const dark = colorScheme === 'dark'
   const locale = getLocale()
@@ -143,17 +153,22 @@ export function ArchiveChart({ rows, type, meta, overlay, embedded = false }: Pr
       })
   }, [rows, series])
 
-  // Only the time-of-day archives get a second line; a daily point has no time
-  // to show, and a lone date reads better across the full width.
-  const twoLine = type !== 'daily'
+  // A daily label carries only a date, and repeating the year under every tick
+  // is what made "17.05.2026" wide enough to collide over a long period. The
+  // year appears — on a second line, like the hourly time — only when the
+  // period actually crosses one. The tooltip always has the full date.
+  const spansYears = useMemo(() => {
+    if (data.length < 2) return false
+    const year = (row: (typeof data)[number]) => new Date(String(row.period)).getFullYear()
+    return year(data[0]) !== year(data[data.length - 1])
+  }, [data])
+  const twoLine = type !== 'daily' || spansYears
   const fmtX = (value: string): [string, string] => {
     const d = new Date(value)
     if (isNaN(d.getTime())) return [String(value), '']
-    if (!twoLine) return [d.toLocaleDateString(locale), '']
-    return [
-      d.toLocaleDateString(locale, { day: '2-digit', month: '2-digit' }),
-      d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' }),
-    ]
+    const date = d.toLocaleDateString(locale, { day: '2-digit', month: '2-digit' })
+    if (type === 'daily') return [date, spansYears ? String(d.getFullYear()) : '']
+    return [date, d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })]
   }
 
   const CustomTooltip = ({ active, payload, label }: TooltipContentProps) => {
@@ -179,8 +194,30 @@ export function ArchiveChart({ rows, type, meta, overlay, embedded = false }: Pr
   }
 
   if (data.length === 0) return null
-  // Aim for ~24 evenly spaced labels regardless of range length.
-  const tickInterval = Math.max(0, Math.ceil(data.length / 24) - 1)
+  // How many labels FIT, not a fixed number of them. The axis used to aim for
+  // ~24 whatever the width, so a long period in a narrow pane ran its dates
+  // into each other.
+  //
+  // Everything the plot area loses to the Y axes and the margins:
+  const axesW = (hasRight ? 52 : 0) + 70 + 24
+  // Before the first measurement, assume the pane is wide — one paint with two
+  // labels on the way to twenty reads as a glitch.
+  const plotArea = plotWidth > 0 ? Math.max(0, plotWidth - axesW) : 24 * UPRIGHT_LABEL_W
+  // Upright while the dates still land often enough to read; past that,
+  // slanting buys back more than half the width, so the axis turns rather than
+  // leaving a handful of dates under a dense curve.
+  const slanted = data.length > Math.floor(plotArea / UPRIGHT_LABEL_W) * SLANT_ABOVE
+  const maxTicks = Math.max(
+    2,
+    Math.floor(plotArea / (slanted ? SLANTED_LABEL_W : UPRIGHT_LABEL_W)),
+  )
+  const tickInterval = Math.max(0, Math.ceil(data.length / maxTicks) - 1)
+  // The slanted axis is as tall as its longest label's diagonal; every label
+  // here has the same shape, so one sample answers for all of them.
+  const [head, tail] = fmtX(String(data[0].period))
+  const axisHeight = slanted
+    ? timeAxisHeight(twoLine, labelPixels(tail ? `${head} ${tail}` : head))
+    : timeAxisHeight(twoLine)
   const grid = dark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.14)'
   const gridStrong = dark ? 'rgba(255,255,255,0.28)' : 'rgba(0,0,0,0.28)'
   const axis = dark ? '#9aa7ad' : '#5a6b75'
@@ -217,56 +254,60 @@ export function ArchiveChart({ rows, type, meta, overlay, embedded = false }: Pr
         </Group>
       </Group>
 
-      <ResponsiveContainer width="100%" height={embedded ? '100%' : 620}>
-        <LineChart data={data} margin={{ top: 8, right: 16, bottom: 8, left: 8 }}>
-          {/* Dense grid: minor lines everywhere, both axes get many ticks. */}
-          <CartesianGrid stroke={grid} strokeDasharray="3 3" horizontal vertical />
-          {/* Upright labels at a fixed interval: even spacing beats recharts'
-              auto-thinning, which clumps ticks in the middle of the range. */}
-          <XAxis
-            dataKey="period"
-            interval={tickInterval}
-            tick={<TimeAxisTick format={fmtX} fill={axis} />}
-            height={timeAxisHeight(twoLine)}
-            stroke={gridStrong}
-          />
-          <YAxis
-            yAxisId="left"
-            tick={{ fontSize: 11, fill: axis }}
-            width={70}
-            tickCount={12}
-            stroke={gridStrong}
-            tickFormatter={(v) => Number(v).toLocaleString('uk-UA')}
-          />
-          {hasRight && (
-            <YAxis
-              yAxisId="right"
-              orientation="right"
-              tick={{ fontSize: 11, fill: axis }}
-              width={52}
-              tickCount={12}
+      {/* Measured, not assumed: the tick spacing above is computed from it. */}
+      <Box ref={plotRef} style={{ flex: embedded ? 1 : undefined, minHeight: 0, width: '100%' }}>
+        <ResponsiveContainer width="100%" height={embedded ? '100%' : 620}>
+          <LineChart data={data} margin={{ top: 8, right: 16, bottom: 8, left: 8 }}>
+            {/* Dense grid: minor lines everywhere, both axes get many ticks. */}
+            <CartesianGrid stroke={grid} strokeDasharray="3 3" horizontal vertical />
+            {/* Upright labels, evenly spaced, as many as the width fits — see
+                tickInterval above. Even spacing beats recharts' auto-thinning,
+                which clumps ticks in the middle of the range. */}
+            <XAxis
+              dataKey="period"
+              interval={tickInterval}
+              tick={<TimeAxisTick format={fmtX} fill={axis} slanted={slanted} />}
+              height={axisHeight}
               stroke={gridStrong}
             />
-          )}
-          <Tooltip content={<CustomTooltip />} />
-          {series
-            .filter((s) => isVisible(s.key))
-            .map((s) => (
-              <Line
-                key={s.key}
-                yAxisId={hasRight ? s.axis : 'left'}
-                type="monotone"
-                dataKey={s.key}
-                name={s.label}
-                stroke={s.color}
-                strokeWidth={2}
-                dot={false}
-                connectNulls
-                isAnimationActive={false}
+            <YAxis
+              yAxisId="left"
+              tick={{ fontSize: 11, fill: axis }}
+              width={70}
+              tickCount={12}
+              stroke={gridStrong}
+              tickFormatter={(v) => Number(v).toLocaleString('uk-UA')}
+            />
+            {hasRight && (
+              <YAxis
+                yAxisId="right"
+                orientation="right"
+                tick={{ fontSize: 11, fill: axis }}
+                width={52}
+                tickCount={12}
+                stroke={gridStrong}
               />
-            ))}
-        </LineChart>
-      </ResponsiveContainer>
+            )}
+            <Tooltip content={<CustomTooltip />} />
+            {series
+              .filter((s) => isVisible(s.key))
+              .map((s) => (
+                <Line
+                  key={s.key}
+                  yAxisId={hasRight ? s.axis : 'left'}
+                  type="monotone"
+                  dataKey={s.key}
+                  name={s.label}
+                  stroke={s.color}
+                  strokeWidth={2}
+                  dot={false}
+                  connectNulls
+                  isAnimationActive={false}
+                />
+              ))}
+          </LineChart>
+        </ResponsiveContainer>
+      </Box>
 
       {series.every((s) => !isVisible(s.key)) && (
         <Box ta="center" py="md">
