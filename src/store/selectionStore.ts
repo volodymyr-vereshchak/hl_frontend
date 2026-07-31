@@ -60,16 +60,29 @@ export const useSelectionStore = create<SelectionState>()(
     }),
     {
       name: 'hlv-selection',
-      // The period is part of what the user set up, so a reload must not throw
-      // it away and silently show a different range than the one on screen.
-      // `dateFilterEnabled` stays out: it gates the fetch, and restoring it
+      // `dateRange` stays out on purpose: a reload starts from the current
+      // month again (see initialDateRange). A period restored from the last
+      // session is stale by definition — come back in August and the pickers
+      // would still be showing July without saying so.
+      // `dateFilterEnabled` stays out too: it gates the fetch, and restoring it
       // would fire a request before the user has even looked at the page.
       partialize: (s) => ({
         branchId: s.branchId,
         lineId: s.lineId,
         lineMeta: s.lineMeta,
-        dateRange: s.dateRange,
       }),
+      // v1 stored `dateRange`, and persisted keys win over the initial state
+      // on merge — without this, browsers that used the old build would keep
+      // restoring last session's period forever.
+      version: 2,
+      migrate: (persisted) => {
+        const { branchId, lineId, lineMeta } = (persisted ?? {}) as Partial<SelectionState>
+        return {
+          branchId: branchId ?? null,
+          lineId: lineId ?? null,
+          lineMeta: lineMeta ?? null,
+        }
+      },
     },
   ),
 )

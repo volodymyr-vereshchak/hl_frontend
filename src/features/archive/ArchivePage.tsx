@@ -19,8 +19,10 @@ import { useSelectionStore } from '@/store/selectionStore'
 import { useLanguage } from '@/locales/LanguageContext'
 import { getArchiveColumns } from '@/domain/archiveColumns'
 import { commercialHourlyRange } from '@/domain/commercialDay'
+import { isOverlayHeavy } from '@/domain/periodLoad'
 import { DP_UNIT_DEFAULT, normalizeUnit, PRESSURE_UNIT_DEFAULT } from '@/domain/pressureUnits'
-import { TablePagination } from '@/components/TablePagination'
+import { TablePagination, type PageSizeOption } from '@/components/TablePagination'
+import { confirmEnterpriseOverlay } from './heavyPeriod'
 import type { ArchiveType } from '@/types'
 import { TreeView } from './TreeView'
 import { DateRangeControls } from './DateRangeControls'
@@ -43,6 +45,34 @@ function commercialWindow(fromDate: string, toDate: string) {
 // Height reserved for app header (56) + main padding + the single-line toolbar.
 /** Tree + pane fill the screen; nothing else sits below them. */
 const SPLIT_HEIGHT = 'calc(100dvh - 150px)'
+
+/**
+ * A page is a stretch of time, not a row count: a month of the daily archive
+ * and a month of the hourly one are the units people actually work in.
+ * sys/edit stay on plain row counts — their rows are events, not periods, and
+ * they page on the server.
+ */
+const PAGE_SIZES: Partial<Record<ArchiveType, { value: number; labelKey: string }[]>> = {
+  daily: [
+    { value: 31, labelKey: 'pageMonth' },
+    { value: 92, labelKey: 'pageQuarter' },
+    { value: 366, labelKey: 'pageYear' },
+  ],
+  hourly: [
+    { value: 24, labelKey: 'pageDay' },
+    { value: 168, labelKey: 'pageWeek' },
+    { value: 744, labelKey: 'pageMonth' },
+  ],
+}
+const DEFAULT_PAGE_SIZE: Record<ArchiveType, number> = {
+  daily: 31,
+  hourly: 744,
+  sys: 50,
+  edit: 50,
+  param: 50,
+}
+/** Parameters return one record per line, so there is never a second page. */
+const isClientPaged = (type: ArchiveType) => type === 'daily' || type === 'hourly'
 
 /** Locale keys for the archive name that goes into the file name. */
 const FILE_NAME_KEY: Record<ArchiveType, string> = {
@@ -88,14 +118,17 @@ export function ArchivePage() {
     setDateRange(commercialWindow(dateRange.fromDate, dateRange.toDate))
   }, [needsTime, qsFrom, dateRange.fromDate, dateRange.toDate, setDateRange])
 
-  if (!type || !VALID.includes(type as ArchiveType)) {
-    return <Navigate to="/overview" replace />
-  }
-  const archiveType = type as ArchiveType
+  // An unknown :type redirects, but only AFTER the hooks below have run —
+  // bailing out early would change the hook count between renders and crash
+  // React on the way out. `daily` is a stand-in for that one render.
+  const validType = type && VALID.includes(type as ArchiveType) ? (type as ArchiveType) : null
+  const archiveType = validType ?? 'daily'
 
   const restricted =
     lineMeta && lineMeta.kind !== 'physical' && !['daily', 'hourly'].includes(archiveType)
 
+  /** Identifies what is on screen: a change to any part restarts the paging. */
+  const loadKey = `${archiveType}|${lineId}|${dateRange.fromDate}|${dateRange.toDate}`
   const enabled = !!lineId && !!lineMeta && dateFilterEnabled && !restricted
   const paged = isPagedArchive(archiveType)
   // Table or chart in the same pane — no scrolling to reach the plot. Kept per
@@ -104,8 +137,18 @@ export function ArchivePage() {
     key: `hlv-archive-view-${archiveType}`,
     defaultValue: 'table',
   })
+  const clientPaged = isClientPaged(archiveType)
   const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(50)
+  const [pageSize, setPageSize] = useLocalStorage({
+    key: `hlv-archive-pagesize-${archiveType}`,
+    defaultValue: DEFAULT_PAGE_SIZE[archiveType],
+  })
+  // A new period (or archive, or line) starts at its first page.
+  useEffect(() => setPage(1), [loadKey])
+  const pageSizeOptions: PageSizeOption[] | undefined = useMemo(
+    () => PAGE_SIZES[archiveType]?.map((s) => ({ value: s.value, label: t(s.labelKey) })),
+    [archiveType, t],
+  )
 
   const full = useArchiveData({
     lineId,
@@ -128,10 +171,28 @@ export function ArchivePage() {
   const total = paged ? (pageQuery.data?.total ?? 0) : (rawRows?.length ?? 0)
   const isLoading = paged ? pageQuery.isLoading : full.isLoading
   const error = paged ? pageQuery.error : full.error
+  // The daily and hourly archives are always paged, whatever the range: the
+  // control belongs to the view, not to how much happened to come back, and a
+  // bar that appears and disappears with the data is worse than a quiet one.
+  const showPagination = total > 0 && (paged || clientPaged)
 
   // Enterprise (промисловість) overlay — daily/hourly only.
   const canOverlay = archiveType === 'daily' || archiveType === 'hourly'
   const overlay = useEnterpriseOverlay(canOverlay ? lineId : null, lineMeta, archiveType, dateRange)
+  // Turning it on for a long period is the one action left that costs minutes:
+  // it polls DPD per enterprise, and past the backend's 30-day cache window
+  // every day has to be backfilled from that API first. So that switch — and
+  // only that switch — asks first.
+  const overlayGate = useMemo(
+    () => ({
+      ...overlay,
+      setEnabled: (v: boolean) => {
+        if (!v || !isOverlayHeavy(dateRange)) return overlay.setEnabled(v)
+        confirmEnterpriseOverlay(dateRange, t, () => overlay.setEnabled(true))
+      },
+    }),
+    [overlay, dateRange, t],
+  )
   const rows =
     canOverlay && overlay.enabled && rawRows ? applyOverlay(rawRows, overlay.byPeriod, archiveType) : rawRows
   // A DPD line has no unit configuration of its own — its pressure unit comes
@@ -211,6 +272,8 @@ export function ArchivePage() {
     [navigate, setDateRange],
   )
 
+  if (!validType) return <Navigate to="/overview" replace />
+
   const titleMap: Record<ArchiveType, string> = {
     daily: t('dailyArchive'),
     hourly: t('hourlyArchive'),
@@ -227,7 +290,7 @@ export function ArchivePage() {
         onExport={handleExport}
         canExport={canExport}
         withTime={archiveType === 'hourly' || archiveType === 'sys' || archiveType === 'edit'}
-        overlay={canOverlay && lineId ? overlay : undefined}
+        overlay={canOverlay && lineId ? overlayGate : undefined}
       />
 
       {/* Tree + table row: full viewport height, each scrolls internally. */}
@@ -262,14 +325,14 @@ export function ArchivePage() {
             <Center style={{ flex: 1 }}>
               <Text c="dimmed">{t('activateDate')}</Text>
             </Center>
-          ) : error ? (
-            <Alert color="red" variant="light" icon={<IconAlertTriangle size={16} />} m="sm">
-              {(error as Error).message}
-            </Alert>
           ) : isLoading ? (
             <Center style={{ flex: 1 }}>
               <Loader color="petrol" />
             </Center>
+          ) : error ? (
+            <Alert color="red" variant="light" icon={<IconAlertTriangle size={16} />} m="sm">
+              {(error as Error).message}
+            </Alert>
           ) : rows && meta ? (
             <>
               {/* daily/hourly only: the other archives have nothing to plot. */}
@@ -307,6 +370,10 @@ export function ArchivePage() {
                   meta={meta}
                   overlay={canOverlay && overlay.enabled && !!overlay.byPeriod}
                   onDrillDown={drillToHourly}
+                  /* sys/edit arrive one page at a time from the server; the
+                     others hold the whole period and page it here. */
+                  page={clientPaged ? page : undefined}
+                  pageSize={clientPaged ? pageSize : undefined}
                 />
               </Box>
               {/* Mounted on first use and then kept: re-creating the plot on
@@ -329,7 +396,7 @@ export function ArchivePage() {
                   />
                 </Box>
               )}
-              {paged && total > 0 && (
+              {showPagination && (
                 <>
                   <Divider />
                   <TablePagination
@@ -339,6 +406,7 @@ export function ArchivePage() {
                     onPageChange={setPage}
                     onPageSizeChange={setPageSize}
                     shownLabel={`${t('records')}: ${total.toLocaleString('uk-UA')}`}
+                    pageSizes={pageSizeOptions}
                   />
                 </>
               )}

@@ -1,6 +1,14 @@
 import { memo, useMemo, useState } from 'react'
-import { Table, Text, Group, Box, ScrollArea } from '@mantine/core'
-import { IconArrowUp, IconArrowDown } from '@tabler/icons-react'
+import { Table, Text, Group, Box, ScrollArea, Menu, Tooltip, UnstyledButton } from '@mantine/core'
+import { useLocalStorage } from '@mantine/hooks'
+import {
+  IconArrowUp,
+  IconArrowDown,
+  IconMathAvg,
+  IconMathMax,
+  IconMathMin,
+  IconSum,
+} from '@tabler/icons-react'
 import {
   useReactTable,
   getCoreRowModel,
@@ -12,6 +20,13 @@ import {
 import { useStickyRowHeights } from '@/components/useMeasuredHeight'
 import { numericStyle } from '@/theme/theme'
 import { useLanguage } from '@/locales/LanguageContext'
+import {
+  AGGREGATES,
+  AGGREGATE_LABELS,
+  columnAggregate,
+  fold,
+  type Aggregate,
+} from '@/domain/aggregate'
 import { getArchiveColumns, resolveEditName } from '@/domain/archiveColumns'
 import { DP_UNIT_DEFAULT, PRESSURE_UNIT_DEFAULT } from '@/domain/pressureUnits'
 import { formatEditValue } from '@/domain/valueConverter'
@@ -27,6 +42,14 @@ interface Props {
   overlay?: boolean
   /** Daily archive: open the hourly archive for the clicked commercial day. */
   onDrillDown?: (day: string) => void
+  /**
+   * Show one page of `rows` instead of all of them. Sorting and the totals row
+   * still run over the whole range — the page is a view, not a subset of the
+   * data. Omit both to render everything (sys/edit paginate on the server, so
+   * their `rows` is already one page).
+   */
+  page?: number
+  pageSize?: number
 }
 
 const pad = (n: number) => String(n).padStart(2, '0')
@@ -59,6 +82,64 @@ function fmtNumber(v: unknown, digits = 2): string {
   return n.toLocaleString('uk-UA', { minimumFractionDigits: digits, maximumFractionDigits: digits })
 }
 
+/** The mode's mark in the footer: a glyph, not a word — it sits in a data cell. */
+const AGGREGATE_ICONS: Record<Aggregate, typeof IconSum> = {
+  sum: IconSum,
+  avg: IconMathAvg,
+  max: IconMathMax,
+  min: IconMathMin,
+}
+
+/**
+ * One footer cell: the folded value, marked with how it was folded, and the
+ * mark is the way to change it. Per column, because a row that sums volumes
+ * and averages pressure is the only row that means anything.
+ */
+function AggregateCell({
+  value,
+  how,
+  onPick,
+  t,
+}: {
+  value: string
+  how: Aggregate
+  onPick: (how: Aggregate) => void
+  t: (key: string) => string
+}) {
+  const Icon = AGGREGATE_ICONS[how]
+  return (
+    <Menu shadow="md" position="top" withinPortal>
+      <Menu.Target>
+        <Tooltip label={`${t(AGGREGATE_LABELS[how])} — ${t('aggregateChange')}`} withArrow>
+          <UnstyledButton aria-label={t(AGGREGATE_LABELS[how])} style={{ width: '100%' }}>
+            <Group gap={4} justify="center" wrap="nowrap">
+              <Icon size={13} stroke={1.8} style={{ color: 'var(--mantine-color-dimmed)' }} />
+              <Text fw={700} size="sm">
+                {value}
+              </Text>
+            </Group>
+          </UnstyledButton>
+        </Tooltip>
+      </Menu.Target>
+      <Menu.Dropdown>
+        {AGGREGATES.map((key) => {
+          const ItemIcon = AGGREGATE_ICONS[key]
+          return (
+            <Menu.Item
+              key={key}
+              leftSection={<ItemIcon size={14} stroke={1.8} />}
+              onClick={() => onPick(key)}
+              fw={key === how ? 700 : undefined}
+            >
+              {t(AGGREGATE_LABELS[key])}
+            </Menu.Item>
+          )
+        })}
+      </Menu.Dropdown>
+    </Menu>
+  )
+}
+
 const helper = createColumnHelper<ArchiveRow>()
 
 /**
@@ -73,6 +154,8 @@ export const ArchiveTable = memo(function ArchiveTable({
   meta,
   overlay,
   onDrillDown,
+  page,
+  pageSize,
 }: Props) {
   const { t } = useLanguage()
   const [sorting, setSorting] = useState<SortingState>([])
@@ -145,23 +228,41 @@ export const ArchiveTable = memo(function ArchiveTable({
     getSortedRowModel: getSortedRowModel(),
   })
 
-  // Summary row: sum summable, avg averagable.
+  // Sliced AFTER sorting, so a sort reorders the whole period and the first
+  // page shows its real top — not the top of whatever page is open.
+  // `getRowModel()` is memoised by TanStack on data + sorting, and slicing an
+  // array of row objects is cheap, so this needs no memo of its own.
+  const sortedRows = table.getRowModel().rows
+  const visibleRows =
+    page == null || pageSize == null
+      ? sortedRows
+      : sortedRows.slice((page - 1) * pageSize, page * pageSize)
+
+  // Per column, and kept per archive type — the daily view and the hourly view
+  // get read for different things. Absent key = that column's own default.
+  const [aggregates, setAggregates] = useLocalStorage<Record<string, Aggregate>>({
+    key: `hlv-archive-agg-cols-${type}`,
+    defaultValue: {},
+  })
+  const pickAggregate = (key: string, how: Aggregate) =>
+    setAggregates({ ...aggregates, [key]: how })
+
+  // Over the WHOLE period, not the open page — the footer answers "what did
+  // this line do in the period", which a page cannot.
   const summary = useMemo(() => {
-    const out: Record<string, string> = {}
+    const out: Record<string, { text: string; how: Aggregate }> = {}
     for (const spec of specs) {
-      const digits = decimalsFor(spec.key)
-      if (spec.isSummable) {
-        const sum = rows.reduce((s, r) => s + (Number(r[spec.key]) || 0), 0)
-        out[spec.key] = fmtNumber(sum, digits)
-      } else if (spec.isAveragable && rows.length) {
-        const vals = rows.map((r) => Number(r[spec.key])).filter((n) => isFinite(n))
-        out[spec.key] = vals.length
-          ? fmtNumber(vals.reduce((a, b) => a + b, 0) / vals.length, digits)
-          : '—'
+      if (!spec.isSummable && !spec.isAveragable) continue
+      const how = columnAggregate(spec, aggregates[spec.key])
+      const values = rows.map((r) => Number(r[spec.key])).filter((n) => isFinite(n))
+      const folded = fold(values, how)
+      out[spec.key] = {
+        text: folded == null ? '—' : fmtNumber(folded, decimalsFor(spec.key)),
+        how,
       }
     }
     return out
-  }, [rows, specs])
+  }, [rows, specs, aggregates])
 
   const numericKeys = new Set(specs.filter((s) => s.key !== 'period' && s.key !== 'edit_name' && s.key !== 'sys_name').map((s) => s.key))
   // Parameters are a snapshot list — a totals row is meaningless there.
@@ -222,7 +323,7 @@ export const ArchiveTable = memo(function ArchiveTable({
           spacing variables, so the padding is identical to Table.Td.
         */}
         <Table.Tbody>
-          {table.getRowModel().rows.map((row) => (
+          {visibleRows.map((row) => (
             <Table.Tr key={row.id}>
               {row.getVisibleCells().map((cell) => (
                 <td
@@ -262,13 +363,16 @@ export const ArchiveTable = memo(function ArchiveTable({
                   >
                     {i === 0 ? (
                       <Text fw={700} size="sm">
-                        {t('total')}
+                        {t('summaryRow')}
                       </Text>
-                    ) : (
-                      <Text fw={700} size="sm">
-                        {summary[spec.key] ?? ''}
-                      </Text>
-                    )}
+                    ) : summary[spec.key] ? (
+                      <AggregateCell
+                        value={summary[spec.key].text}
+                        how={summary[spec.key].how}
+                        onPick={(how) => pickAggregate(spec.key, how)}
+                        t={t}
+                      />
+                    ) : null}
                   </Table.Td>
                 )
               })}

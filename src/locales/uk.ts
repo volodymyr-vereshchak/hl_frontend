@@ -44,6 +44,28 @@ export const uk = {
   // Pagination
   perPage: "На сторінці",
   page: "Стор.",
+  pageDay: "доба",
+  pageWeek: "тиждень",
+  pageMonth: "місяць",
+  pageQuarter: "квартал",
+  pageYear: "рік",
+
+  // Enterprise overlay over a long period
+  overlayHeavyTitle: "Довгий період опитування",
+  periodSpan: "Період: {from} – {to} ({days} дн.)",
+  overlayPollsDpd: "Опитування промисловості звертається до ДПД по кожному підприємству лінії.",
+  overlayMayTakeMinutes:
+    "За період понад 30 днів дані тягнуться з ДПД на вимогу — це може тривати кілька хвилин.",
+  load: "Завантажити",
+  cancel: "Скасувати",
+
+  // Summary row aggregation
+  summaryRow: "Підсумок",
+  aggregateChange: "натисніть, щоб змінити",
+  aggregateSum: "Сума",
+  aggregateAvg: "Середнє",
+  aggregateMax: "Максимум",
+  aggregateMin: "Мінімум",
 
   // Export
   records: "Записів",
