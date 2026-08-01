@@ -40,6 +40,7 @@ export const uk = {
   loading: "Завантаження...",
   noData: "Немає даних для відображення",
   loadingData: "Завантаження даних...",
+  cancel: "Скасувати",
 
   // Pagination
   perPage: "На сторінці",
@@ -49,15 +50,6 @@ export const uk = {
   pageMonth: "місяць",
   pageQuarter: "квартал",
   pageYear: "рік",
-
-  // Enterprise overlay over a long period
-  overlayHeavyTitle: "Довгий період опитування",
-  periodSpan: "Період: {from} – {to} ({days} дн.)",
-  overlayPollsDpd: "Опитування промисловості звертається до ДПД по кожному підприємству лінії.",
-  overlayMayTakeMinutes:
-    "За період понад 30 днів дані тягнуться з ДПД на вимогу — це може тривати кілька хвилин.",
-  load: "Завантажити",
-  cancel: "Скасувати",
 
   // Summary row aggregation
   summaryRow: "Підсумок",

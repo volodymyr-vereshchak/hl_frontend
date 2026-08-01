@@ -19,10 +19,8 @@ import { useSelectionStore } from '@/store/selectionStore'
 import { useLanguage } from '@/locales/LanguageContext'
 import { getArchiveColumns } from '@/domain/archiveColumns'
 import { commercialHourlyRange } from '@/domain/commercialDay'
-import { isOverlayHeavy } from '@/domain/periodLoad'
 import { DP_UNIT_DEFAULT, normalizeUnit, PRESSURE_UNIT_DEFAULT } from '@/domain/pressureUnits'
 import { TablePagination, type PageSizeOption } from '@/components/TablePagination'
-import { confirmEnterpriseOverlay } from './heavyPeriod'
 import type { ArchiveType } from '@/types'
 import { TreeView } from './TreeView'
 import { DateRangeControls } from './DateRangeControls'
@@ -178,21 +176,11 @@ export function ArchivePage() {
 
   // Enterprise (промисловість) overlay — daily/hourly only.
   const canOverlay = archiveType === 'daily' || archiveType === 'hourly'
+  // No confirmation on the switch: the overlay reads the same DPD archive table
+  // in Postgres that everything else does (`live` is off), so a long period is
+  // a database read like any other. Only ranges the archive has never covered
+  // reach the DPD API at all, and that is a backfill, not the normal path.
   const overlay = useEnterpriseOverlay(canOverlay ? lineId : null, lineMeta, archiveType, dateRange)
-  // Turning it on for a long period is the one action left that costs minutes:
-  // it polls DPD per enterprise, and past the backend's 30-day cache window
-  // every day has to be backfilled from that API first. So that switch — and
-  // only that switch — asks first.
-  const overlayGate = useMemo(
-    () => ({
-      ...overlay,
-      setEnabled: (v: boolean) => {
-        if (!v || !isOverlayHeavy(dateRange)) return overlay.setEnabled(v)
-        confirmEnterpriseOverlay(dateRange, t, () => overlay.setEnabled(true))
-      },
-    }),
-    [overlay, dateRange, t],
-  )
   const rows =
     canOverlay && overlay.enabled && rawRows ? applyOverlay(rawRows, overlay.byPeriod, archiveType) : rawRows
   // A DPD line has no unit configuration of its own — its pressure unit comes
@@ -290,7 +278,7 @@ export function ArchivePage() {
         onExport={handleExport}
         canExport={canExport}
         withTime={archiveType === 'hourly' || archiveType === 'sys' || archiveType === 'edit'}
-        overlay={canOverlay && lineId ? overlayGate : undefined}
+        overlay={canOverlay && lineId ? overlay : undefined}
       />
 
       {/* Tree + table row: full viewport height, each scrolls internally. */}

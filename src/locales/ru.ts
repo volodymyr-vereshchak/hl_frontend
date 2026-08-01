@@ -40,6 +40,7 @@ export const ru = {
   loading: "Загрузка...",
   noData: "Нет данных для отображения",
   loadingData: "Загрузка данных...",
+  cancel: "Отмена",
 
   // Pagination
   perPage: "На странице",
@@ -49,15 +50,6 @@ export const ru = {
   pageMonth: "месяц",
   pageQuarter: "квартал",
   pageYear: "год",
-
-  // Enterprise overlay over a long period
-  overlayHeavyTitle: "Длинный период опроса",
-  periodSpan: "Период: {from} – {to} ({days} дн.)",
-  overlayPollsDpd: "Опрос промышленности обращается к ДПД по каждому предприятию линии.",
-  overlayMayTakeMinutes:
-    "За период больше 30 дней данные тянутся из ДПД по запросу — это может занять несколько минут.",
-  load: "Загрузить",
-  cancel: "Отмена",
 
   // Summary row aggregation
   summaryRow: "Итог",
