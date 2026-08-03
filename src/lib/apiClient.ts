@@ -44,6 +44,34 @@ export class ApiError extends Error {
   }
 }
 
+/** One entry of FastAPI's 422 body: which field failed and why. */
+interface ValidationIssue {
+  loc?: (string | number)[]
+  msg?: string
+}
+
+/**
+ * Error text out of a FastAPI `detail`. A 422 sends an ARRAY of per-field
+ * issues, and stringifying it put the raw JSON in front of the user — the
+ * field name that actually explains the failure was buried inside a `loc`
+ * array. Name the fields instead: "c_time: Field required".
+ */
+export function formatDetail(detail: unknown): string {
+  if (typeof detail === 'string') return detail
+  if (!Array.isArray(detail)) return JSON.stringify(detail)
+  const lines = (detail as ValidationIssue[])
+    .map((issue) => {
+      if (!issue || typeof issue !== 'object') return String(issue)
+      // Drop the leading "body"/"query"/"path" — it names the part of the
+      // request, not the field the person filled in.
+      const field = (issue.loc ?? []).slice(1).join('.')
+      const msg = issue.msg ?? 'Помилка валідації'
+      return field ? `${field}: ${msg}` : msg
+    })
+    .filter(Boolean)
+  return lines.length ? lines.join('; ') : JSON.stringify(detail)
+}
+
 // ── Session-expiry handling ────────────────────────────────────────────────
 let _onSessionLost: (() => void) | null = null
 let _reauthPromise: Promise<boolean> | null = null
@@ -118,9 +146,7 @@ async function makeRequest<T>(endpoint: string, options: RequestOptions = {}): P
         let detail = response.statusText
         try {
           const body = await response.json()
-          if (body.detail) {
-            detail = typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail)
-          }
+          if (body.detail) detail = formatDetail(body.detail)
         } catch {
           /* non-JSON error body */
         }

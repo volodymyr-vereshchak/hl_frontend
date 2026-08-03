@@ -109,6 +109,10 @@ export function CrudTable<T extends { id: number }>({
   const [opened, { open, close }] = useDisclosure(false)
   const [editing, setEditing] = useState<T | null>(null)
   const [form, setForm] = useState<Record<string, unknown>>({})
+  // Required fields are only marked once Save has been pressed: an asterisk is
+  // enough before that, and a form that is red before it has been touched reads
+  // as broken.
+  const [attempted, setAttempted] = useState(false)
 
   // The tab's own list, plus every screen that shows these names — a renamed
   // line has to reach the archive tree without a reload.
@@ -165,6 +169,7 @@ export function CrudTable<T extends { id: number }>({
 
   const openCreate = () => {
     setEditing(null)
+    setAttempted(false)
     const init: Record<string, unknown> = {}
     fields.forEach((f) => {
       if (f.type === 'checkbox') init[f.key] = false
@@ -175,12 +180,34 @@ export function CrudTable<T extends { id: number }>({
 
   const openEdit = (row: T) => {
     setEditing(row)
+    setAttempted(false)
     const init: Record<string, unknown> = {}
     fields.forEach((f) => {
       init[f.key] = (row as Record<string, unknown>)[f.key]
     })
     setForm(init)
     open()
+  }
+
+  /**
+   * A required field left empty is not sent at all, and the API answers with a
+   * validation error naming a column the person never saw. Catch it here, on
+   * the field itself. A checkbox is never "missing" — false is an answer.
+   */
+  const isMissing = (f: CrudField<T>) =>
+    !!f.required && f.type !== 'checkbox' && (form[f.key] == null || form[f.key] === '')
+  const missingLabels = fields.filter((f) => !f.hideInForm && isMissing(f)).map((f) => f.label)
+
+  const submit = () => {
+    setAttempted(true)
+    if (missingLabels.length > 0) {
+      notifications.show({
+        message: `Заповніть обов'язкові поля: ${missingLabels.join(', ')}`,
+        color: 'red',
+      })
+      return
+    }
+    saveMutation.mutate(form)
   }
 
   const confirmDelete = (row: T) =>
@@ -338,6 +365,7 @@ export function CrudTable<T extends { id: number }>({
         <Stack gap="sm">
           {formFields.map((f) => {
             const value = form[f.key]
+            const error = attempted && isMissing(f) ? "Обов'язкове поле" : undefined
             if (f.type === 'checkbox') {
               return (
                 <Checkbox
@@ -359,6 +387,7 @@ export function CrudTable<T extends { id: number }>({
                     setForm({ ...form, [f.key]: v && f.numericValue ? Number(v) : v })
                   }
                   required={f.required}
+                  error={error}
                   searchable
                   clearable
                 />
@@ -372,6 +401,7 @@ export function CrudTable<T extends { id: number }>({
                   value={value == null ? '' : Number(value)}
                   onChange={(v) => setForm({ ...form, [f.key]: v === '' ? null : Number(v) })}
                   required={f.required}
+                  error={error}
                 />
               )
             }
@@ -382,6 +412,7 @@ export function CrudTable<T extends { id: number }>({
                 value={value == null ? '' : String(value)}
                 onChange={(e) => setForm({ ...form, [f.key]: e.currentTarget.value })}
                 required={f.required}
+                error={error}
               />
             )
           })}
@@ -389,7 +420,7 @@ export function CrudTable<T extends { id: number }>({
             <Button variant="default" onClick={close}>
               Скасувати
             </Button>
-            <Button onClick={() => saveMutation.mutate(form)} loading={saveMutation.isPending}>
+            <Button onClick={submit} loading={saveMutation.isPending}>
               Зберегти
             </Button>
           </Group>

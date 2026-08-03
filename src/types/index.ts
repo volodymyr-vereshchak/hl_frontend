@@ -33,6 +33,8 @@ export interface GasVolumeCalc {
   lumg_id: number
   type_id?: number | null
   address?: string | number | null
+  /** Poll cycle from the HostLib config. Stored, never read; the API defaults it. */
+  c_time?: number
 }
 
 export interface CalcType {

@@ -134,13 +134,14 @@ export function LinesConfigTab() {
   const fields: CrudField<Line>[] = [
     { key: 'id', label: 'ID', numeric: true, hideInForm: true },
     { key: 'name', label: 'Назва', required: true },
-    { key: 'line', label: '№', numeric: true, type: 'number' },
+    { key: 'line', label: '№', numeric: true, type: 'number', required: true },
     {
       key: 'gas_volume_calc_id',
       label: 'Обчислювач',
       type: 'select',
       options: toOptions(calcs),
       numericValue: true,
+      required: true,
       render: (l) => calcName(l.gas_volume_calc_id),
     },
     { key: 'meter', label: 'Лічильник', type: 'checkbox' },
@@ -202,6 +203,20 @@ export function LinesConfigTab() {
 export function CalcsTab() {
   const { branches, lumgs, lumgName, branchName, lumgIdsOfBranch } = useAdminTopology()
   const [branchFilter, setBranchFilter] = useState<string | null>(null)
+  // `type_id` is a foreign key into gas_vol_calc_type, not the type CODE — a
+  // typed-in number silently pointed at the wrong type or at nothing at all.
+  const { data: calcTypes } = useQuery({
+    queryKey: ['admin', 'calc-types'],
+    queryFn: calcTypeAdminApi.getAll,
+  })
+  const typeOptions = useMemo(
+    () => (calcTypes ?? []).map((t) => ({ value: String(t.id), label: t.type_name })),
+    [calcTypes],
+  )
+  const typeName = useMemo(() => {
+    const m = new Map((calcTypes ?? []).map((t) => [t.id, t.type_name]))
+    return (id?: number | null) => (id == null ? '—' : (m.get(id) ?? String(id)))
+  }, [calcTypes])
 
   const branchLumgIds = useMemo(
     () => (branchFilter ? new Set(lumgIdsOfBranch(Number(branchFilter))) : null),
@@ -230,8 +245,20 @@ export function CalcsTab() {
       hideInForm: true,
       render: (c) => branchName(c.lumg_id != null ? lumgToBranch.get(c.lumg_id) : null),
     },
-    { key: 'type_id', label: 'Тип', numeric: true, type: 'number' },
-    { key: 'address', label: 'Адреса', numeric: true, type: 'number' },
+    {
+      key: 'type_id',
+      label: 'Тип',
+      type: 'select',
+      options: typeOptions,
+      numericValue: true,
+      render: (c) => typeName(c.type_id),
+    },
+    { key: 'address', label: 'Адреса', numeric: true, type: 'number', required: true },
+    // No c_time field on purpose. The column exists and is NOT NULL, but the
+    // config reader writes the same 7 into every row and nothing ever reads it
+    // back, so there is nothing for an administrator to decide. The API fills it
+    // in (GasVolumeCalcCreate.c_time = 7); asking here would only be a number
+    // that cannot be anything else.
   ]
   return (
     <CrudTable<GasVolumeCalc>
