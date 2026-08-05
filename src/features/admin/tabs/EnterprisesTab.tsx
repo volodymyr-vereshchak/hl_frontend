@@ -7,7 +7,6 @@ import {
   Center,
   Divider,
   Group,
-  NumberInput,
   Paper,
   ScrollArea,
   Select,
@@ -18,19 +17,18 @@ import {
   TextInput,
   Tooltip,
 } from '@mantine/core'
-import { DatePickerInput } from '@mantine/dates'
 import { modals } from '@mantine/modals'
 import { notifications } from '@mantine/notifications'
 import {
   IconCheck,
   IconDownload,
   IconFileSpreadsheet,
+  IconHistory,
   IconPencil,
   IconPlus,
   IconSearch,
   IconTrash,
   IconUpload,
-  IconX,
 } from '@tabler/icons-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -42,50 +40,21 @@ import {
   type UploadResult,
 } from '@/api/admin'
 import { TablePagination } from '@/components/TablePagination'
-import { resolveWindows } from '@/domain/deviceHistory'
 import { invalidateTopology } from '@/lib/invalidateTopology'
 import { numericStyle } from '@/theme/theme'
 import { useAdminTopology, toOptions } from '../useAdminTopology'
 import { LoadingState } from '@/components/LoadingState'
+import { DeviceHistoryEditor, DeviceHistoryModal } from '../DeviceHistoryModal'
+import {
+  EMPTY_DEVICE,
+  EPOCH_YEAR,
+  fmtDT,
+  toDeviceForms,
+  toDevicePayload,
+  type DeviceForm,
+} from '../deviceHistoryForm'
 
 const notifyErr = (e: Error) => notifications.show({ message: e.message, color: 'red' })
-
-const pad = (n: number) => String(n).padStart(2, '0')
-
-const fmtDT = (iso?: string | null) => {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
-
-/** «Стоїть від початку» — points migrated from the pre-history schema. */
-const EPOCH_YEAR = 2000
-
-/** One row of the history editor. */
-interface DeviceForm {
-  ser_num: string
-  /** UI only — narrows the corrector-type list, never sent to the API. */
-  manufacturer_id: string | null
-  corector_type_id: string | null
-  ch_num: number
-  /** Empty = «від початку»: the whole archive belongs to this corrector. */
-  installed_date: string
-  installed_hour: number
-  /** Only set when the corrector was taken off before the next was fitted. */
-  removed_date: string
-  removed_hour: number
-}
-
-const EMPTY_DEVICE: DeviceForm = {
-  ser_num: '',
-  manufacturer_id: null,
-  corector_type_id: null,
-  ch_num: 0,
-  installed_date: '',
-  installed_hour: 7,
-  removed_date: '',
-  removed_hour: 7,
-}
 
 type FormState = {
   enterprise_name: string
@@ -150,6 +119,8 @@ export function EnterprisesTab() {
   const [editingId, setEditingId] = useState<number | null>(null)
   const [form, setForm] = useState<FormState>(EMPTY)
   const [adding, setAdding] = useState(false)
+  /** The point whose corrector history is open in its own window. */
+  const [historyOf, setHistoryOf] = useState<EnterpriseMapping | null>(null)
 
   // Excel
   const [uploadBranch, setUploadBranch] = useState<string | null>(null)
@@ -216,19 +187,6 @@ export function EnterprisesTab() {
       ...dpd.map((d) => ({ value: String(d.id), label: `[ДПД] ${d.name}` })),
     ]
   }, [lines, dpdLines, form.branch_id, form.calc_id, calcIdsOfBranch])
-
-  const manufacturerOptions = useMemo(
-    () =>
-      (manufacturers ?? [])
-        .map((m) => ({ value: String(m.id), label: m.short_name }))
-        .sort((a, b) => a.label.localeCompare(b.label)),
-    [manufacturers],
-  )
-
-  const hourOptions = useMemo(
-    () => Array.from({ length: 24 }, (_, h) => ({ value: String(h), label: `${pad(h)}:00` })),
-    [],
-  )
 
   const calcToLumg = useMemo(() => new Map(calcs.map((c) => [c.id, c.lumg_id])), [calcs])
   const lumgToBranch = useMemo(() => new Map(lumgs.map((l) => [l.id, l.branch_id])), [lumgs])
@@ -313,35 +271,25 @@ export function EnterprisesTab() {
   }
 
   /**
-   * An empty install date means «стоїть від початку», so the point's whole
-   * archive belongs to this corrector — the state every point had before the
-   * history existed. An empty hour means the start of the commercial day, not
-   * midnight: with 00:00 the hours before it belong to the previous commercial
-   * day and would be handed to the wrong device.
+   * The point itself. History is deliberately absent when editing: a PATCH
+   * without `devices` leaves it untouched, so the form cannot quietly undo a
+   * replacement entered in the history window. Creating a point does carry the
+   * first corrector — there has to be one to poll.
    */
-  const stamp = (date: string, hour: number) =>
-    date ? `${date}T${pad(hour)}:00:00` : `${EPOCH_YEAR}-01-01T00:00:00`
-
-  const payload = (f: FormState): Partial<EnterpriseMapping> => ({
+  const payload = (f: FormState, withDevices: boolean): Partial<EnterpriseMapping> => ({
     enterprise_name: f.enterprise_name,
     branch_id: f.branch_id ? Number(f.branch_id) : null,
     ...splitLine(f.line_id),
     active: f.active,
     enabled: f.enabled,
-    devices: f.devices.map((d) => ({
-      ser_num: Number(d.ser_num),
-      corector_type_id: d.corector_type_id ? Number(d.corector_type_id) : null,
-      ch_num: Number(d.ch_num) || 0,
-      installed_from: stamp(d.installed_date, d.installed_hour),
-      removed_at: d.removed_date ? `${d.removed_date}T${pad(d.removed_hour)}:00:00` : null,
-    })),
+    ...(withDevices ? { devices: toDevicePayload(f.devices) } : {}),
   })
 
   const save = useMutation({
     mutationFn: () =>
       editingId
-        ? enterpriseMappingApi.update(editingId, payload(form))
-        : enterpriseMappingApi.create(payload(form)),
+        ? enterpriseMappingApi.update(editingId, payload(form, false))
+        : enterpriseMappingApi.create(payload(form, true)),
     onSuccess: () => {
       notifications.show({ message: 'Збережено', color: 'teal' })
       cancel()
@@ -379,87 +327,34 @@ export function EnterprisesTab() {
     // from what the record already points at — otherwise editing would open
     // with both narrowing selects blank and the long lists unfiltered again.
     const calcId = e.line_id != null ? (lineById.get(e.line_id)?.gas_volume_calc_id ?? null) : null
-    const mfrOf = (ctId?: number | null) =>
-      ctId != null
-        ? ((corectorTypes ?? []).find((ct) => ct.id === ctId)?.manufacturer_id ?? null)
-        : null
     setForm({
       enterprise_name: e.enterprise_name,
       branch_id: e.branch_id != null ? String(e.branch_id) : null,
       calc_id: calcId != null ? String(calcId) : null,
       line_id: (e.line_id ?? e.dpd_line_id) != null ? String(e.line_id ?? e.dpd_line_id) : null,
-      devices: (e.devices ?? []).map((d) => {
-        const from = new Date(d.installed_from)
-        const removed = d.removed_at ? new Date(d.removed_at) : null
-        // The epoch stands for «від початку» and is shown as an empty date,
-        // so re-saving an untouched point does not invent an install date.
-        const fromEpoch = from.getFullYear() <= EPOCH_YEAR
-        return {
-          ser_num: String(d.ser_num),
-          manufacturer_id: String(mfrOf(d.corector_type_id) ?? ''),
-          corector_type_id: d.corector_type_id != null ? String(d.corector_type_id) : null,
-          ch_num: d.ch_num,
-          installed_date: fromEpoch ? '' : d.installed_from.slice(0, 10),
-          installed_hour: fromEpoch ? 7 : from.getHours(),
-          removed_date: removed ? d.removed_at!.slice(0, 10) : '',
-          removed_hour: removed ? removed.getHours() : 7,
-        }
-      }),
+      devices: toDeviceForms(e.devices, corectorTypes),
       active: e.active,
       enabled: e.enabled,
     })
   }
-
-  const setDevice = (idx: number, patch: Partial<DeviceForm>) =>
-    setForm((f) => ({
-      ...f,
-      devices: f.devices.map((d, i) =>
-        i !== idx
-          ? d
-          : // Switching manufacturer invalidates the model choice.
-            {
-              ...d,
-              ...patch,
-              ...(patch.manufacturer_id !== undefined ? { corector_type_id: null } : {}),
-            },
-      ),
-    }))
-
-  /**
-   * The editor rows in install order, each with the window it will actually
-   * get. The window comes from the shared resolver, not from "the next row's
-   * date": a removal later than the next install is ignored by the backend
-   * (two devices can never both be in force), and the preview has to say the
-   * same thing the archive will do.
-   */
-  const orderedDevices = useMemo(() => {
-    const rows = form.devices.map((d, idx) => ({
-      ...d,
-      idx,
-      installedFrom: d.installed_date
-        ? `${d.installed_date}T${pad(d.installed_hour)}:00:00`
-        : `${EPOCH_YEAR}-01-01T00:00:00`,
-      removedAt: d.removed_date ? `${d.removed_date}T${pad(d.removed_hour)}:00:00` : '',
-    }))
-    return resolveWindows(rows).map((w) => ({ ...w.entry, boundTo: w.to }))
-  }, [form.devices])
-
-  const ctsForMfr = (mfrId: string | null) =>
-    (corectorTypes ?? []).filter((c) => String(c.manufacturer_id) === mfrId)
 
   const submit = () => {
     if (!form.enterprise_name) {
       notifications.show({ message: 'Вкажіть назву точки обліку', color: 'red' })
       return
     }
-    if (form.devices.length === 0) {
-      notifications.show({ message: 'Додайте хоча б один прилад', color: 'red' })
-      return
-    }
-    for (const d of form.devices) {
-      if (!d.ser_num) {
-        notifications.show({ message: 'Заповніть серійний номер кожного приладу', color: 'red' })
+    // Only a new point carries its devices; editing leaves the history to its
+    // own window, so there is nothing to check here.
+    if (editingId == null) {
+      if (form.devices.length === 0) {
+        notifications.show({ message: 'Додайте хоча б один прилад', color: 'red' })
         return
+      }
+      for (const d of form.devices) {
+        if (!d.ser_num) {
+          notifications.show({ message: 'Заповніть серійний номер приладу', color: 'red' })
+          return
+        }
       }
     }
     save.mutate()
@@ -485,157 +380,59 @@ export function EnterprisesTab() {
     }
   }
 
-  // ── Device history sub-editor ─────────────────────────────────────────────
-  const historyEditor = (
-    <Box>
-      <Text size="xs" fw={500}>
-        Історія приладів
-      </Text>
-      <Text size="10px" c="dimmed" mb={6}>
-        Кожен прилад діє від своєї дати встановлення до наступної. Порожня дата — прилад стоїть від
-        початку. «Знято» заповнюють лише тоді, коли прилад зняли раніше, ніж поставили наступний:
-        за ці дні даних по точці не буде
-      </Text>
-
-      <Stack gap={6}>
-        {orderedDevices.map((dev, order) => {
-          const from = dev.installed_date
-            ? `з ${dev.installed_date} ${pad(dev.installed_hour)}:00`
-            : 'від початку'
-          const to = dev.boundTo ? `до ${fmtDT(dev.boundTo)}` : '— дотепер'
-          // A window that closes before the next device arrives is a stretch
-          // with nothing fitted — worth saying out loud, since the point will
-          // simply have no data for it.
-          const next = orderedDevices[order + 1]
-          const gap = !!(dev.boundTo && next && dev.boundTo < next.installedFrom)
-          return (
-            <Group
-              key={dev.idx}
-              gap="xs"
-              align="flex-end"
-              wrap="wrap"
-              p="xs"
-              style={{
-                background: 'var(--hlv-surface-2)',
-                border: '1px solid var(--hlv-border)',
-                borderRadius: 8,
-              }}
-            >
-              <Text size="xs" c="petrol" w={16} ta="center" pb={6}>
-                {order + 1}.
-              </Text>
-              <NumberInput
-                label="Серійний №"
-                size="xs"
-                w={110}
-                hideControls
-                value={dev.ser_num}
-                onChange={(v) => setDevice(dev.idx, { ser_num: v === '' ? '' : String(v) })}
-              />
-              <Select
-                label="Виробник"
-                size="xs"
-                w={140}
-                data={manufacturerOptions}
-                value={dev.manufacturer_id}
-                onChange={(v) => setDevice(dev.idx, { manufacturer_id: v })}
-                searchable
-              />
-              <Select
-                label="Модель коректора"
-                size="xs"
-                w={160}
-                data={ctsForMfr(dev.manufacturer_id).map((c) => ({
-                  value: String(c.id),
-                  label: c.model_name,
-                }))}
-                value={dev.corector_type_id}
-                onChange={(v) => setDevice(dev.idx, { corector_type_id: v })}
-                disabled={!dev.manufacturer_id}
-                searchable
-              />
-              <NumberInput
-                label="Канал"
-                size="xs"
-                w={70}
-                min={0}
-                max={9}
-                value={dev.ch_num}
-                onChange={(v) => setDevice(dev.idx, { ch_num: Number(v) || 0 })}
-              />
-              <DatePickerInput
-                label="Встановлено"
-                size="xs"
-                w={130}
-                valueFormat="DD.MM.YYYY"
-                placeholder="від початку"
-                clearable
-                value={dev.installed_date || null}
-                onChange={(v) => setDevice(dev.idx, { installed_date: v ?? '' })}
-              />
-              <Select
-                label="Година"
-                size="xs"
-                w={85}
-                data={hourOptions}
-                value={String(dev.installed_hour)}
-                onChange={(v) => setDevice(dev.idx, { installed_hour: Number(v) })}
-                disabled={!dev.installed_date}
-              />
-              <DatePickerInput
-                label="Знято"
-                size="xs"
-                w={130}
-                valueFormat="DD.MM.YYYY"
-                placeholder="—"
-                clearable
-                value={dev.removed_date || null}
-                onChange={(v) => setDevice(dev.idx, { removed_date: v ?? '' })}
-              />
-              <Select
-                label="Година"
-                size="xs"
-                w={85}
-                data={hourOptions}
-                value={String(dev.removed_hour)}
-                onChange={(v) => setDevice(dev.idx, { removed_hour: Number(v) })}
-                disabled={!dev.removed_date}
-              />
-              <Text
-                size="10px"
-                c={gap ? 'amber.6' : 'dimmed'}
-                style={{ flex: 1, minWidth: 140 }}
-                pb={8}
-              >
-                {from} {to}
-                {gap && ' · далі без приладу'}
-              </Text>
-              <ActionIcon
-                variant="subtle"
-                color="red"
-                mb={4}
-                onClick={() =>
-                  setForm((f) => ({ ...f, devices: f.devices.filter((_, i) => i !== dev.idx) }))
-                }
-              >
-                <IconX size={15} />
-              </ActionIcon>
-            </Group>
-          )
-        })}
-      </Stack>
-
-      <Button
-        size="compact-xs"
-        variant="light"
-        mt="xs"
-        leftSection={<IconPlus size={13} />}
-        onClick={() => setForm((f) => ({ ...f, devices: [...f.devices, { ...EMPTY_DEVICE }] }))}
-      >
-        Додати прилад
-      </Button>
-    </Box>
-  )
+  // ── Device block ──────────────────────────────────────────────────────────
+  // Adding a point: it needs one corrector to be pollable, so the first one is
+  // entered here. Editing: the history lives in its own window — replacements
+  // pile up and never fitted under the name and line selects.
+  const deviceBlock =
+    editingId == null ? (
+      <Box>
+        <Text size="xs" fw={500}>
+          Прилад
+        </Text>
+        <Text size="10px" c="dimmed" mb={6}>
+          Порожня дата встановлення — прилад стоїть від початку, і весь архів точки належить йому.
+          Заміни додають потім, у вікні «Історія»
+        </Text>
+        <DeviceHistoryEditor
+          devices={form.devices}
+          onChange={(devices) => setForm((f) => ({ ...f, devices }))}
+          manufacturers={manufacturers}
+          corectorTypes={corectorTypes}
+          withTimeline={false}
+        />
+      </Box>
+    ) : (
+      <Group gap="sm" align="center">
+        <Box>
+          <Text size="xs" fw={500}>
+            Прилади
+          </Text>
+          <Text size="10px" c="dimmed">
+            {(() => {
+              const e = (enterprises ?? []).find((x) => x.id === editingId)
+              const current = e ? currentEnterpriseDevice(e) : null
+              const n = (e?.devices ?? []).length
+              if (!current) return 'приладів немає'
+              return `зараз №${current.ser_num} ${corectorLabel(current.corector_type_id)}${
+                n > 1 ? ` · всього ${n}` : ''
+              }`
+            })()}
+          </Text>
+        </Box>
+        <Button
+          size="compact-xs"
+          variant="default"
+          leftSection={<IconHistory size={13} />}
+          onClick={() => {
+            const e = (enterprises ?? []).find((x) => x.id === editingId)
+            if (e) setHistoryOf(e)
+          }}
+        >
+          Історія приладів
+        </Button>
+      </Group>
+    )
 
   // ── Form (shared by add and edit) ─────────────────────────────────────────
   const formRow = (
@@ -701,7 +498,7 @@ export function EnterprisesTab() {
         />
       </Group>
 
-      {historyEditor}
+      {deviceBlock}
 
       <Group gap="sm">
         <Button size="xs" onClick={submit} loading={save.isPending}>
@@ -717,6 +514,14 @@ export function EnterprisesTab() {
 
   return (
     <Stack gap="md">
+      <DeviceHistoryModal
+        enterprise={historyOf}
+        onClose={() => setHistoryOf(null)}
+        onSaved={invalidate}
+        manufacturers={manufacturers}
+        corectorTypes={corectorTypes}
+      />
+
       <Box>
         <Text fw={600} fz="lg" ff="'Space Grotesk Variable', sans-serif">
           Підприємства
@@ -961,8 +766,20 @@ export function EnterprisesTab() {
                         )
                       })()}
                     </Table.Td>
-                    <Table.Td ta="center" style={numericStyle}>
-                      {(e.devices ?? []).length}
+                    <Table.Td ta="center">
+                      {/* The count is the way into the history: it is the one
+                          number on the row that means "there is more here". */}
+                      <Tooltip label="Історія приладів" withArrow>
+                        <Button
+                          size="compact-xs"
+                          variant={(e.devices ?? []).length > 1 ? 'light' : 'subtle'}
+                          color={(e.devices ?? []).length > 1 ? 'petrol' : 'gray'}
+                          style={numericStyle}
+                          onClick={() => setHistoryOf(e)}
+                        >
+                          {(e.devices ?? []).length}
+                        </Button>
+                      </Tooltip>
                     </Table.Td>
                     <Table.Td ta="center" style={numericStyle}>
                       {currentEnterpriseDevice(e)?.ch_num ?? '—'}
