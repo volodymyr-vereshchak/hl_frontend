@@ -1,6 +1,9 @@
 import { useMemo, useState } from 'react'
-import { Select } from '@mantine/core'
-import { useQuery } from '@tanstack/react-query'
+import { Button, Checkbox, Group, Select, Stack, Text, Tooltip } from '@mantine/core'
+import { modals } from '@mantine/modals'
+import { notifications } from '@mantine/notifications'
+import { IconDeviceFloppy, IconDownload } from '@tabler/icons-react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CrudTable, type CrudField } from '../CrudTable'
 import { useAdminTopology, toOptions } from '../useAdminTopology'
 import { UNIT_LABELS } from '@/domain/pressureUnits'
@@ -311,20 +314,30 @@ export function CalcTypesTab() {
 }
 
 export function DeviceMappingsTab() {
-  const manufacturers: CrudField<Manufacturer>[] = [
+  const fields: CrudField<Manufacturer>[] = [
     { key: 'id', label: 'ID', numeric: true, hideInForm: true },
-    { key: 'mf_dev', label: 'Код', numeric: true, type: 'number' },
-    { key: 'short_name', label: 'Скорочення' },
-    { key: 'full_name', label: 'Повна назва' },
+    // mf_dev is how DPD addresses the manufacturer: it goes into every poll
+    // request, so it is the manufacturer's identity, not a label.
+    { key: 'mf_dev', label: 'Код', numeric: true, type: 'number', required: true },
+    { key: 'short_name', label: 'Скорочення', required: true },
+    { key: 'full_name', label: 'Повна назва', required: true },
   ]
+  // The startup preload matches manufacturers by mf_dev and takes the name
+  // from device_catalog.json — that is what carries a rename to the offline
+  // server, but it also means an unexported rename is reverted on restart.
   return (
     <CrudTable<Manufacturer>
       title="Виробники приладів"
-      description="Довідник каталогу пристроїв (тільки перегляд)"
+      description="Довідник каталогу пристроїв. Код (mf_dev) — те, чим ДПД адресує виробника. Після перейменування натисніть «Зберегти в JSON», інакше назву буде відновлено з файлу під час перезапуску"
       queryKey={['admin', 'manufacturers']}
       fetchAll={deviceCatalogApi.manufacturers}
-      fields={manufacturers}
+      create={(d) => deviceCatalogApi.createManufacturer(d as Partial<Manufacturer>)}
+      update={(id, d) => deviceCatalogApi.updateManufacturer(id, d as Partial<Manufacturer>)}
+      remove={deviceCatalogApi.removeManufacturer}
+      fields={fields}
       searchKeys={['short_name', 'full_name']}
+      rowLabel={(m) => m.short_name}
+      toolbarExtra={<CatalogTransferControls />}
     />
   )
 }
@@ -342,25 +355,190 @@ export function CorrectorTypesTab() {
     const byId = new Map((manufacturers ?? []).map((m) => [m.id, m.short_name]))
     return (id: number | null | undefined) => (id == null ? '—' : (byId.get(id) ?? `#${id}`))
   }, [manufacturers])
+  const manufacturerOptions = useMemo(
+    () =>
+      (manufacturers ?? [])
+        .map((m) => ({ value: String(m.id), label: `${m.short_name} (mf_dev ${m.mf_dev})` }))
+        .sort((a, b) => a.label.localeCompare(b.label)),
+    [manufacturers],
+  )
+  const [mfrFilter, setMfrFilter] = useState<string | null>(null)
 
   const fields: CrudField<CorectorType>[] = [
-    { key: 'id', label: 'ID', numeric: true },
-    { key: 'type_dev', label: 'Код типу', numeric: true },
+    { key: 'id', label: 'ID', numeric: true, hideInForm: true },
+    // (mf_dev, type_dev) is the pair DPD is asked by, so type_dev is identity
+    // too — and it is what decides which volume field a model reports in.
+    { key: 'type_dev', label: 'Код типу', numeric: true, type: 'number', required: true },
     {
       key: 'manufacturer_id',
       label: 'Виробник',
+      type: 'select',
+      options: manufacturerOptions,
+      numericValue: true,
+      required: true,
       render: (c) => manufacturerName(c.manufacturer_id),
     },
-    { key: 'model_name', label: 'Модель' },
+    { key: 'model_name', label: 'Модель', required: true },
   ]
   return (
     <CrudTable<CorectorType>
       title="Типи коректорів"
-      description="Довідник каталогу пристроїв (тільки перегляд)"
+      description="Довідник каталогу пристроїв. Пара (код виробника, код типу) — те, чим ДПД адресує прилад"
       queryKey={['admin', 'corrector-types']}
       fetchAll={deviceCatalogApi.correctorTypes}
+      create={(d) => deviceCatalogApi.createCorrectorType(d as Partial<CorectorType>)}
+      update={(id, d) => deviceCatalogApi.updateCorrectorType(id, d as Partial<CorectorType>)}
+      remove={deviceCatalogApi.removeCorrectorType}
       fields={fields}
       searchKeys={['model_name']}
+      rowLabel={(c) => c.model_name}
+      createDefaults={mfrFilter ? { manufacturer_id: Number(mfrFilter) } : undefined}
+      filter={(c) => !mfrFilter || String(c.manufacturer_id) === mfrFilter}
+      toolbarExtra={
+        <>
+          <Select
+            size="xs"
+            w={220}
+            placeholder="Всі виробники"
+            data={manufacturerOptions}
+            value={mfrFilter}
+            onChange={setMfrFilter}
+            clearable
+            searchable
+          />
+          <CatalogTransferControls />
+        </>
+      }
     />
+  )
+}
+
+/**
+ * Moving the catalog between installations.
+ *
+ * The catalog lives in the database, but the offline server is fed by
+ * `backend/db/preload_db/device_catalog.json`, which travels with the code.
+ * «Зберегти в JSON» writes the current DB state into that file so the change
+ * can be committed and carried over; «Завантажити з JSON» is the other
+ * direction, and is what the offline side runs after receiving it.
+ */
+function CatalogTransferControls() {
+  const qc = useQueryClient()
+  const [force, setForce] = useState(false)
+
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ['admin', 'manufacturers'] })
+    qc.invalidateQueries({ queryKey: ['admin', 'corrector-types'] })
+  }
+
+  const exportJson = useMutation({
+    mutationFn: deviceCatalogApi.exportPreload,
+    onSuccess: (res) =>
+      notifications.show({
+        title: 'Каталог збережено у device_catalog.json',
+        message:
+          `Виробників: ${res.exported.manufacturers}, моделей: ${res.exported.corector_types}. ` +
+          'Щоб зміни потрапили на сервер, файл треба закомітити разом з кодом',
+        color: 'teal',
+        autoClose: 8000,
+      }),
+    onError: (e: Error) => notifications.show({ message: e.message, color: 'red' }),
+  })
+
+  const preload = useMutation({
+    mutationFn: () => deviceCatalogApi.preload(force),
+    onSuccess: (res) => {
+      // Warnings are the whole point of the report: they name the models where
+      // this database and the file disagree, which is what a rename made on
+      // one side and not the other looks like from here.
+      const warnings = res.warnings ?? []
+      notifications.show({
+        title: res.message,
+        message: warnings.length ? (
+          <Stack gap={2}>
+            {warnings.slice(0, 5).map((w) => (
+              <Text key={w} size="xs">
+                {w}
+              </Text>
+            ))}
+            {warnings.length > 5 && (
+              <Text size="xs" c="dimmed">
+                …та ще {warnings.length - 5}
+              </Text>
+            )}
+          </Stack>
+        ) : null,
+        color: warnings.length ? 'yellow' : 'teal',
+        autoClose: warnings.length ? 12000 : 4000,
+      })
+      invalidate()
+    },
+    onError: (e: Error) => notifications.show({ message: e.message, color: 'red' }),
+  })
+
+  const runPreload = () => {
+    if (!force) {
+      preload.mutate()
+      return
+    }
+    // Перезапис wipes the catalog and rebuilds it from the file. Corrector
+    // types are referenced by every device, so this is not a refresh.
+    modals.openConfirmModal({
+      title: 'Перезаписати каталог',
+      children: (
+        <Text size="sm">
+          Каталог буде <b>повністю очищено</b> і завантажено з device_catalog.json. Записи,
+          додані тут і відсутні у файлі, зникнуть. Якщо на моделі вже посилаються прилади,
+          база не дозволить очищення — тоді достатньо звичайного завантаження, воно оновить
+          назви виробників за кодом. Продовжити?
+        </Text>
+      ),
+      labels: { confirm: 'Перезаписати', cancel: 'Скасувати' },
+      confirmProps: { color: 'red' },
+      onConfirm: () => preload.mutate(),
+    })
+  }
+
+  return (
+    <Group gap="xs" wrap="nowrap">
+      <Tooltip
+        label="Зберегти поточний стан каталогу у device_catalog.json — файл, який переноситься на сервер разом з кодом"
+        withArrow
+        multiline
+        w={280}
+      >
+        <Button
+          size="compact-xs"
+          variant="default"
+          leftSection={<IconDeviceFloppy size={13} />}
+          onClick={() => exportJson.mutate()}
+          loading={exportJson.isPending}
+        >
+          Зберегти в JSON
+        </Button>
+      </Tooltip>
+      <Tooltip
+        label="Завантажити каталог з device_catalog.json у базу: назви виробників оновлюються за кодом mf_dev, відсутні моделі додаються, наявні лишаються як є"
+        withArrow
+        multiline
+        w={280}
+      >
+        <Button
+          size="compact-xs"
+          variant="default"
+          leftSection={<IconDownload size={13} />}
+          onClick={runPreload}
+          loading={preload.isPending}
+        >
+          Завантажити з JSON
+        </Button>
+      </Tooltip>
+      <Checkbox
+        size="xs"
+        label="перезаписати"
+        checked={force}
+        onChange={(e) => setForce(e.currentTarget.checked)}
+      />
+    </Group>
   )
 }

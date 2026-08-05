@@ -26,7 +26,7 @@ import {
 } from '@tabler/icons-react'
 import { TablePagination } from '@/components/TablePagination'
 import { useStickyRowHeights } from '@/components/useMeasuredHeight'
-import { enterpriseLabel, type EnterpriseMappingRow } from '@/api/enterprise'
+import { currentDevice, enterpriseLabel, type EnterpriseMappingRow } from '@/api/enterprise'
 import { useLanguage } from '@/locales/LanguageContext'
 import { numericStyle } from '@/theme/theme'
 
@@ -142,7 +142,7 @@ export function UnpolledReport({
       return (
         !q ||
         enterpriseLabel(m).toLowerCase().includes(q) ||
-        String(m.ser_num ?? '').includes(q) ||
+        (m.devices ?? []).some((d) => String(d.ser_num).includes(q)) ||
         (lineLabel(m) ?? '').toLowerCase().includes(q) ||
         branchName(m.branch_id).toLowerCase().includes(q)
       )
@@ -470,8 +470,13 @@ export function UnpolledReport({
                         <td className="hlv-cell" style={{ textAlign: 'left' }}>
                           {correctorName(m) || '—'}
                         </td>
-                        <td className="hlv-cell hlv-cell-num">{m.ser_num ?? '—'}</td>
-                        <td className="hlv-cell hlv-cell-num">{m.ch_num ?? '—'}</td>
+                        {/* The corrector fitted now — the one the poll asked. */}
+                        <td className="hlv-cell hlv-cell-num">
+                          {currentDevice(m)?.ser_num ?? '—'}
+                        </td>
+                        <td className="hlv-cell hlv-cell-num">
+                          {currentDevice(m)?.ch_num ?? '—'}
+                        </td>
                         <td className="hlv-cell" style={{ textAlign: 'left' }}>
                           {lineLabel(m) ?? (
                             <Text span size="sm" c="amber.6">

@@ -42,6 +42,7 @@ import * as XLSX from 'xlsx'
 import { branchAdminApi, dpdLineAdminApi, lineAdminApi } from '@/api/admin'
 import {
   enterpriseApi,
+  currentDevice,
   enterpriseLabel,
   streamEnterpriseVolumes,
   type EnterpriseMappingRow,
@@ -178,7 +179,7 @@ export function EnterprisePollPage() {
         if (!q) return true
         return (
           enterpriseLabel(m).toLowerCase().includes(q) ||
-          String(m.ser_num ?? '').includes(q) ||
+          (m.devices ?? []).some((d) => String(d.ser_num).includes(q)) ||
           (lineLabel(m) ?? '').toLowerCase().includes(q)
         )
       })
@@ -289,7 +290,15 @@ export function EnterprisePollPage() {
           if (d.volume != null) polled.add(`${d.serNum}_${d.chNum}`)
         }
       }
-      setUnpolled(active.filter((m) => !polled.has(`${m.ser_num}_${m.ch_num}`)))
+      setUnpolled(
+        active.filter((m) => {
+          const device = currentDevice(m)
+          // A point with no corrector fitted has nothing to poll — reporting
+          // it as unpolled would make an empty slot look like a failure.
+          if (!device) return false
+          return !polled.has(`${device.ser_num}_${device.ch_num}`)
+        }),
+      )
       setReportOpen(true)
     } catch (e) {
       const err = e as Error
@@ -315,8 +324,8 @@ export function EnterprisePollPage() {
       (branches ?? []).find((b) => b.id === m.branch_id)?.name ?? '',
       enterpriseLabel(m),
       [m.manufacturer_short_name, m.model_name].filter(Boolean).join(' '),
-      m.ser_num ?? '',
-      m.ch_num ?? '',
+      currentDevice(m)?.ser_num ?? '',
+      currentDevice(m)?.ch_num ?? '',
       lineLabel(m) ?? t('withoutLine'),
       m.enabled === false ? t('statusDisabled') : t('statusEnabled'),
     ])
@@ -369,10 +378,12 @@ export function EnterprisePollPage() {
           from_date: from,
           to_date: to,
           period_type: periodType,
-          serNum: selectedMapping.ser_num ?? undefined,
-          mfDev: selectedMapping.mf_dev ?? undefined,
-          typeDev: selectedMapping.type_dev ?? undefined,
-          chNum: selectedMapping.ch_num ?? undefined,
+          // The corrector standing there now: this screen asks the meter,
+          // and the meter is whichever device is fitted today.
+          serNum: currentDevice(selectedMapping)?.ser_num,
+          mfDev: currentDevice(selectedMapping)?.mf_dev ?? undefined,
+          typeDev: currentDevice(selectedMapping)?.type_dev ?? undefined,
+          chNum: currentDevice(selectedMapping)?.ch_num,
           line_id: (() => {
             const id = selectedMapping.line_id ?? selectedMapping.dpd_line_id
             return id != null ? [id] : undefined
@@ -448,7 +459,7 @@ export function EnterprisePollPage() {
     const ws = XLSX.utils.aoa_to_sheet([header, ...body])
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Підприємство')
-    XLSX.writeFile(wb, `enterprise_${selectedMapping?.ser_num ?? 'poll'}_${from}_${to}.xlsx`)
+    XLSX.writeFile(wb, `enterprise_${(selectedMapping && currentDevice(selectedMapping)?.ser_num) ?? 'poll'}_${from}_${to}.xlsx`)
   }
 
   return (
@@ -694,9 +705,9 @@ export function EnterprisePollPage() {
                                         >
                                           {enterpriseLabel(m)}
                                         </Text>
-                                        {m.ser_num != null && (
+                                        {currentDevice(m) && (
                                           <Text size="10px" c="dimmed" style={numericStyle}>
-                                            {m.ser_num}
+                                            {currentDevice(m)!.ser_num}
                                           </Text>
                                         )}
                                       </Group>
@@ -781,14 +792,15 @@ export function EnterprisePollPage() {
                     {lineLabel(selectedMapping)}
                   </Badge>
                 )}
-                {selectedMapping.ser_num != null && (
+                {currentDevice(selectedMapping) && (
                   <Text size="xs" c="dimmed" style={numericStyle}>
-                    S/N {selectedMapping.ser_num}
+                    S/N {currentDevice(selectedMapping)!.ser_num}
                   </Text>
                 )}
-                {selectedMapping.model_name && (
+                {currentDevice(selectedMapping)?.model_name && (
                   <Text size="xs" c="dimmed">
-                    {selectedMapping.manufacturer_short_name} {selectedMapping.model_name}
+                    {currentDevice(selectedMapping)!.manufacturer_short_name}{' '}
+                    {currentDevice(selectedMapping)!.model_name}
                   </Text>
                 )}
               </Group>

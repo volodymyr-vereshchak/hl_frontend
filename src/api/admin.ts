@@ -219,15 +219,69 @@ export interface CorectorType {
   type_dev: number
 }
 
+/** What a catalog export wrote into device_catalog.json. */
+export interface CatalogExportResult {
+  ok: boolean
+  exported: { manufacturers: number; corector_types: number }
+}
+
+/**
+ * What loading device_catalog.json changed.
+ *
+ * Manufacturers are matched by `mf_dev`, so a rename made on another
+ * installation arrives as a rename here. Models are matched by name and left
+ * alone once they exist — their `type_dev` is not unique, so a renamed model
+ * comes in as a new one and `warnings` says where the two sides disagree.
+ */
+export interface CatalogSyncResult {
+  message: string
+  added_manufacturers: number
+  renamed_manufacturers: number
+  added_models: number
+  warnings: string[]
+}
+
 export const deviceCatalogApi = {
   manufacturers: () => api.get<Manufacturer[]>('/device-catalog/manufacturers/'),
+  createManufacturer: (data: Partial<Manufacturer>) =>
+    api.post<Manufacturer>('/device-catalog/manufacturers/', data),
+  updateManufacturer: (id: number, data: Partial<Manufacturer>) =>
+    api.patch<Manufacturer>(`/device-catalog/manufacturers/${id}`, data),
+  removeManufacturer: (id: number) => api.delete<true>(`/device-catalog/manufacturers/${id}`),
+
   correctorTypes: () => api.get<CorectorType[]>('/device-catalog/corector-types/'),
+  createCorrectorType: (data: Partial<CorectorType>) =>
+    api.post<CorectorType>('/device-catalog/corector-types/', data),
+  updateCorrectorType: (id: number, data: Partial<CorectorType>) =>
+    api.patch<CorectorType>(`/device-catalog/corector-types/${id}`, data),
+  removeCorrectorType: (id: number) => api.delete<true>(`/device-catalog/corector-types/${id}`),
+
+  /**
+   * Write the catalog as it stands in the DB back into
+   * backend/db/preload_db/device_catalog.json.
+   *
+   * That file is how the catalog reaches the offline server: it is committed
+   * with the code and seeded there by `preload`. Edits made only in the admin
+   * panel live in this database and nowhere else until this runs.
+   */
+  exportPreload: () => api.post<CatalogExportResult>('/device-catalog/export-preload', {}),
+
+  /**
+   * Load device_catalog.json into the DB. Without `force` only missing entries
+   * are added; with it the catalog is wiped and rebuilt from the file.
+   */
+  preload: (force = false) =>
+    api.post<CatalogSyncResult>(`/device-catalog/preload?force=${force}`, {}),
 }
 
 // ── Enterprise mappings ─────────────────────────────────────────────────────
 /**
  * One industrial consumer behind a metering line. It points at EITHER a physical
  * line (`line_id`) or a DPD line (`dpd_line_id`) — the backend rejects both.
+ *
+ * The corrector lives in `devices`, not on the point: correctors get moved
+ * between points, so each entry records which one stood here and from when.
+ * The one in force now is the last entry — see `currentEnterpriseDevice`.
  */
 export interface EnterpriseMapping {
   id: number
@@ -235,11 +289,36 @@ export interface EnterpriseMapping {
   branch_id?: number | null
   line_id?: number | null
   dpd_line_id?: number | null
+  active: boolean
+  enabled: boolean
+  devices: EnterpriseDevice[]
+}
+
+/**
+ * One entry of a point's corrector history. `bound_to` is derived by the
+ * backend: an explicit `removed_at`, else the next install, else null (still
+ * in place). A gap between one entry's `removed_at` and the next install
+ * belongs to no device — that is when the point was left without a corrector.
+ */
+export interface EnterpriseDevice {
+  id?: number
+  device_id?: number
   ser_num: number
   corector_type_id?: number | null
   ch_num: number
-  active: boolean
-  enabled: boolean
+  installed_from: string
+  removed_at?: string | null
+  mf_dev?: number | null
+  type_dev?: number | null
+  model_name?: string | null
+  manufacturer_short_name?: string | null
+  bound_to?: string | null
+}
+
+/** The corrector standing at a point now, or null while it has none. */
+export function currentEnterpriseDevice(e: EnterpriseMapping): EnterpriseDevice | null {
+  const devices = e.devices ?? []
+  return devices.length ? devices[devices.length - 1] : null
 }
 
 export interface UploadResult {

@@ -52,22 +52,48 @@ export interface EnterpriseMappingRow {
   enterprise_name?: string
   line_id?: number | null
   dpd_line_id?: number | null
-  ser_num?: number | string | null
-  corector_type_id?: number | null
-  mf_dev?: number | null
-  type_dev?: number | null
-  ch_num?: number | null
   branch_id?: number | null
   active?: boolean
   enabled?: boolean
+  /** Corrector history, ordered by install moment. */
+  devices?: EnterpriseDeviceRow[]
+  [key: string]: unknown
+}
+
+/**
+ * One entry of a point's corrector history: this device stood here from
+ * `installed_from` until `bound_to` (the derived window end — an explicit
+ * `removed_at`, else the next install, else still in place).
+ */
+export interface EnterpriseDeviceRow {
+  id: number
+  device_id: number
+  ser_num: number
+  corector_type_id?: number | null
+  ch_num: number
+  installed_from: string
+  removed_at?: string | null
+  mf_dev?: number | null
+  type_dev?: number | null
   model_name?: string | null
   manufacturer_short_name?: string | null
-  [key: string]: unknown
+  bound_to?: string | null
+}
+
+/**
+ * The corrector standing at a point now — the last entry of its history.
+ * Everything that used to read `ser_num` off the point itself goes through
+ * here, so a replaced device shows the current one rather than the first.
+ */
+export function currentDevice(m: EnterpriseMappingRow): EnterpriseDeviceRow | null {
+  const devices = m.devices ?? []
+  return devices.length ? devices[devices.length - 1] : null
 }
 
 /** Display name of a mapping, however sparse the row is. */
 export function enterpriseLabel(m: EnterpriseMappingRow): string {
-  return m.enterprise_name || (m.ser_num != null ? `S/N ${m.ser_num}` : `#${m.id}`)
+  const device = currentDevice(m)
+  return m.enterprise_name || (device ? `S/N ${device.ser_num}` : `#${m.id}`)
 }
 
 export interface VolumesParams {
