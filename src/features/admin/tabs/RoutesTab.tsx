@@ -8,7 +8,6 @@ import {
   Center,
   Checkbox,
   Group,
-  Modal,
   Paper,
   ScrollArea,
   Select,
@@ -27,7 +26,6 @@ import {
   IconInfoCircle,
   IconPencil,
   IconPlus,
-  IconSearch,
   IconTrash,
   IconX,
 } from '@tabler/icons-react'
@@ -36,6 +34,7 @@ import { gasRouteAdminApi } from '@/api/admin'
 import { LoadingState } from '@/components/LoadingState'
 import type { GasRoute, GasRouteMember } from '@/types'
 import { useAdminTopology, toOptions } from '../useAdminTopology'
+import { RouteLinePicker } from '../RouteLinePicker'
 
 const notifyErr = (e: Error) => notifications.show({ message: e.message, color: 'red' })
 
@@ -74,7 +73,6 @@ export function RoutesTab() {
   const [editId, setEditId] = useState<number | null>(null)
   const [branchFilter, setBranchFilter] = useState<string | null>(null)
   const [pickerOpened, picker] = useDisclosure(false)
-  const [pickerSearch, setPickerSearch] = useState('')
 
   const routes = useQuery({
     queryKey: ['admin', 'gas-routes'],
@@ -194,19 +192,6 @@ export function RoutesTab() {
     }
   }, [lines, calcName])
 
-  const pickerCandidates = useMemo(() => {
-    const taken = new Set(form.members.map((m) => m.line_id))
-    const q = pickerSearch.trim().toLowerCase()
-    return (freeLines.data ?? [])
-      .filter((l) => !taken.has(l.id))
-      .filter((l) =>
-        !q ||
-        String(l.id).includes(q) ||
-        l.name.toLowerCase().includes(q) ||
-        (l.calc_name ?? '').toLowerCase().includes(q),
-      )
-  }, [freeLines.data, form.members, pickerSearch])
-
   const refCount = form.members.filter((m) => m.is_reference).length
 
   const visibleRoutes = useMemo(() => {
@@ -289,23 +274,34 @@ export function RoutesTab() {
                   key={member.line_id}
                   gap="sm"
                   align="center"
-                  wrap="wrap"
+                  /* nowrap: the checkbox and the remove button have to stay on
+                     the row whatever the line is called, or a long name pushes
+                     them onto a line of their own. */
+                  wrap="nowrap"
                   p="xs"
                   style={{
-                    background: 'var(--hlv-surface-2)',
+                    background: member.is_reference
+                      ? 'var(--mantine-color-petrol-light)'
+                      : 'var(--hlv-surface-2)',
                     border: '1px solid var(--hlv-border)',
                     borderRadius: 8,
                   }}
                 >
-                  <Text size="xs" c="dimmed" w={28}>
+                  <Text size="xs" c="dimmed" w={24} style={{ flexShrink: 0 }}>
                     {idx + 1}
                   </Text>
-                  <Text size="sm" style={{ flex: 1, minWidth: 200 }}>
+                  <Text
+                    size="sm"
+                    lineClamp={1}
+                    title={lineLabel(member)}
+                    style={{ flex: 1, minWidth: 0 }}
+                  >
                     {lineLabel(member)}
                   </Text>
                   <Checkbox
                     size="xs"
                     label="Еталон"
+                    style={{ flexShrink: 0 }}
                     checked={member.is_reference}
                     onChange={(e) => {
                       const checked = e.currentTarget.checked
@@ -321,6 +317,7 @@ export function RoutesTab() {
                     size="sm"
                     variant="subtle"
                     color="red"
+                    style={{ flexShrink: 0 }}
                     onClick={() =>
                       setForm((f) => ({
                         ...f,
@@ -340,12 +337,9 @@ export function RoutesTab() {
               mt="xs"
               leftSection={<IconPlus size={13} />}
               disabled={!form.branch_id}
-              onClick={() => {
-                setPickerSearch('')
-                picker.open()
-              }}
+              onClick={picker.open}
             >
-              Додати лінію
+              Додати лінії
             </Button>
 
             {form.members.length > 0 && refCount === 0 && (
@@ -505,59 +499,28 @@ export function RoutesTab() {
         </ScrollArea>
       </Paper>
 
-      <Modal
+      <RouteLinePicker
         opened={pickerOpened}
         onClose={picker.close}
-        title="Додати лінію до маршруту"
-        centered
-      >
-        <TextInput
-          placeholder="Пошук по ID, ГРС або назві…"
-          leftSection={<IconSearch size={15} />}
-          value={pickerSearch}
-          onChange={(e) => setPickerSearch(e.currentTarget.value)}
-          data-autofocus
-          mb="xs"
-        />
-        <ScrollArea.Autosize mah={340} type="auto">
-          <Stack gap={2}>
-            {freeLines.isLoading && <LoadingState py={20} />}
-            {!freeLines.isLoading && pickerCandidates.length === 0 && (
-              <Text size="xs" c="dimmed" ta="center" py="sm">
-                Немає вільних ліній — усі вже входять до інших маршрутів
-              </Text>
-            )}
-            {pickerCandidates.map((line) => (
-              <Group
-                key={line.id}
-                justify="space-between"
-                px="xs"
-                py={5}
-                className="hlv-picker-row"
-                style={{ borderRadius: 6, cursor: 'pointer' }}
-                onClick={() => {
-                  setForm((f) => ({
-                    ...f,
-                    members: [
-                      ...f.members,
-                      { line_id: line.id, is_reference: false, line_name: line.name },
-                    ],
-                  }))
-                  setPickerSearch('')
-                }}
-              >
-                <Text size="sm">
-                  <Text span c="dimmed" mr={6}>
-                    {line.id}
-                  </Text>
-                  {line.calc_name ? `${line.calc_name} · ${line.name}` : line.name}
-                </Text>
-                <IconPlus size={14} />
-              </Group>
-            ))}
-          </Stack>
-        </ScrollArea.Autosize>
-      </Modal>
+        branchId={form.branch_id ? Number(form.branch_id) : null}
+        free={freeLines.data ?? []}
+        loading={freeLines.isLoading}
+        taken={form.members.map((m) => m.line_id)}
+        onAdd={(added) =>
+          setForm((f) => {
+            const have = new Set(f.members.map((m) => m.line_id))
+            return {
+              ...f,
+              members: [
+                ...f.members,
+                ...added
+                  .filter((l) => !have.has(l.id))
+                  .map((l) => ({ line_id: l.id, is_reference: false, line_name: l.name })),
+              ],
+            }
+          })
+        }
+      />
     </Stack>
   )
 }
