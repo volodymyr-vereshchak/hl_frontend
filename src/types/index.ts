@@ -97,6 +97,36 @@ export interface DpdLine {
   devices?: DpdDevice[]
 }
 
+/**
+ * A gas transport route: the lines along which the SAME gas moves, so their
+ * ФХП must agree. A line belongs to at most one route. Members flagged
+ * `is_reference` have a stream chromatograph and are the route's reference.
+ */
+export interface GasRouteMember {
+  line_id: number
+  is_reference: boolean
+  id?: number
+  line_name?: string | null
+  sort_order?: number
+}
+
+export interface GasRoute {
+  id: number
+  number: string
+  name?: string | null
+  description?: string | null
+  branch_id: number
+  active: boolean
+  members: GasRouteMember[]
+}
+
+/** A line of a branch that no other route has claimed. */
+export interface FreeLine {
+  id: number
+  name: string
+  calc_name?: string | null
+}
+
 /** Line kind for routing archive requests to the right endpoints. */
 export type LineKind = 'physical' | 'virtual' | 'dpd'
 

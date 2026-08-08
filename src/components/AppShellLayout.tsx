@@ -11,6 +11,7 @@ import {
   IconSettings,
   IconChevronDown,
   IconChartHistogram,
+  IconFlask,
   IconMoon,
   IconCalculator,
 } from '@tabler/icons-react'
@@ -46,6 +47,7 @@ const REPORTS_NAV: NavItem[] = [
   { to: '/reports/grs-trends', labelKey: 'grsTrends', icon: <IconChartHistogram size={16} /> },
   { to: '/reports/night-consumption', labelKey: 'nightConsumption', icon: <IconMoon size={16} /> },
   { to: '/reports/accidents', labelKey: 'accidents', icon: <IconAlertTriangle size={16} /> },
+  { to: '/reports/fhp-comparison', labelKey: 'fhpComparison', icon: <IconFlask size={16} /> },
   { to: '/flow-calc', labelKey: 'navFlowCalc', icon: <IconCalculator size={16} /> },
 ]
 

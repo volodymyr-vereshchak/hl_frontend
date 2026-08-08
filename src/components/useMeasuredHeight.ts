@@ -63,6 +63,52 @@ export function useMeasuredWidth(ref: RefObject<HTMLElement | null>): number {
   return width
 }
 
+/**
+ * Height that makes the element end exactly at the bottom of the viewport.
+ *
+ * Reports used to subtract a hand-tuned constant from `100dvh`, which is wrong
+ * the moment anything above the panel changes height — an alert appearing, a
+ * control row wrapping on a narrow window — and the page then either scrolled
+ * or left a gap. Measuring the element's own top removes the guess: whatever
+ * sits above it, the panel takes the rest of the screen.
+ *
+ * Re-measured after every commit (like `useMeasuredHeight`, and for the same
+ * reason: what moves the top is content above, which the element cannot watch)
+ * and on window resize. Setting the same number again is a no-op in React, so
+ * the repeated measurement does not loop.
+ */
+export function useFillViewportHeight(
+  ref: RefObject<HTMLElement | null>,
+  bottomGap = 16,
+  minHeight = 240,
+): number | undefined {
+  const [height, setHeight] = useState<number | undefined>(undefined)
+
+  const measure = useCallback(() => {
+    const el = ref.current
+    if (!el) return
+    // `top` is viewport-relative, so a page scrolled down would report a
+    // smaller top and ask for a taller panel, which makes the page longer
+    // still. Capping at the viewport height breaks that: the panel can never
+    // be taller than the screen, so the loop cannot run away.
+    const top = el.getBoundingClientRect().top
+    const available = Math.min(
+      window.innerHeight - bottomGap,
+      window.innerHeight - top - bottomGap,
+    )
+    setHeight(Math.max(minHeight, available))
+  }, [ref, bottomGap, minHeight])
+
+  useLayoutEffect(measure)
+
+  useEffect(() => {
+    window.addEventListener('resize', measure)
+    return () => window.removeEventListener('resize', measure)
+  }, [measure])
+
+  return height
+}
+
 /** Convenience for the common shape: a scroll container with a sticky header
  *  and, optionally, a sticky totals row. */
 export function useStickyRowHeights() {

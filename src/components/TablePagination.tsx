@@ -1,4 +1,5 @@
-import { Group, Pagination, SegmentedControl, Text } from '@mantine/core'
+import { useEffect, useState } from 'react'
+import { Group, Pagination, SegmentedControl, Text, TextInput } from '@mantine/core'
 
 export const PAGE_SIZES = [10, 50, 100]
 
@@ -51,14 +52,73 @@ export function TablePagination({
           {shownLabel ?? `${total.toLocaleString('uk-UA')}`}
         </Text>
       </Group>
-      <Pagination
-        size="sm"
-        value={page}
-        total={pages}
-        onChange={onPageChange}
-        siblings={1}
-        withEdges
+      <Group gap="xs" wrap="nowrap">
+        {pages > 1 && <PageJump page={page} pages={pages} onPageChange={onPageChange} />}
+        <Pagination
+          size="sm"
+          value={page}
+          total={pages}
+          onChange={onPageChange}
+          siblings={1}
+          withEdges
+        />
+      </Group>
+    </Group>
+  )
+}
+
+/**
+ * Typing a page number, for the tables long enough that clicking through them
+ * is not an option.
+ *
+ * The value is held locally and committed on Enter or blur rather than on each
+ * keystroke: these tables are server-paginated, and "12" typed one character
+ * at a time would fetch page 1 before page 12.
+ */
+function PageJump({
+  page,
+  pages,
+  onPageChange,
+}: {
+  page: number
+  pages: number
+  onPageChange: (page: number) => void
+}) {
+  const [draft, setDraft] = useState(String(page))
+
+  // Follow the arrows: the box must show where the table actually is.
+  useEffect(() => setDraft(String(page)), [page])
+
+  const commit = () => {
+    const parsed = Number.parseInt(draft, 10)
+    if (Number.isNaN(parsed)) {
+      setDraft(String(page))
+      return
+    }
+    const next = Math.min(pages, Math.max(1, parsed))
+    setDraft(String(next))
+    if (next !== page) onPageChange(next)
+  }
+
+  return (
+    <Group gap={4} wrap="nowrap">
+      <TextInput
+        size="xs"
+        w={56}
+        inputMode="numeric"
+        aria-label="Номер сторінки"
+        value={draft}
+        onChange={(e) => setDraft(e.currentTarget.value.replace(/[^\d]/g, ''))}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') commit()
+          if (e.key === 'Escape') setDraft(String(page))
+        }}
+        styles={{ input: { textAlign: 'center' } }}
       />
+      <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
+        / {pages}
+      </Text>
     </Group>
   )
 }

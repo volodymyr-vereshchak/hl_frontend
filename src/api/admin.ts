@@ -1,5 +1,8 @@
 import { api, apiBaseUrl } from '@/lib/apiClient'
-import type { Branch, Lumg, Line, GasVolumeCalc, CalcType, VirtualLine, DpdLine, UserRole } from '@/types'
+import type {
+  Branch, Lumg, Line, GasVolumeCalc, CalcType, VirtualLine, DpdLine, UserRole,
+  GasRoute, FreeLine,
+} from '@/types'
 
 // ── Users ───────────────────────────────────────────────────────────────────
 export interface AdminUser {
@@ -129,6 +132,21 @@ export const virtualLineAdminApi = {
   create: (data: Partial<VirtualLine>) => api.post<VirtualLine>('/virtual_lines/', data),
   update: (id: number, data: Partial<VirtualLine>) => api.patch<VirtualLine>(`/virtual_lines/${id}`, data),
   remove: (id: number) => api.delete<true>(`/virtual_lines/${id}`),
+}
+
+export const gasRouteAdminApi = {
+  getAll: (branchId?: number) =>
+    api.get<GasRoute[]>('/gas_routes/', branchId ? { branch_id: branchId } : undefined),
+  create: (data: Partial<GasRoute>) => api.post<GasRoute>('/gas_routes/', data),
+  update: (id: number, data: Partial<GasRoute>) =>
+    api.patch<GasRoute>(`/gas_routes/${id}`, data),
+  remove: (id: number) => api.delete<true>(`/gas_routes/${id}`),
+  /** Lines of the branch free to be claimed; `routeId` keeps its own members. */
+  freeLines: (branchId: number, routeId?: number) =>
+    api.get<FreeLine[]>('/gas_routes/free_lines/', {
+      branch_id: branchId,
+      ...(routeId ? { route_id: routeId } : {}),
+    }),
 }
 
 export const dpdLineAdminApi = {

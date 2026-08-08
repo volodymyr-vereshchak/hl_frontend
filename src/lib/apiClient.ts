@@ -23,6 +23,8 @@ const TIMEOUT_DEFAULT = 30_000 // archive data queries (daily/hourly/counts/…)
 function timeoutForEndpoint(endpoint: string): number {
   if (/^\/enterprise\/volumes/.test(endpoint)) return TIMEOUT_DPD
   if (/^\/get_report/.test(endpoint)) return TIMEOUT_HEAVY
+  // Звірка ФХП rebuilds a step function per line per parameter over the range.
+  if (/^\/gas_routes\/\d+\/fhp_report/.test(endpoint)) return TIMEOUT_HEAVY
   if (/^\/(auth|config|lines|virtual_lines)/.test(endpoint)) return TIMEOUT_LIGHT
   return TIMEOUT_DEFAULT
 }

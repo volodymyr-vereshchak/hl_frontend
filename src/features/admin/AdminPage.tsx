@@ -10,6 +10,7 @@ import {
   IconRipple,
   IconCpu,
   IconCircles,
+  IconRoute,
   IconApi,
   IconBuildingFactory2,
   IconDeviceDesktop,
@@ -33,6 +34,7 @@ import { DataPathsTab } from './tabs/DataPathsTab'
 import { DpdCredentialsTab } from './tabs/DpdCredentialsTab'
 import { RingsTab } from './tabs/RingsTab'
 import { DpdLinesTab } from './tabs/DpdLinesTab'
+import { RoutesTab } from './tabs/RoutesTab'
 import { EnterprisesTab } from './tabs/EnterprisesTab'
 import { UsersTab } from './tabs/UsersTab'
 
@@ -70,6 +72,7 @@ const GROUPS: GroupDef[] = [
       { id: 'calcs', label: 'Обчислювачі', icon: <IconCpu size={16} />, element: <CalcsTab /> },
       { id: 'virtual', label: 'Кільця', icon: <IconCircles size={16} />, element: <RingsTab /> },
       { id: 'dpd-lines', label: 'Лінії ДПД', icon: <IconApi size={16} />, element: <DpdLinesTab /> },
+      { id: 'routes', label: 'Маршрути', icon: <IconRoute size={16} />, element: <RoutesTab /> },
     ],
   },
   {

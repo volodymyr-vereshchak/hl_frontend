@@ -83,6 +83,7 @@ export const ru = {
   // GRS Report
   grsReport: "Отчет ГРС",
 grsTrends: "Тренды ГРС",
+  fhpComparison: "Сверка ФХП",
   nightConsumption: "Ночные расходы",
   nightConsumptionDescription: "Минимальный расход газа с 00:00 до 05:00 по каждой ГРС",
   nightConsumptionNetDescription: "Минимальный NET объем (без промышленности) с 00:00 до 05:00 по каждой ГРС",
