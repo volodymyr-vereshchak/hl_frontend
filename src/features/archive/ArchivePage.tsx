@@ -23,6 +23,8 @@ import { DP_UNIT_DEFAULT, normalizeUnit, PRESSURE_UNIT_DEFAULT } from '@/domain/
 import { TablePagination, type PageSizeOption } from '@/components/TablePagination'
 import type { ArchiveType } from '@/types'
 import { TreeView } from './TreeView'
+import { GroupVolumes } from './GroupVolumes'
+import { linesOfGroup, useTreeData } from './useTreeData'
 import { DateRangeControls } from './DateRangeControls'
 import { ArchiveTable } from './ArchiveTable'
 import { ArchiveChart } from './ArchiveChart'
@@ -93,8 +95,15 @@ const sanitizeForFileName = (s: string) =>
 export function ArchivePage() {
   const { type } = useParams<{ type: string }>()
   const { t } = useLanguage()
-  const { lineId, lineMeta, dateRange, dateFilterEnabled, setDateRange, setDateFilterEnabled } =
-    useSelectionStore()
+  const {
+    lineId,
+    lineMeta,
+    groupSel,
+    dateRange,
+    dateFilterEnabled,
+    setDateRange,
+    setDateFilterEnabled,
+  } = useSelectionStore()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
 
@@ -125,8 +134,18 @@ export function ArchivePage() {
   const restricted =
     lineMeta && lineMeta.kind !== 'physical' && !['daily', 'hourly'].includes(archiveType)
 
+  // A tree node stands for its physical lines. Only the daily and hourly
+  // archives can show them together — the others are per-line events, and a
+  // column of them per line would say nothing about the node.
+  const { data: tree } = useTreeData()
+  const groupLines = useMemo(() => linesOfGroup(tree, groupSel), [tree, groupSel])
+  const groupType = archiveType === 'daily' || archiveType === 'hourly' ? archiveType : null
+  const showGroup = !!groupSel && !!groupType
+
   /** Identifies what is on screen: a change to any part restarts the paging. */
-  const loadKey = `${archiveType}|${lineId}|${dateRange.fromDate}|${dateRange.toDate}`
+  const loadKey =
+    `${archiveType}|${lineId}|${groupSel?.kind}${groupSel?.id}` +
+    `|${dateRange.fromDate}|${dateRange.toDate}`
   const enabled = !!lineId && !!lineMeta && dateFilterEnabled && !restricted
   const paged = isPagedArchive(archiveType)
   // Table or chart in the same pane — no scrolling to reach the plot. Kept per
@@ -201,7 +220,21 @@ export function ArchivePage() {
   }, [showChart])
 
 
-  const canExport = !!rows && rows.length > 0
+  // The group pane registers its own exporter; the toolbar has one button.
+  const [groupExport, setGroupExport] = useState<(() => void) | null>(null)
+  /**
+   * Stored through an updater, not passed straight in: `setState(fn)` treats a
+   * function as an UPDATER and calls it, so handing the exporter over ran the
+   * export — a click on a tree node downloaded a file. The extra `() =>` is
+   * what makes React store the function instead of invoking it.
+   *
+   * `useCallback` matters too: the pane registers in an effect keyed on this
+   * identity, and an unstable one would re-register on every render.
+   */
+  const handleExportReady = useCallback((fn: (() => void) | null) => {
+    setGroupExport(() => fn)
+  }, [])
+  const canExport = showGroup ? !!groupExport : !!rows && rows.length > 0
   const runExport = async () => {
     if (!rows || !meta || !lineId) return
     const columns = getArchiveColumns({
@@ -238,6 +271,10 @@ export function ArchivePage() {
 
   const handleExport = async () => {
     try {
+      if (showGroup) {
+        groupExport?.()
+        return
+      }
       await runExport()
     } catch (e) {
       // Without this the whole export failed silently — the enterprise
@@ -273,7 +310,9 @@ export function ArchivePage() {
   return (
     <Stack gap="sm">
       <DateRangeControls
-        title={titleMap[archiveType]}
+        title={
+          showGroup ? `${titleMap[archiveType]} — ${groupSel.name}` : titleMap[archiveType]
+        }
         kindBadge={lineMeta && lineMeta.kind !== 'physical' ? lineMeta.kind : null}
         onExport={handleExport}
         canExport={canExport}
@@ -301,7 +340,25 @@ export function ArchivePage() {
           radius="md"
           style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
         >
-          {restricted ? (
+          {showGroup && groupType ? (
+            <GroupVolumes
+              sel={groupSel}
+              lines={groupLines}
+              type={groupType}
+              range={dateRange}
+              enabled={dateFilterEnabled}
+              page={page}
+              pageSize={pageSize}
+              onPageChange={setPage}
+              onPageSizeChange={setPageSize}
+              pageSizes={pageSizeOptions}
+              onExportReady={handleExportReady}
+            />
+          ) : groupSel ? (
+            <Alert color="amber" variant="light" icon={<IconInfoCircle size={16} />} m="sm">
+              {t('groupOnlyDailyHourly')}
+            </Alert>
+          ) : restricted ? (
             <Alert color="amber" variant="light" icon={<IconInfoCircle size={16} />} m="sm">
               {t('virtualLinesSupportOnlyDailyHourly')}
             </Alert>

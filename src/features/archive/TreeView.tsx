@@ -21,7 +21,7 @@ import {
   IconCpu,
   IconRipple,
 } from '@tabler/icons-react'
-import { useSelectionStore } from '@/store/selectionStore'
+import { useSelectionStore, type GroupSelection } from '@/store/selectionStore'
 import { useLanguage } from '@/locales/LanguageContext'
 import { useTreeData, type TreeLine } from './useTreeData'
 
@@ -130,6 +130,9 @@ interface NodeProps {
   forceOpen?: boolean
   openMap: Record<string, boolean>
   onToggle: (key: string, open: boolean) => void
+  /** Selecting the node shows every line under it in the daily/hourly archive. */
+  onSelect?: () => void
+  selected?: boolean
   children: React.ReactNode
 }
 
@@ -143,6 +146,8 @@ function TreeNode({
   forceOpen,
   openMap,
   onToggle,
+  onSelect,
+  selected,
   children,
 }: NodeProps) {
   // Open state lives in the parent's persisted map, so re-mounting the tree
@@ -152,30 +157,68 @@ function TreeNode({
   const isOpen = forceOpen || open
   return (
     <Box>
-      <UnstyledButton
-        onClick={() => setOpen(!open)}
+      {/*
+        Two targets side by side rather than one: the chevron folds the node,
+        the label selects it. A single button had to mean one or the other, and
+        making a click do both would have taken folding away from a tree whose
+        whole job is navigation. Siblings, not nested buttons — a button inside
+        a button is invalid and swallows the inner click.
+      */}
+      <Group
+        gap={4}
+        wrap="nowrap"
         pl={8 + depth * 16}
         pr="xs"
-        py={6}
-        w="100%"
-        style={{ borderRadius: 6 }}
+        style={{
+          borderRadius: 6,
+          background: selected ? 'var(--mantine-color-petrol-light)' : undefined,
+        }}
       >
-        <Group gap={6} wrap="nowrap">
+        <UnstyledButton
+          onClick={() => setOpen(!open)}
+          py={6}
+          aria-label={isOpen ? 'Згорнути' : 'Розгорнути'}
+          style={{ display: 'flex', alignItems: 'center' }}
+        >
           <IconChevronRight
             size={14}
             style={{ transform: isOpen ? 'rotate(90deg)' : 'none', transition: 'transform 150ms' }}
           />
-          {icon}
-          <Text size="sm" fw={600} lineClamp={1} style={{ flex: 1 }} title={label}>
-            {label}
-          </Text>
-          {count != null && (
-            <Badge size="xs" variant="default">
-              {count}
-            </Badge>
-          )}
-        </Group>
-      </UnstyledButton>
+        </UnstyledButton>
+        <UnstyledButton
+          onClick={() => {
+            if (!onSelect) {
+              setOpen(!open)
+              return
+            }
+            onSelect()
+            // Selecting a folded node and leaving it folded hides the very
+            // lines the pane is about to show.
+            if (!open) setOpen(true)
+          }}
+          py={6}
+          style={{ flex: 1, minWidth: 0 }}
+        >
+          <Group gap={6} wrap="nowrap">
+            {icon}
+            <Text
+              size="sm"
+              fw={600}
+              c={selected ? 'petrol' : undefined}
+              lineClamp={1}
+              style={{ flex: 1 }}
+              title={label}
+            >
+              {label}
+            </Text>
+            {count != null && (
+              <Badge size="xs" variant="default">
+                {count}
+              </Badge>
+            )}
+          </Group>
+        </UnstyledButton>
+      </Group>
       <Collapse expanded={isOpen}>{children}</Collapse>
     </Box>
   )
@@ -185,7 +228,9 @@ export function TreeView({ fill = false }: { fill?: boolean } = {}) {
   const { data, isLoading } = useTreeData()
   const [search, setSearch] = useState('')
   const q = search.trim().toLowerCase()
-  const { lineId, lineMeta, selectLine } = useSelectionStore()
+  const { lineId, lineMeta, selectLine, groupSel, selectGroup } = useSelectionStore()
+  const isGroup = (kind: GroupSelection['kind'], id: number) =>
+    groupSel?.kind === kind && groupSel.id === id
 
   // Which nodes are unfolded, kept across reloads and page changes.
   const [openMap, setOpenMap] = useLocalStorage<Record<string, boolean>>({
@@ -264,6 +309,10 @@ export function TreeView({ fill = false }: { fill?: boolean } = {}) {
               depth={0}
               defaultOpen
               forceOpen={!!q}
+              onSelect={() =>
+                selectGroup({ kind: 'branch', id: branch.id, name: branch.name })
+              }
+              selected={isGroup('branch', branch.id)}
               icon={
                 <ThemeIcon size="sm" variant="transparent" color="petrol">
                   <IconBuildingCommunity size={15} />
@@ -280,6 +329,8 @@ export function TreeView({ fill = false }: { fill?: boolean } = {}) {
                   label={lumg.name}
                   depth={1}
                   forceOpen={!!q}
+                  onSelect={() => selectGroup({ kind: 'lumg', id: lumg.id, name: lumg.name })}
+                  selected={isGroup('lumg', lumg.id)}
                   icon={<IconFolder size={14} color="var(--mantine-color-amber-5)" />}
                 >
                   {lumg.calcs.map((calc) => (
@@ -291,6 +342,10 @@ export function TreeView({ fill = false }: { fill?: boolean } = {}) {
                       label={calc.typeName ? `${calc.name} · ${calc.typeName}` : calc.name}
                       depth={2}
                       forceOpen={!!q}
+                      onSelect={() =>
+                        selectGroup({ kind: 'calc', id: calc.id, name: calc.name })
+                      }
+                      selected={isGroup('calc', calc.id)}
                       icon={<IconCpu size={14} color="var(--mantine-color-steel-6)" />}
                     >
                       {calc.lines.map((line) => (

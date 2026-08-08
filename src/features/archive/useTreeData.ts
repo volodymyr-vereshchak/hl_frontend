@@ -9,7 +9,7 @@ import {
   dpdLineApi,
 } from '@/api/entities'
 import type { LineKind } from '@/types'
-import type { LineMeta } from '@/store/selectionStore'
+import type { GroupSelection, LineMeta } from '@/store/selectionStore'
 
 /** Context shown in the tree's selection panel. */
 export interface LineInfo {
@@ -178,4 +178,32 @@ export function useTreeData() {
       return tree
     },
   })
+}
+
+/**
+ * The lines a selected node stands for.
+ *
+ * PHYSICAL lines only. A кільце is itself a sum of physical lines, and a ДПД
+ * line measures the same gas from the other side — including either would make
+ * the node's total count the same gas twice.
+ */
+export function linesOfGroup(
+  tree: TreeBranch[] | undefined,
+  sel: GroupSelection | null,
+): TreeLine[] {
+  if (!tree || !sel) return []
+  const fromLumg = (lumg: TreeLumg) => lumg.calcs.flatMap((c) => c.lines)
+
+  for (const branch of tree) {
+    if (sel.kind === 'branch' && branch.id === sel.id) {
+      return branch.lumgs.flatMap(fromLumg)
+    }
+    for (const lumg of branch.lumgs) {
+      if (sel.kind === 'lumg' && lumg.id === sel.id) return fromLumg(lumg)
+      for (const calc of lumg.calcs) {
+        if (sel.kind === 'calc' && calc.id === sel.id) return calc.lines
+      }
+    }
+  }
+  return []
 }

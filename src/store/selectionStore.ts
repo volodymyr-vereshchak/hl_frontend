@@ -13,6 +13,18 @@ export interface LineMeta {
   dp_unit?: string | null
 }
 
+/**
+ * A node of the tree selected instead of a single line: the daily and hourly
+ * archives then show every line under it, side by side, plus their sum.
+ * Only the identity is kept — the member lines are resolved from the tree, so
+ * a line added in the admin panel shows up without re-picking the node.
+ */
+export interface GroupSelection {
+  kind: 'calc' | 'lumg' | 'branch'
+  id: number
+  name: string
+}
+
 export interface DateRange {
   fromDate: string
   toDate: string
@@ -23,10 +35,12 @@ interface SelectionState {
   branchId: number | null
   setBranchId: (id: number | null) => void
 
-  /** Archive tree selection. */
+  /** Archive tree selection — a line OR a node, never both. */
   lineId: number | null
   lineMeta: LineMeta | null
   selectLine: (id: number | null, meta: LineMeta | null) => void
+  groupSel: GroupSelection | null
+  selectGroup: (sel: GroupSelection | null) => void
 
   /** Archive date range + filter toggle. */
   dateRange: DateRange
@@ -51,7 +65,11 @@ export const useSelectionStore = create<SelectionState>()(
 
       lineId: null,
       lineMeta: null,
-      selectLine: (lineId, lineMeta) => set({ lineId, lineMeta }),
+      // The two selections are exclusive: picking one clears the other, so the
+      // archive never has to guess which of them the screen is about.
+      selectLine: (lineId, lineMeta) => set({ lineId, lineMeta, groupSel: null }),
+      groupSel: null,
+      selectGroup: (groupSel) => set({ groupSel, lineId: null, lineMeta: null }),
 
       dateRange: initialDateRange(),
       setDateRange: (dateRange) => set({ dateRange }),
@@ -70,17 +88,20 @@ export const useSelectionStore = create<SelectionState>()(
         branchId: s.branchId,
         lineId: s.lineId,
         lineMeta: s.lineMeta,
+        groupSel: s.groupSel,
       }),
       // v1 stored `dateRange`, and persisted keys win over the initial state
       // on merge — without this, browsers that used the old build would keep
       // restoring last session's period forever.
       version: 2,
       migrate: (persisted) => {
-        const { branchId, lineId, lineMeta } = (persisted ?? {}) as Partial<SelectionState>
+        const { branchId, lineId, lineMeta, groupSel } =
+          (persisted ?? {}) as Partial<SelectionState>
         return {
           branchId: branchId ?? null,
           lineId: lineId ?? null,
           lineMeta: lineMeta ?? null,
+          groupSel: groupSel ?? null,
         }
       },
     },
