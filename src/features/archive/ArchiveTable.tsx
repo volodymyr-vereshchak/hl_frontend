@@ -1,5 +1,5 @@
 import { memo, useMemo, useState } from 'react'
-import { Table, Text, Group, Box, ScrollArea } from '@mantine/core'
+import { Anchor, Table, Text, Group, Box, ScrollArea } from '@mantine/core'
 import { useLocalStorage } from '@mantine/hooks'
 import { IconArrowUp, IconArrowDown } from '@tabler/icons-react'
 import {
@@ -29,7 +29,8 @@ interface Props {
   /** Enterprise overlay on → show NET + total-enterprise columns. */
   overlay?: boolean
   /** Daily archive: open the hourly archive for the clicked commercial day. */
-  onDrillDown?: (day: string) => void
+  /** Link to that commercial day's hourly archive; absent = no drill-down. */
+  drillHref?: (day: string) => string
   /**
    * Show one page of `rows` instead of all of them. Sorting and the totals row
    * still run over the whole range — the page is a view, not a subset of the
@@ -88,7 +89,7 @@ export const ArchiveTable = memo(function ArchiveTable({
   type,
   meta,
   overlay,
-  onDrillDown,
+  drillHref,
   page,
   pageSize,
 }: Props) {
@@ -133,25 +134,29 @@ export const ArchiveTable = memo(function ArchiveTable({
             }
             if (spec.key === 'sys_name' || spec.key === 'edit_name') return String(raw ?? '—')
             // Daily volume drills down into that commercial day's hourly archive.
-            if (spec.key === 'volume' && type === 'daily' && onDrillDown) {
+            if (spec.key === 'volume' && type === 'daily' && drillHref) {
               const day = String(info.row.original.period).slice(0, 10)
+              // A real link, not an onClick: it opens in a new tab either way,
+              // but this also gives middle-click, Ctrl+click and "copy link
+              // address" for free, and reads as a link to a screen reader.
               return (
-                <Text
-                  component="span"
+                <Anchor
+                  href={drillHref(day)}
+                  target="_blank"
+                  rel="noopener"
                   c="petrol"
-                  style={{ cursor: 'pointer', textDecoration: 'underline dotted' }}
-                  onClick={() => onDrillDown(day)}
-                  title="Відкрити годинний архів за цю добу"
+                  style={{ textDecoration: 'underline dotted' }}
+                  title="Відкрити годинний архів за цю добу в новій вкладці"
                 >
                   {fmtNumber(raw, decimalsFor(spec.key))}
-                </Text>
+                </Anchor>
               )
             }
             return fmtNumber(raw, decimalsFor(spec.key))
           },
         }),
       ),
-    [specs, type, onDrillDown],
+    [specs, type, drillHref],
   )
 
   const table = useReactTable({

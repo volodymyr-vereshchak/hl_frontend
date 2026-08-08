@@ -1,5 +1,5 @@
 import { startTransition, useCallback, useEffect, useMemo, useState } from 'react'
-import { Navigate, useParams, useNavigate, useSearchParams } from 'react-router-dom'
+import { Navigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   Paper,
   Stack,
@@ -104,7 +104,6 @@ export function ArchivePage() {
     setDateRange,
     setDateFilterEnabled,
   } = useSelectionStore()
-  const navigate = useNavigate()
   const [searchParams] = useSearchParams()
 
   // Deep links: ?fromDate=&toDate=(&filter=1) preselect the period.
@@ -287,15 +286,31 @@ export function ArchivePage() {
     }
   }
 
-  // Clicking a daily volume opens that commercial day in the hourly archive.
-  // Stable identity, or the memoised table would rebuild on every render.
-  const drillToHourly = useCallback(
-    (day: string) => {
-      setDateRange({ fromDate: day, toDate: day })
-      navigate('/archive/hourly')
-    },
-    [navigate, setDateRange],
-  )
+  /**
+   * Clicking a daily volume opens that commercial day's hourly archive in a NEW
+   * TAB, leaving the daily view exactly as it was — the point of the drill-down
+   * is to look at one day's hours WHILE keeping the month in front of you, and
+   * navigating in place meant coming back and re-picking the period every time.
+   *
+   * The window is passed through the deep-link params rather than the store:
+   * a new tab reads its own state at load, and `?fromDate&toDate` is the
+   * contract that already exists for that (see the effect at the top). It has
+   * to carry the widened commercial window (07:00 → 06:00), because a range
+   * that arrives through the query string is taken as given and not widened
+   * again. `filter=1` opens it with the data already loading.
+   *
+   * The line itself needs no parameter: the selection is persisted, so the new
+   * tab starts on the same one.
+   */
+  const drillHref = useCallback((day: string) => {
+    const win = commercialWindow(day, day)
+    const qs = new URLSearchParams({
+      fromDate: win.fromDate,
+      toDate: win.toDate,
+      filter: '1',
+    })
+    return `/archive/hourly?${qs}`
+  }, [])
 
   if (!validType) return <Navigate to="/overview" replace />
 
@@ -414,7 +429,7 @@ export function ArchivePage() {
                   type={archiveType}
                   meta={meta}
                   overlay={canOverlay && overlay.enabled && !!overlay.byPeriod}
-                  onDrillDown={drillToHourly}
+                  drillHref={drillHref}
                   /* sys/edit arrive one page at a time from the server; the
                      others hold the whole period and page it here. */
                   page={clientPaged ? page : undefined}
