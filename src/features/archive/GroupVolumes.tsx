@@ -301,6 +301,12 @@ export function GroupVolumes({
                   </Table.Td>
                 </Table.Tr>
               ))}
+              {/* Stretches the table to the pane so the totals row sits at the
+                  bottom instead of right under the last row — the same filler
+                  the archive tables use (see .hlv-table-filler in global.css). */}
+              <Table.Tr className="hlv-table-filler" aria-hidden>
+                <td colSpan={shown.length + 2} />
+              </Table.Tr>
             </Table.Tbody>
             <Table.Tfoot ref={tfootRef}>
               <Table.Tr>
