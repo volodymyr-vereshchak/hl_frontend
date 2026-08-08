@@ -17,7 +17,7 @@ import {
   Tooltip,
   useMantineColorScheme,
 } from '@mantine/core'
-import { IconAlertTriangle, IconFlask, IconInfoCircle } from '@tabler/icons-react'
+import { IconAlertTriangle, IconInfoCircle, IconTargetArrow } from '@tabler/icons-react'
 import { useQuery } from '@tanstack/react-query'
 import {
   CartesianGrid,
@@ -77,8 +77,8 @@ function defaultRange() {
 type View = 'table' | 'values' | 'deltas'
 
 /**
- * «Звірка ФХП»: how far a route's manually entered gas composition drifts from
- * the lines that have a stream chromatograph.
+ * «Звірка ФХП»: how far a route's manually entered gas composition drifts
+ * from the lines marked as its reference.
  *
  * One parameter is shown at a time — three parameters times N lines times
  * value/Δ/Δ% is unreadable — but all three arrive in a single response, so
@@ -244,8 +244,8 @@ export function FhpComparisonPage() {
       out.push({
         tone: 'info',
         text: block.lines.every((l) => l.is_reference)
-          ? 'Усі лінії маршруту з хроматографом — показано значення та розкид між ними'
-          : 'На маршруті немає потокового хроматографа — показано значення та розкид між лініями',
+          ? 'Усі лінії маршруту еталонні — показано значення та розкид між ними'
+          : 'На маршруті не позначено еталонної лінії — показано значення та розкид',
       })
     }
     if (referenceChanged(block)) {
@@ -361,7 +361,7 @@ export function FhpComparisonPage() {
   return (
     <ReportShell
       title="Звірка ФХП"
-      description="Наскільки введене вручну ФХП відрізняється від ліній із потоковим хроматографом"
+      description="Наскільки введене вручну ФХП відрізняється від еталонного по маршруту"
       onRun={run}
       running={running}
       error={error}
@@ -588,7 +588,7 @@ export function FhpComparisonPage() {
                         .map((l) => (
                           <Table.Th key={l.line_id} rowSpan={2} style={{ textAlign: 'center' }}>
                             <Group gap={4} justify="center" wrap="nowrap">
-                              <IconFlask size={13} />
+                              <IconTargetArrow size={13} />
                               <span>{l.line_name}</span>
                             </Group>
                           </Table.Th>

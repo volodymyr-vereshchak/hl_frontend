@@ -155,7 +155,7 @@ describe('referenceChanged', () => {
     expect(referenceChanged(block())).toBe(false)
   })
 
-  it('two chromatographs dropping to one is', () => {
+  it('two reference lines dropping to one is', () => {
     expect(referenceChanged(block({ reference_count: [2, 2, 1] }))).toBe(true)
   })
 })

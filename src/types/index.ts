@@ -100,7 +100,9 @@ export interface DpdLine {
 /**
  * A gas transport route: the lines along which the SAME gas moves, so their
  * ФХП must agree. A line belongs to at most one route. Members flagged
- * `is_reference` have a stream chromatograph and are the route's reference.
+ * `is_reference` carry the composition the others are checked against —
+ * usually a line with a stream chromatograph, but every route needs one
+ * whether it has a chromatograph or not.
  */
 export interface GasRouteMember {
   line_id: number

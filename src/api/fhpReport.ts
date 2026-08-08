@@ -46,7 +46,7 @@ export interface FhpParamBlock {
   /** Daily granularity only; fewer than 24 means an incomplete day. */
   hours_present?: number[] | null
   reference?: (number | null)[] | null
-  /** How many chromatograph lines backed the reference at each period. */
+  /** How many reference lines backed the reference at each period. */
   reference_count?: number[] | null
   spread_min: (number | null)[]
   spread_max: (number | null)[]
@@ -72,7 +72,7 @@ export interface FhpVolumeLine {
 
 /**
  * ΔV = V_еталонний − V_звітний. Negative means the reported volume was
- * overstated. Absent for a route with no chromatograph — nothing to correct to.
+ * overstated. Absent for a route with no reference — nothing to correct to.
  */
 export interface FhpVolumeBlock {
   periods: string[]

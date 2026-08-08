@@ -23,7 +23,7 @@ import { useDisclosure } from '@mantine/hooks'
 import { modals } from '@mantine/modals'
 import { notifications } from '@mantine/notifications'
 import {
-  IconFlask,
+  IconTargetArrow,
   IconInfoCircle,
   IconPencil,
   IconPlus,
@@ -60,8 +60,11 @@ const EMPTY: FormState = {
  * agree. A line belongs to at most one route, which is why the picker offers
  * only the lines no other route has claimed.
  *
- * Members carry a per-row flag rather than being plain chips: «потоковий
- * хроматограф» marks the lines the «Звірка ФХП» report treats as the reference.
+ * Members carry a per-row flag rather than being plain chips: it marks the
+ * lines whose ФХП the «Звірка ФХП» report takes as the reference. That is
+ * usually the line with a stream chromatograph, but a route without one
+ * still needs a reference — hence «еталон» and not «хроматограф». A route
+ * cannot be saved without at least one.
  */
 export function RoutesTab() {
   const qc = useQueryClient()
@@ -155,6 +158,19 @@ export function RoutesTab() {
       notifications.show({ message: 'Оберіть філію', color: 'red' })
       return
     }
+    if (form.members.length === 0) {
+      notifications.show({ message: 'Додайте лінії до маршруту', color: 'red' })
+      return
+    }
+    // Caught here as well as on the server: the message belongs next to the
+    // checkbox that fixes it, not in a toast after a round trip.
+    if (!form.members.some((m) => m.is_reference)) {
+      notifications.show({
+        message: 'Позначте хоча б одну лінію як еталонну',
+        color: 'red',
+      })
+      return
+    }
     save.mutate({
       number: form.number.trim(),
       name: form.name.trim() || null,
@@ -210,8 +226,8 @@ export function RoutesTab() {
         </Text>
         <Text size="xs" c="dimmed">
           Маршрут — це лінії, якими рухається один і той самий газ, тож їхнє ФХП має збігатися.
-          Лінія може входити лише до одного маршруту. Позначені лінії мають потоковий хроматограф
-          і є еталоном у звіті «Звірка ФХП»
+          Лінія може входити лише до одного маршруту. Позначені лінії — еталон: їхнє ФХП
+          у звіті «Звірка ФХП» вважається правильним, і решта звіряється з ним
         </Text>
       </Box>
 
@@ -289,7 +305,7 @@ export function RoutesTab() {
                   </Text>
                   <Checkbox
                     size="xs"
-                    label="Потоковий хроматограф"
+                    label="Еталон"
                     checked={member.is_reference}
                     onChange={(e) => {
                       const checked = e.currentTarget.checked
@@ -335,20 +351,20 @@ export function RoutesTab() {
             {form.members.length > 0 && refCount === 0 && (
               <Alert
                 mt="xs"
-                color="yellow"
+                color="red"
                 variant="light"
                 icon={<IconInfoCircle size={16} />}
                 p="xs"
               >
                 <Text size="xs">
-                  Маршрут без хроматографа — звіт покаже лише значення та розкид між лініями
+                  Позначте хоча б одну лінію як еталонну — без еталона немає з чим порівнювати
                 </Text>
               </Alert>
             )}
             {refCount > 0 && (
               <Text size="xs" c="dimmed" mt={6}>
                 Еталон: {refCount}{' '}
-                {refCount === 1 ? 'лінія' : refCount < 5 ? 'лінії' : 'ліній'} з хроматографом
+                {refCount === 1 ? 'лінія' : refCount < 5 ? 'лінії' : 'ліній'}
               </Text>
             )}
           </Box>
@@ -390,7 +406,7 @@ export function RoutesTab() {
                 <Table.Th>Назва</Table.Th>
                 <Table.Th>Філія</Table.Th>
                 <Table.Th w={80}>Ліній</Table.Th>
-                <Table.Th w={150}>З хроматографом</Table.Th>
+                <Table.Th w={110}>Еталонних</Table.Th>
                 <Table.Th w={100}>Активний</Table.Th>
                 <Table.Th w={90} />
               </Table.Tr>
@@ -427,7 +443,7 @@ export function RoutesTab() {
                           <Badge
                             variant="light"
                             color="petrol"
-                            leftSection={<IconFlask size={12} />}
+                            leftSection={<IconTargetArrow size={12} />}
                           >
                             {refs.length}
                           </Badge>
