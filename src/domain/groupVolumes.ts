@@ -16,10 +16,66 @@ export interface GroupVolumeRow {
   present: number
 }
 
+/** One archive row, as `/daily/` and `/hourly/` return it. */
 export interface VolumeRecord {
   line_id?: number | null
   period?: string | null
   volume?: number | null
+  pressure?: number | null
+  temperature?: number | null
+}
+
+export interface PivotRow<T> {
+  period: string
+  byLine: Record<number, T>
+  /** How many of the requested lines reported that period. */
+  present: number
+}
+
+/** A number, or null for anything the archive did not actually report. */
+export function finiteOrNull(v: number | null | undefined): number | null {
+  // `null` first and explicitly: Number(null) is 0, not NaN, so a missing
+  // reading would otherwise be counted as a reported zero.
+  if (v == null) return null
+  const n = Number(v)
+  return Number.isFinite(n) ? n : null
+}
+
+/**
+ * Rows keyed by period, in period order, reading ONE value per record.
+ *
+ * `read` returning null means "this record has nothing usable here" — the
+ * distinction `Number(null) === 0` would destroy. It is also where a value
+ * gets converted: a pressure is normalised once per record on the way in,
+ * never after it has been subtracted from another line's.
+ */
+export function pivotBy<T>(
+  records: VolumeRecord[],
+  lineIds: number[],
+  read: (r: VolumeRecord) => T | null,
+): PivotRow<T>[] {
+  const wanted = new Set(lineIds)
+  const byPeriod = new Map<string, PivotRow<T>>()
+
+  for (const r of records) {
+    const lineId = r.line_id
+    const period = r.period
+    if (lineId == null || period == null || !wanted.has(lineId)) continue
+    const value = read(r)
+    if (value === null) continue
+
+    let row = byPeriod.get(period)
+    if (!row) {
+      row = { period, byLine: {}, present: 0 }
+      byPeriod.set(period, row)
+    }
+    // The archive can carry more than one record per line-period (a device
+    // re-sent an hour); the later one wins rather than being counted twice.
+    if (row.byLine[lineId] === undefined) row.present += 1
+    row.byLine[lineId] = value
+  }
+
+  return [...byPeriod.values()].sort((a, b) => a.period.localeCompare(b.period))
 }
 
 /**
@@ -35,36 +91,10 @@ export function pivotVolumes(
   records: VolumeRecord[],
   lineIds: number[],
 ): GroupVolumeRow[] {
-  const wanted = new Set(lineIds)
-  const byPeriod = new Map<string, GroupVolumeRow>()
-
-  for (const r of records) {
-    const lineId = r.line_id
-    const period = r.period
-    if (lineId == null || period == null || !wanted.has(lineId)) continue
-    // `null` first and explicitly: Number(null) is 0, not NaN, so a missing
-    // volume would otherwise be counted as a reported zero.
-    if (r.volume == null) continue
-    const volume = Number(r.volume)
-    if (!Number.isFinite(volume)) continue
-
-    let row = byPeriod.get(period)
-    if (!row) {
-      row = { period, byLine: {}, total: 0, present: 0 }
-      byPeriod.set(period, row)
-    }
-    // The archive can carry more than one record per line-period (a device
-    // re-sent an hour); the later one wins rather than being added twice.
-    if (row.byLine[lineId] !== undefined) {
-      row.total -= row.byLine[lineId]
-      row.present -= 1
-    }
-    row.byLine[lineId] = volume
-    row.total += volume
-    row.present += 1
-  }
-
-  return [...byPeriod.values()].sort((a, b) => a.period.localeCompare(b.period))
+  return pivotBy(records, lineIds, (r) => finiteOrNull(r.volume)).map((row) => ({
+    ...row,
+    total: Object.values(row.byLine).reduce((s, v) => s + v, 0),
+  }))
 }
 
 /** Per line: the sum over the whole period. Used by the totals row. */

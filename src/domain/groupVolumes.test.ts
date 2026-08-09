@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import {
+  finiteOrNull,
   formatGroupPeriod,
   lineTotals,
+  pivotBy,
   pivotVolumes,
   type VolumeRecord,
 } from './groupVolumes'
@@ -101,5 +103,71 @@ describe('formatGroupPeriod', () => {
 
   it('accepts the space-separated stamps the archive also returns', () => {
     expect(formatGroupPeriod('2026-05-01 07:00:00', 'hourly')).toBe('01.05 07:00')
+  })
+})
+
+
+describe('pivotBy', () => {
+  const withP = (line_id: number, period: string, pressure: number | null): VolumeRecord => ({
+    line_id,
+    period,
+    pressure,
+  })
+
+  it('reads whatever field the caller asks for', () => {
+    const rows = pivotBy(
+      [withP(1, '2026-05-01', 32.1), withP(2, '2026-05-01', 41.8)],
+      [1, 2],
+      (r) => finiteOrNull(r.pressure),
+    )
+    expect(rows[0].byLine).toEqual({ 1: 32.1, 2: 41.8 })
+    expect(rows[0].present).toBe(2)
+  })
+
+  it('a null reading is absent, not a reported zero', () => {
+    const rows = pivotBy([withP(1, '2026-05-01', null)], [1], (r) =>
+      finiteOrNull(r.pressure),
+    )
+    expect(rows).toEqual([])
+  })
+
+  it('converts on the way in, once per record', () => {
+    // This is the whole reason the callback exists: a pressure is normalised
+    // before it can be subtracted from another line's.
+    const rows = pivotBy([withP(1, '2026-05-01', 10)], [1], (r) => {
+      const v = finiteOrNull(r.pressure)
+      return v === null ? null : v * 2
+    })
+    expect(rows[0].byLine[1]).toBe(20)
+  })
+
+  it('a repeated line-period is replaced, and counted once', () => {
+    const rows = pivotBy(
+      [withP(1, '2026-05-01', 30), withP(1, '2026-05-01', 31)],
+      [1],
+      (r) => finiteOrNull(r.pressure),
+    )
+    expect(rows[0].byLine[1]).toBe(31)
+    expect(rows[0].present).toBe(1)
+  })
+
+  it('ignores lines outside the set and orders by period', () => {
+    const rows = pivotBy(
+      [withP(9, '2026-05-02', 1), withP(1, '2026-05-02', 2), withP(1, '2026-05-01', 3)],
+      [1],
+      (r) => finiteOrNull(r.pressure),
+    )
+    expect(rows.map((r) => r.period)).toEqual(['2026-05-01', '2026-05-02'])
+    expect(rows[1].byLine[9]).toBeUndefined()
+  })
+})
+
+describe('finiteOrNull', () => {
+  it('keeps zero and rejects everything that is not a number', () => {
+    expect(finiteOrNull(0)).toBe(0)
+    expect(finiteOrNull(null)).toBeNull()
+    expect(finiteOrNull(undefined)).toBeNull()
+    expect(finiteOrNull(Number.NaN)).toBeNull()
+    expect(finiteOrNull(Number.POSITIVE_INFINITY)).toBeNull()
   })
 })
