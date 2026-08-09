@@ -156,6 +156,26 @@ export function FhpComparisonPage() {
 
   const showVolume = param === 'volume'
   const volumeBlock = report?.volume ?? null
+
+  /**
+   * The volume view has no chart, so switching to it from one leaves a view
+   * the screen cannot render. Correct the STATE rather than the control's
+   * `value`: a control that displays «Таблиця» while the state says «Відхилення»
+   * renders nothing, and clicking the item it already shows fires no change —
+   * which is exactly how the screen got stuck.
+   */
+  useEffect(() => {
+    if (showVolume && view !== 'table') setView('table')
+  }, [showVolume, view])
+
+  /**
+   * A re-run on a route with no reference takes the volume block away. The
+   * «Об'єм» option disappears with it, so a selection left pointing at it would
+   * be unreachable — fall back to the parameter that always exists.
+   */
+  useEffect(() => {
+    if (report && param === 'volume' && !volumeBlock) setParam('density')
+  }, [report, param, volumeBlock])
   // In volume mode this stays on density: the alerts, the notices and the
   // «no reference» handling are about the composition either way, and keeping
   // it non-null avoids threading a null through the whole screen.
@@ -438,7 +458,7 @@ export function FhpComparisonPage() {
         </Group>
       )}
 
-      {report && block && (
+      {report && block && tableTotal > 0 && (
         <Stack gap="sm">
           {/* Parameter + tolerance: both are client-side, no refetch. The
               notices ride along on the same row instead of stacking above it. */}
@@ -526,7 +546,7 @@ export function FhpComparisonPage() {
             >
               <SegmentedControl
                 size="xs"
-                value={showVolume ? 'table' : view}
+                value={view}
                 onChange={(v) => setView(v as View)}
                 data={
                   showVolume
@@ -955,7 +975,10 @@ export function FhpComparisonPage() {
         </Stack>
       )}
 
-      {report && block && rows.length === 0 && (
+      {/* `tableTotal`, not `rows`: in volume mode the rows on screen are the
+          volume block's, and the composition series may well be empty while
+          the volume one is not. */}
+      {report && block && tableTotal === 0 && (
         <Box ta="center" py="xl">
           <Text c="dimmed">{t('noDataForPeriod')}</Text>
         </Box>

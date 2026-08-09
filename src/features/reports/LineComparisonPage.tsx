@@ -464,7 +464,7 @@ export function LineComparisonPage() {
         onChange={setSelection}
       />
 
-      {run && result && (
+      {run && result && rows.length > 0 && (
         <Stack gap="sm" mt="sm">
           <Group gap="sm" align="flex-end" wrap="wrap">
             <Box>
