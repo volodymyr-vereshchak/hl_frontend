@@ -768,6 +768,24 @@ export function FhpComparisonPage() {
                         </Table.Tr>
                       )
                     })}
+                    {/* Stretches the table to the pane so the totals row sits at
+                        the bottom instead of right under the last data row —
+                        see .hlv-table-filler in global.css. Columns: період +
+                        the reference lines + еталон, or the compared lines with
+                        their Знач./Δ/Δ% and the spread trio when there is no
+                        reference. */}
+                    <Table.Tr className="hlv-table-filler" aria-hidden>
+                      <td
+                        colSpan={
+                          1 +
+                          block.lines.filter((l) => l.is_reference).length +
+                          (block.has_reference ? 1 : 0) +
+                          block.lines.filter((l) => !l.is_reference).length *
+                            (block.has_reference ? 3 : 1) +
+                          (block.has_reference ? 0 : 3)
+                        }
+                      />
+                    </Table.Tr>
                   </Table.Tbody>
 
                   {rows.length > 0 && (

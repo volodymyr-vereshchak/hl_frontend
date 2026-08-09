@@ -123,6 +123,11 @@ export function FhpVolumeTable({ block, granularity, page, pageSize, t }: Props)
               })}
             </Table.Tr>
           ))}
+          {/* Same filler as the archive tables: without it the totals row
+              floats right under the last row instead of the pane's bottom. */}
+          <Table.Tr className="hlv-table-filler" aria-hidden>
+            <td colSpan={1 + block.lines.length * 3} />
+          </Table.Tr>
         </Table.Tbody>
 
         {block.periods.length > 0 && (
