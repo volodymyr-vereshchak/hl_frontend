@@ -84,6 +84,7 @@ export const uk = {
   grsReport: "Звіт ГРС",
 grsTrends: "Тренди ГРС",
   fhpComparison: "Звірка ФХП",
+  lineComparison: "Порівняння ліній",
   nightConsumption: "Нічні витрати",
   nightConsumptionDescription: "Мінімальна витрата газу з 00:00 до 05:00 по кожній ГРС",
   nightConsumptionNetDescription: "Мінімальний NET об'єм (без промисловості) з 00:00 до 05:00 по кожній ГРС",

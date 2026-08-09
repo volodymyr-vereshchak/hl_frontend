@@ -9,6 +9,7 @@ import { AccidentsPage } from '@/features/reports/AccidentsPage'
 import { GrsTrendsPage } from '@/features/reports/GrsTrendsPage'
 import { NightConsumptionPage } from '@/features/reports/NightConsumptionPage'
 import { FhpComparisonPage } from '@/features/reports/FhpComparisonPage'
+import { LineComparisonPage } from '@/features/reports/LineComparisonPage'
 import { FlowCalcPage } from '@/features/flow-calc/FlowCalcPage'
 
 // Map old ?archiveType= deep links to the new routes (backward compatibility).
@@ -37,6 +38,7 @@ const KNOWN_ROUTES = [
   '/reports/night-consumption',
   '/reports/accidents',
   '/reports/fhp-comparison',
+  '/reports/line-comparison',
   '/flow-calc',
   '/admin',
 ]
@@ -82,6 +84,7 @@ export const router = createBrowserRouter([
       { path: 'reports/night-consumption', element: <NightConsumptionPage /> },
       { path: 'reports/accidents', element: <AccidentsPage /> },
       { path: 'reports/fhp-comparison', element: <FhpComparisonPage /> },
+      { path: 'reports/line-comparison', element: <LineComparisonPage /> },
       { path: 'flow-calc', element: <FlowCalcPage /> },
       { path: 'admin', element: <AdminPage /> },
       { path: '*', element: <Navigate to="/overview" replace /> },

@@ -12,6 +12,7 @@ import {
   IconChevronDown,
   IconChartHistogram,
   IconFlask,
+  IconGitCompare,
   IconMoon,
   IconCalculator,
 } from '@tabler/icons-react'
@@ -48,6 +49,7 @@ const REPORTS_NAV: NavItem[] = [
   { to: '/reports/night-consumption', labelKey: 'nightConsumption', icon: <IconMoon size={16} /> },
   { to: '/reports/accidents', labelKey: 'accidents', icon: <IconAlertTriangle size={16} /> },
   { to: '/reports/fhp-comparison', labelKey: 'fhpComparison', icon: <IconFlask size={16} /> },
+  { to: '/reports/line-comparison', labelKey: 'lineComparison', icon: <IconGitCompare size={16} /> },
   { to: '/flow-calc', labelKey: 'navFlowCalc', icon: <IconCalculator size={16} /> },
 ]
 
