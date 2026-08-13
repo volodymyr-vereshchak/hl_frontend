@@ -86,6 +86,47 @@ export function buildEnterpriseBreakdown(
 }
 
 /**
+ * Column order of the breakdown export: NET and the enterprise total come
+ * FIRST, right after the line's own columns, and only then one column per
+ * enterprise.
+ *
+ * The enterprise set differs from line to line and is sorted by name, so with
+ * the per-enterprise columns in front the two numbers people actually compare
+ * landed in a different spreadsheet column for every line. Fixed positions are
+ * the whole point. This is also the order the on-screen table uses
+ * (ArchiveTable adds netVolume then totalEnterprise), so file and screen agree.
+ */
+export function breakdownHeader(lineLabels: string[], enterpriseNames: string[]): string[] {
+  return [
+    ...lineLabels,
+    'NET (лінія − підприємства)',
+    'Разом підприємства',
+    ...enterpriseNames,
+  ]
+}
+
+/**
+ * One exported row in that order. `lineCells` is the already-formatted line
+ * part; `volume` is the line volume NET is measured against.
+ *
+ * The total is summed from the per-enterprise cells rather than taken from the
+ * API, so the row always adds up on screen — an unpolled enterprise is an empty
+ * cell and contributes nothing.
+ */
+export function breakdownRow(
+  lineCells: (string | number)[],
+  volume: unknown,
+  enterpriseNames: string[],
+  entry: Record<string, number | null> | undefined,
+): (string | number)[] {
+  // Unpolled periods stay blank rather than reading as a measured zero.
+  const perEnterprise = enterpriseNames.map((name) => entry?.[name] ?? '')
+  const totalEnt = perEnterprise.reduce<number>((s, v) => s + (typeof v === 'number' ? v : 0), 0)
+  const net = (Number(volume) || 0) - totalEnt
+  return [...lineCells, net, totalEnt, ...perEnterprise]
+}
+
+/**
  * Fetch enterprise volumes over the NDJSON progress stream, falling back to the
  * plain GET when the stream transport itself is unavailable.
  *

@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { buildEnterpriseBreakdown, enterpriseRecordTotal } from './enterpriseVolumes'
+import {
+  breakdownHeader,
+  breakdownRow,
+  buildEnterpriseBreakdown,
+  enterpriseRecordTotal,
+} from './enterpriseVolumes'
 import type { EnterpriseDeviceVolume, EnterpriseRecord } from '@/api/enterprise'
 
 const device = (over: Partial<EnterpriseDeviceVolume> = {}): EnterpriseDeviceVolume => ({
@@ -120,6 +125,59 @@ describe('buildEnterpriseBreakdown', () => {
     const { names, byPeriod } = buildEnterpriseBreakdown([record('2026-07-01', [])], 'daily')
     expect(names).toEqual([])
     expect(byPeriod.get('2026-07-01')).toEqual({})
+  })
+})
+
+/**
+ * Column order of the breakdown export. The point of these is comparability
+ * between lines: NET and the total must sit at the same spreadsheet column
+ * whatever enterprises a particular line happens to have.
+ */
+describe('breakdown column order', () => {
+  const lineCols = ['Період', "Об'єм"]
+
+  it('puts NET and the total right after the line columns', () => {
+    expect(breakdownHeader(lineCols, ['Авіа', 'Мрія'])).toEqual([
+      'Період',
+      "Об'єм",
+      'NET (лінія − підприємства)',
+      'Разом підприємства',
+      'Авіа',
+      'Мрія',
+    ])
+  })
+
+  it('keeps NET and the total at the same index for lines with different enterprises', () => {
+    const a = breakdownHeader(lineCols, ['Авіа'])
+    const b = breakdownHeader(lineCols, ['Мрія', 'Хліб', 'Ярмарок'])
+    expect(a.indexOf('NET (лінія − підприємства)')).toBe(b.indexOf('NET (лінія − підприємства)'))
+    expect(a.indexOf('Разом підприємства')).toBe(b.indexOf('Разом підприємства'))
+  })
+
+  it('lays the row out in the same order as the header', () => {
+    const row = breakdownRow(['2026-07-01', 1000], 1000, ['Авіа', 'Мрія'], {
+      Авіа: 100,
+      Мрія: 25,
+    })
+    expect(row).toEqual(['2026-07-01', 1000, 875, 125, 100, 25])
+  })
+
+  it('leaves an unpolled enterprise blank and out of both the total and NET', () => {
+    const row = breakdownRow(['2026-07-01', 1000], 1000, ['Авіа', 'Мрія'], {
+      Авіа: 100,
+      Мрія: null,
+    })
+    expect(row).toEqual(['2026-07-01', 1000, 900, 100, 100, ''])
+  })
+
+  it('reports the whole line volume as NET when the period has no enterprise data', () => {
+    expect(breakdownRow(['2026-07-01', 1000], 1000, ['Авіа'], undefined)).toEqual([
+      '2026-07-01',
+      1000,
+      1000,
+      0,
+      '',
+    ])
   })
 })
 

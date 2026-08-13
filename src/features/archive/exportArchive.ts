@@ -3,6 +3,8 @@ import type { ArchiveColumn } from '@/domain/archiveColumns'
 import { resolveEditName } from '@/domain/archiveColumns'
 import { formatEditValue } from '@/domain/valueConverter'
 import {
+  breakdownHeader,
+  breakdownRow,
   buildEnterpriseBreakdown,
   enterprisePeriodKey,
   getEnterpriseFetchFn,
@@ -57,8 +59,10 @@ export function exportArchiveToExcel(
 }
 
 /**
- * Excel export with a per-enterprise breakdown: one column per enterprise plus
- * total and net (line volume − enterprises), joined on the commercial period.
+ * Excel export with a per-enterprise breakdown: net (line volume − enterprises)
+ * and the enterprise total right after the line's columns, then one column per
+ * enterprise, joined on the commercial period. Column order lives in
+ * `breakdownHeader`/`breakdownRow` — see there for why net comes first.
  */
 export async function exportWithEnterpriseBreakdown(
   rows: ArchiveRow[],
@@ -84,12 +88,7 @@ export async function exportWithEnterpriseBreakdown(
   )
 
   const { names: enterpriseCols, byPeriod } = buildEnterpriseBreakdown(records, periodType)
-  const header = [
-    ...columns.map((c) => c.label),
-    ...enterpriseCols,
-    'Разом підприємства',
-    'NET (лінія − підприємства)',
-  ]
+  const header = breakdownHeader(columns.map((c) => c.label), enterpriseCols)
 
   const body = rows.map((row) => {
     const base = columns.map((c) => {
@@ -99,12 +98,7 @@ export async function exportWithEnterpriseBreakdown(
       return isFinite(n) ? n : (raw ?? '')
     })
     const entry = byPeriod.get(enterprisePeriodKey(row.period, periodType))
-    // Unpolled periods stay blank rather than reading as a measured zero.
-    const perEnterprise = enterpriseCols.map((name) => entry?.[name] ?? '')
-    // Totalled from the visible columns, so the row always adds up on screen.
-    const totalEnt = perEnterprise.reduce<number>((s, v) => s + (typeof v === 'number' ? v : 0), 0)
-    const net = (Number(row.volume) || 0) - totalEnt
-    return [...base, ...perEnterprise, totalEnt, net]
+    return breakdownRow(base as (string | number)[], row.volume, enterpriseCols, entry)
   })
 
   const ws = XLSX.utils.aoa_to_sheet([header, ...body])

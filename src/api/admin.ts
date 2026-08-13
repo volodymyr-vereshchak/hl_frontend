@@ -120,11 +120,40 @@ export const calcAdminApi = {
   remove: (id: number) => api.delete<true>(`/gas-volume-calcs/${id}`),
 }
 
+/** Row counts a transfer of the event-type dictionaries moved. */
+export interface EventTypeTransferResult {
+  ok: boolean
+  /** Only on load: the dictionaries were emptied before the file was read. */
+  wiped?: boolean
+  exported: { flowtype: number; sysname: number; editname: number }
+}
+
 export const calcTypeAdminApi = {
   getAll: () => api.get<CalcType[]>('/gas-volume-calc-types/'),
   create: (data: Partial<CalcType>) => api.post<CalcType>('/gas-volume-calc-types/', data),
   update: (id: number, data: Partial<CalcType>) => api.patch<CalcType>(`/gas-volume-calc-types/${id}`, data),
   remove: (id: number) => api.delete<true>(`/gas-volume-calc-types/${id}`),
+
+  /**
+   * Write the three dictionaries — calculator types, accidents, changes — into
+   * FLOWTYPE.json, SYSNAME.json and EDITNAME.json.
+   *
+   * The backend reloads those files into the database on every start, so an
+   * edit made only in the admin panel lives until the next restart and nowhere
+   * else. This is what makes it permanent, and what carries it to the offline
+   * server — the files are committed with the code.
+   */
+  exportPreload: () =>
+    api.post<EventTypeTransferResult>('/gas-volume-calc-types/export-preload', {}),
+
+  /**
+   * The other direction. Without `force` names are updated from the files and
+   * missing rows added; with it the accident and change dictionaries are
+   * emptied first, so rows absent from the files are lost. Calculator types are
+   * never wiped — deleting one cascades to its lines and their archive.
+   */
+  preload: (force = false) =>
+    api.post<EventTypeTransferResult>(`/gas-volume-calc-types/preload?force=${force}`, {}),
 }
 
 export const virtualLineAdminApi = {
@@ -208,11 +237,24 @@ const typeParams = (q: TypeQuery) => ({
   ...(q.search ? { search: q.search } : {}),
 })
 
+/**
+ * How many archive rows carry this event code. Nothing references the
+ * dictionaries by foreign key, so a type can always be deleted — those rows
+ * just start showing a number where the name used to be. `capped` means the
+ * count stopped early; the exact figure would cost a full scan and the answer
+ * only has to be "none" or "a lot".
+ */
+export interface TypeUsage {
+  archive_rows: number
+  capped: boolean
+}
+
 export const sysTypeApi = {
   getPaged: (q: TypeQuery = {}) => api.get<Paged<SysType>>('/sys-types/', typeParams(q)),
   create: (data: Partial<SysType>) => api.post<SysType>('/sys-types/', data),
   update: (id: number, data: Partial<SysType>) => api.patch<SysType>(`/sys-types/${id}`, data),
   remove: (id: number) => api.delete<true>(`/sys-types/${id}`),
+  usage: (id: number) => api.get<TypeUsage>(`/sys-types/${id}/usage`),
 }
 
 export const editTypeApi = {
@@ -220,6 +262,7 @@ export const editTypeApi = {
   create: (data: Partial<EditType>) => api.post<EditType>('/edit-types/', data),
   update: (id: number, data: Partial<EditType>) => api.patch<EditType>(`/edit-types/${id}`, data),
   remove: (id: number) => api.delete<true>(`/edit-types/${id}`),
+  usage: (id: number) => api.get<TypeUsage>(`/edit-types/${id}/usage`),
 }
 
 // ── Device catalog ──────────────────────────────────────────────────────────
