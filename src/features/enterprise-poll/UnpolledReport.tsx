@@ -6,6 +6,7 @@ import {
   Center,
   Divider,
   Group,
+  MultiSelect,
   Paper,
   ScrollArea,
   SegmentedControl,
@@ -117,7 +118,10 @@ export function UnpolledReport({
   }
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState<string | null>(null)
-  const [corrector, setCorrector] = useState<string | null>(null)
+  // Several models at once: a fault usually belongs to a family of correctors,
+  // not to exactly one of them, and comparing two suspects meant re-picking the
+  // filter back and forth while a single choice was all it allowed.
+  const [correctors, setCorrectors] = useState<string[]>([])
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(50)
   // No totals row here, so only the sticky header needs measuring.
@@ -138,7 +142,8 @@ export function UnpolledReport({
     const match = (m: EnterpriseMappingRow) => {
       if (status === 'on' && !isActionable(m)) return false
       if (status === 'off' && isActionable(m)) return false
-      if (corrector && modelOf(m) !== corrector) return false
+      // No selection means no restriction, exactly as an empty search does.
+      if (correctors.length && !correctors.includes(modelOf(m))) return false
       return (
         !q ||
         enterpriseLabel(m).toLowerCase().includes(q) ||
@@ -154,7 +159,7 @@ export function UnpolledReport({
       const byBranch = branchName(a.branch_id).localeCompare(branchName(b.branch_id))
       return byBranch || enterpriseLabel(a).localeCompare(enterpriseLabel(b))
     })
-  }, [rows, search, status, corrector, modelOf, lineLabel, branchName])
+  }, [rows, search, status, correctors, modelOf, lineLabel, branchName])
 
   const pageRows = useMemo(
     () => filtered.slice((page - 1) * pageSize, page * pageSize),
@@ -162,6 +167,10 @@ export function UnpolledReport({
   )
   const actionable = filtered.filter(isActionable).length
   const isFiltered = filtered.length !== rows.length
+  /** Whether anything is set, as opposed to whether anything was cut out:
+   *  ticking every corrector model narrows nothing, and the button that clears
+   *  the ticks has to stay reachable. */
+  const hasFilters = status !== null || correctors.length > 0 || search.trim() !== ''
   /** Colour of the headline badge comes from the WHOLE check, not the filtered
    *  slice: teal means the branch answered, and filtering down to the switched
    *  off ones must not turn a branch with faults green. */
@@ -286,18 +295,21 @@ export function UnpolledReport({
             size="xs"
             w={175}
           />
-          <Select
-            placeholder={t('correctorType')}
+          <MultiSelect
+            placeholder={correctors.length ? '' : t('correctorType')}
             data={correctorOptions}
-            value={corrector}
+            value={correctors}
             onChange={(v) => {
-              setCorrector(v)
+              setCorrectors(v)
               setPage(1)
             }}
             clearable
             searchable
+            // Picked models leave the list: with a dozen of them the dropdown
+            // is easier to read when it only offers what is still to choose.
+            hidePickedOptions
             size="xs"
-            w={240}
+            style={{ minWidth: 240, maxWidth: 420 }}
           />
           {/* Free-text search is only meaningful against the named rows. */}
           {mode === 'list' && (
@@ -313,14 +325,14 @@ export function UnpolledReport({
               w={220}
             />
           )}
-          {isFiltered && (
+          {hasFilters && (
             <Button
               size="compact-xs"
               variant="subtle"
               color="gray"
               onClick={() => {
                 setStatus(null)
-                setCorrector(null)
+                setCorrectors([])
                 setSearch('')
                 setPage(1)
               }}
