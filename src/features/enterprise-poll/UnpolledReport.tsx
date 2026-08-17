@@ -6,7 +6,6 @@ import {
   Center,
   Divider,
   Group,
-  MultiSelect,
   Paper,
   ScrollArea,
   SegmentedControl,
@@ -25,6 +24,7 @@ import {
   IconRefresh,
   IconSearch,
 } from '@tabler/icons-react'
+import { CheckboxFilter } from '@/components/CheckboxFilter'
 import { TablePagination } from '@/components/TablePagination'
 import { useStickyRowHeights } from '@/components/useMeasuredHeight'
 import { currentDevice, enterpriseLabel, type EnterpriseMappingRow } from '@/api/enterprise'
@@ -208,7 +208,7 @@ export function UnpolledReport({
     for (const m of rows) counts.set(modelOf(m), (counts.get(modelOf(m)) ?? 0) + 1)
     return [...counts.entries()]
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-      .map(([name, n]) => ({ value: name, label: `${name} (${n})` }))
+      .map(([name, n]) => ({ value: name, label: name, count: n }))
   }, [rows, modelOf])
 
   return (
@@ -295,21 +295,15 @@ export function UnpolledReport({
             size="xs"
             w={175}
           />
-          <MultiSelect
-            placeholder={correctors.length ? '' : t('correctorType')}
-            data={correctorOptions}
+          <CheckboxFilter
+            label={t('correctorType')}
+            options={correctorOptions}
             value={correctors}
             onChange={(v) => {
               setCorrectors(v)
               setPage(1)
             }}
-            clearable
-            searchable
-            // Picked models leave the list: with a dozen of them the dropdown
-            // is easier to read when it only offers what is still to choose.
-            hidePickedOptions
-            size="xs"
-            style={{ minWidth: 240, maxWidth: 420 }}
+            searchPlaceholder={t('searchCorrector')}
           />
           {/* Free-text search is only meaningful against the named rows. */}
           {mode === 'list' && (
