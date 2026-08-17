@@ -51,6 +51,7 @@ import {
 } from '@/api/enterprise'
 import { PollProgress } from '@/components/PollProgress'
 import { UnpolledReport } from './UnpolledReport'
+import { EMPTY_UNPOLLED_FILTERS, type UnpolledFilters } from './unpolledFilters'
 import { useStickyRowHeights } from '@/components/useMeasuredHeight'
 import { enterpriseRecordTotal } from '@/domain/enterpriseVolumes'
 import { normalizeUnit, PRESSURE_UNIT_DEFAULT } from '@/domain/pressureUnits'
@@ -120,6 +121,9 @@ export function EnterprisePollPage() {
    * whole check.
    */
   const [reportOpen, setReportOpen] = useState(false)
+  /** Filters, view and page of the report, held here for the same reason the
+   *  rows are: hiding the report unmounts it. */
+  const [reportFilters, setReportFilters] = useState<UnpolledFilters>(EMPTY_UNPOLLED_FILTERS)
   /** What the last check covered — shown above the report so the number means
    *  something ("3 of 340" reads differently from a bare "3"). */
   const [checkedRange, setCheckedRange] = useState({ from: '', to: '', count: 0 })
@@ -745,6 +749,8 @@ export function EnterprisePollPage() {
           {unpolled !== null && reportOpen ? (
             <UnpolledReport
               rows={unpolled}
+              filters={reportFilters}
+              onFiltersChange={setReportFilters}
               checked={checkedRange.count}
               from={checkedRange.from}
               to={checkedRange.to}

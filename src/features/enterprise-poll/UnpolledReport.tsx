@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import {
   Badge,
   Box,
@@ -30,9 +30,13 @@ import { useStickyRowHeights } from '@/components/useMeasuredHeight'
 import { currentDevice, enterpriseLabel, type EnterpriseMappingRow } from '@/api/enterprise'
 import { useLanguage } from '@/locales/LanguageContext'
 import { numericStyle } from '@/theme/theme'
+import type { UnpolledFilters } from './unpolledFilters'
 
 export interface UnpolledReportProps {
   rows: EnterpriseMappingRow[]
+  /** Held by the page: hiding the report unmounts this component. */
+  filters: UnpolledFilters
+  onFiltersChange: (next: UnpolledFilters) => void
   /** How many active enterprises the check covered — the denominator. */
   checked: number
   /** Window the check looked at, as display strings. */
@@ -98,6 +102,8 @@ function Stat({
  */
 export function UnpolledReport({
   rows,
+  filters,
+  onFiltersChange,
   checked,
   from,
   to,
@@ -110,20 +116,13 @@ export function UnpolledReport({
   onRefresh,
 }: UnpolledReportProps) {
   const { t, getLocale } = useLanguage()
-  const [mode, setMode] = useState<'list' | 'summary'>('list')
   // The window is built from ISO days; show it the way the pickers do.
   const day = (v: string) => {
     const d = new Date(v)
     return isNaN(d.getTime()) ? v : d.toLocaleDateString(getLocale())
   }
-  const [search, setSearch] = useState('')
-  const [status, setStatus] = useState<string | null>(null)
-  // Several models at once: a fault usually belongs to a family of correctors,
-  // not to exactly one of them, and comparing two suspects meant re-picking the
-  // filter back and forth while a single choice was all it allowed.
-  const [correctors, setCorrectors] = useState<string[]>([])
-  const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(50)
+  const { mode, search, status, page, pageSize } = filters
+  const set = (patch: Partial<UnpolledFilters>) => onFiltersChange({ ...filters, ...patch })
   // No totals row here, so only the sticky header needs measuring.
   const { containerRef, theadRef, theadHeight } = useStickyRowHeights()
 
@@ -131,6 +130,19 @@ export function UnpolledReport({
     () => (m: EnterpriseMappingRow) => correctorName(m) || t('unknownCorrector'),
     [correctorName, t],
   )
+
+  /**
+   * Several models at once: a fault usually belongs to a family of correctors,
+   * not to exactly one of them.
+   *
+   * Models that a re-run no longer reports are dropped here rather than left to
+   * filter the whole report down to nothing — an empty table under a filter for
+   * a model that is no longer in the result reads as "everybody answered".
+   */
+  const correctors = useMemo(() => {
+    const available = new Set(rows.map(modelOf))
+    return filters.correctors.filter((c) => available.has(c))
+  }, [filters.correctors, rows, modelOf])
 
   /**
    * The filtered set, and the single source every part of the report reads:
@@ -161,9 +173,13 @@ export function UnpolledReport({
     })
   }, [rows, search, status, correctors, modelOf, lineLabel, branchName])
 
+  /** The page now survives leaving the report, so it can outlive the rows it
+   *  pointed into — a re-run that comes back shorter would otherwise open on a
+   *  page past the end and show an empty table. */
+  const safePage = Math.min(page, Math.max(1, Math.ceil(filtered.length / pageSize)))
   const pageRows = useMemo(
-    () => filtered.slice((page - 1) * pageSize, page * pageSize),
-    [filtered, page, pageSize],
+    () => filtered.slice((safePage - 1) * pageSize, safePage * pageSize),
+    [filtered, safePage, pageSize],
   )
   const actionable = filtered.filter(isActionable).length
   const isFiltered = filtered.length !== rows.length
@@ -277,7 +293,7 @@ export function UnpolledReport({
           <SegmentedControl
             size="xs"
             value={mode}
-            onChange={(v) => setMode(v as 'list' | 'summary')}
+            onChange={(v) => set({ mode: v as 'list' | 'summary' })}
             data={[
               { value: 'list', label: t('unpolledByName') },
               { value: 'summary', label: t('unpolledSummary') },
@@ -287,10 +303,7 @@ export function UnpolledReport({
             placeholder={t('status')}
             data={statusOptions}
             value={status}
-            onChange={(v) => {
-              setStatus(v)
-              setPage(1)
-            }}
+            onChange={(v) => set({ status: v, page: 1 })}
             clearable
             size="xs"
             w={175}
@@ -299,10 +312,7 @@ export function UnpolledReport({
             label={t('correctorType')}
             options={correctorOptions}
             value={correctors}
-            onChange={(v) => {
-              setCorrectors(v)
-              setPage(1)
-            }}
+            onChange={(v) => set({ correctors: v, page: 1 })}
             searchPlaceholder={t('searchCorrector')}
           />
           {/* Free-text search is only meaningful against the named rows. */}
@@ -311,10 +321,7 @@ export function UnpolledReport({
               placeholder={t('searchEnterprise')}
               leftSection={<IconSearch size={14} />}
               value={search}
-              onChange={(e) => {
-                setSearch(e.currentTarget.value)
-                setPage(1)
-              }}
+              onChange={(e) => set({ search: e.currentTarget.value, page: 1 })}
               size="xs"
               w={220}
             />
@@ -324,12 +331,7 @@ export function UnpolledReport({
               size="compact-xs"
               variant="subtle"
               color="gray"
-              onClick={() => {
-                setStatus(null)
-                setCorrectors([])
-                setSearch('')
-                setPage(1)
-              }}
+              onClick={() => set({ status: null, correctors: [], search: '', page: 1 })}
             >
               {t('resetFilters')}
             </Button>
@@ -509,11 +511,11 @@ export function UnpolledReport({
             <>
               <Divider />
               <TablePagination
-                page={page}
+                page={safePage}
                 pageSize={pageSize}
                 total={filtered.length}
-                onPageChange={setPage}
-                onPageSizeChange={setPageSize}
+                onPageChange={(p) => set({ page: p })}
+                onPageSizeChange={(n) => set({ pageSize: n, page: 1 })}
                 shownLabel={`${t('records')}: ${filtered.length}`}
               />
             </>
