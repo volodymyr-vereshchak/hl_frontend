@@ -46,6 +46,11 @@ export interface EnterpriseRecord {
  *
  * A row points at EITHER a physical line (`line_id`) or a DPD line
  * (`dpd_line_id`); ids never collide between the two.
+ *
+ * No index signature, on purpose. Everything about the corrector itself lives
+ * in `devices[]`, and while `[key: string]: unknown` was here the poll screen
+ * went on reading `manufacturer_short_name` off the point long after the field
+ * had moved onto the device — undefined, no type error, a blank column.
  */
 export interface EnterpriseMappingRow {
   id: number
@@ -57,7 +62,6 @@ export interface EnterpriseMappingRow {
   enabled?: boolean
   /** Corrector history, ordered by install moment. */
   devices?: EnterpriseDeviceRow[]
-  [key: string]: unknown
 }
 
 /**
@@ -94,6 +98,22 @@ export function currentDevice(m: EnterpriseMappingRow): EnterpriseDeviceRow | nu
 export function enterpriseLabel(m: EnterpriseMappingRow): string {
   const device = currentDevice(m)
   return m.enterprise_name || (device ? `S/N ${device.ser_num}` : `#${m.id}`)
+}
+
+/**
+ * "Виробник Модель" of the corrector standing at a point now, or '' when it is
+ * unknown (no history, or a device not linked to the catalog).
+ *
+ * The model names live on the DEVICE, not on the point: once correctors got
+ * their own history and a foreign key into the catalog, `manufacturer_short_name`
+ * and `model_name` moved into `devices[]` and reading them off the mapping row
+ * quietly returned undefined everywhere — which the row's index signature made
+ * invisible to the type checker.
+ */
+export function correctorLabel(m: EnterpriseMappingRow): string {
+  const device = currentDevice(m)
+  if (!device) return ''
+  return [device.manufacturer_short_name, device.model_name].filter(Boolean).join(' ')
 }
 
 export interface VolumesParams {

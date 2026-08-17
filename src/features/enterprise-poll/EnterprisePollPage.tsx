@@ -42,6 +42,7 @@ import * as XLSX from 'xlsx'
 import { branchAdminApi, dpdLineAdminApi, lineAdminApi } from '@/api/admin'
 import {
   enterpriseApi,
+  correctorLabel,
   currentDevice,
   enterpriseLabel,
   streamEnterpriseVolumes,
@@ -323,7 +324,7 @@ export function EnterprisePollPage() {
     const body = rowsToExport.map((m) => [
       (branches ?? []).find((b) => b.id === m.branch_id)?.name ?? '',
       enterpriseLabel(m),
-      [m.manufacturer_short_name, m.model_name].filter(Boolean).join(' '),
+      correctorLabel(m),
       currentDevice(m)?.ser_num ?? '',
       currentDevice(m)?.ch_num ?? '',
       lineLabel(m) ?? t('withoutLine'),
@@ -338,7 +339,7 @@ export function EnterprisePollPage() {
     const on = rowsToExport.filter((m) => m.enabled !== false).length
     const byCorrector = new Map<string, { on: number; off: number }>()
     for (const m of rowsToExport) {
-      const name = [m.manufacturer_short_name, m.model_name].filter(Boolean).join(' ') || t('unknownCorrector')
+      const name = correctorLabel(m) || t('unknownCorrector')
       const e = byCorrector.get(name) ?? { on: 0, off: 0 }
       if (m.enabled === false) e.off += 1
       else e.on += 1
@@ -749,9 +750,7 @@ export function EnterprisePollPage() {
               to={checkedRange.to}
               branchName={(id) => (branches ?? []).find((b) => b.id === id)?.name ?? '—'}
               lineLabel={lineLabel}
-              correctorName={(m) =>
-                [m.manufacturer_short_name, m.model_name].filter(Boolean).join(' ')
-              }
+              correctorName={correctorLabel}
               onSelect={(id) => {
                 setSelected(id)
                 // Hide, don't discard: the toolbar button brings it straight back.
