@@ -77,14 +77,16 @@ export function formatDetail(detail: unknown): string {
 // ── Session-expiry handling ────────────────────────────────────────────────
 /**
  * Why the session ended. 'expired' needs no explanation — the token simply ran
- * out. 'perms-changed' does: the backend killed the session on purpose because
- * an admin changed what this account may do, and a user dropped back to the
- * login form without being told why reads it as a bug.
+ * out. The others do: the backend killed the session on purpose, either because
+ * an admin changed what this account may do or because domain login was
+ * switched off under a domain account, and a user dropped back to the login
+ * form without being told why reads it as a bug.
  */
-export type SessionLostReason = 'expired' | 'perms-changed'
+export type SessionLostReason = 'expired' | 'perms-changed' | 'domain-login-off'
 
-/** Response header the backend marks a rights-change 401 with. */
+/** Response header naming the sessions the backend ended on purpose. */
 const SESSION_ENDED_HEADER = 'X-Session-Ended'
+const DELIBERATE: readonly string[] = ['perms-changed', 'domain-login-off']
 
 let _onSessionLost: ((reason: SessionLostReason) => void) | null = null
 let _reauthPromise: Promise<boolean> | null = null
@@ -166,10 +168,9 @@ async function makeRequest<T>(endpoint: string, options: RequestOptions = {}): P
             return await makeRequest<T>(endpoint, { ...options, _reauthTried: true })
           }
           if (_onSessionLost) {
+            const marker = response.headers.get(SESSION_ENDED_HEADER) ?? ''
             _onSessionLost(
-              response.headers.get(SESSION_ENDED_HEADER) === 'perms-changed'
-                ? 'perms-changed'
-                : 'expired',
+              DELIBERATE.includes(marker) ? (marker as SessionLostReason) : 'expired',
             )
           }
         }

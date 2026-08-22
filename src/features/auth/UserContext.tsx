@@ -36,7 +36,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
         setUser(null)
         // Only a session the backend ended on purpose is worth a notice; an
         // ordinary expiry is what the login form is for.
-        setSessionNotice(reason === 'perms-changed' ? reason : null)
+        setSessionNotice(reason === 'expired' ? null : reason)
       },
     })
     return () => setSessionHandlers({ onSessionLost: undefined })

@@ -74,14 +74,16 @@ export function LoginPage() {
             </Box>
           </Group>
 
-          {sessionNotice === 'perms-changed' && (
+          {sessionNotice && (
             <Alert
               color="amber"
               variant="light"
               icon={<IconShieldLock size={16} />}
               py="xs"
             >
-              {t('sessionRightsChanged')}
+              {sessionNotice === 'domain-login-off'
+                ? t('sessionDomainLoginOff')
+                : t('sessionRightsChanged')}
             </Alert>
           )}
 
