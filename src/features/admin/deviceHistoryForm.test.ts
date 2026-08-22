@@ -85,13 +85,13 @@ describe('parseTypedDate', () => {
     expect(parseTypedDate('05032026')).toBe('2026-03-05')
   })
 
-  it('takes slashes and dashes', () => {
-    expect(parseTypedDate('05/03/2026')).toBe('2026-03-05')
-    expect(parseTypedDate('05-03-2026')).toBe('2026-03-05')
-  })
-
-  it('takes the stored form back, for a pasted value', () => {
-    expect(parseTypedDate('2026-03-05')).toBe('2026-03-05')
+  it('refuses a slash or a dash, because that reading is not one reading', () => {
+    // 08/22/2026 is a date where the month comes first and nonsense where it
+    // does not. A field that picks between them will pick wrong eventually.
+    expect(parseTypedDate('08/22/2026')).toBeNull()
+    expect(parseTypedDate('05/03/2026')).toBeNull()
+    expect(parseTypedDate('05-03-2026')).toBeNull()
+    expect(parseTypedDate('2026-03-05')).toBeNull()
   })
 
   it('ignores surrounding spaces', () => {

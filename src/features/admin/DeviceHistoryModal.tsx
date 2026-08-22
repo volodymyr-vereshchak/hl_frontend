@@ -47,6 +47,7 @@ import {
   toDeviceForms,
   toDevicePayload,
   parseTypedDate,
+  DATE_FORMAT_HINT,
   type DeviceForm,
 } from './deviceHistoryForm'
 
@@ -311,6 +312,10 @@ export function DeviceHistoryEditor({
               />
               <DateInput
                 label="Встановлено"
+                // The one accepted format, said before the mistake rather than
+                // after it: the placeholder is taken by «від початку», which
+                // means something of its own here.
+                title={`Дата у форматі ${DATE_FORMAT_HINT}`}
                 size="xs"
                 w={140}
                 valueFormat="DD.MM.YYYY"
@@ -318,7 +323,7 @@ export function DeviceHistoryEditor({
                 clearable
                 fixOnBlur={false}
                 dateParser={parseTypedDate}
-                error={badDates[`${dev.idx}-installed`] ? 'дд.мм.рррр' : undefined}
+                error={badDates[`${dev.idx}-installed`] ? DATE_FORMAT_HINT : undefined}
                 value={dev.installed_date || null}
                 onChange={(v) => setDevice(dev.idx, { installed_date: v ?? '' })}
                 onBlur={(e) =>
@@ -336,6 +341,7 @@ export function DeviceHistoryEditor({
               />
               <DateInput
                 label="Знято"
+                title={`Дата у форматі ${DATE_FORMAT_HINT}`}
                 size="xs"
                 w={140}
                 valueFormat="DD.MM.YYYY"
@@ -343,7 +349,7 @@ export function DeviceHistoryEditor({
                 clearable
                 fixOnBlur={false}
                 dateParser={parseTypedDate}
-                error={badDates[`${dev.idx}-removed`] ? 'дд.мм.рррр' : undefined}
+                error={badDates[`${dev.idx}-removed`] ? DATE_FORMAT_HINT : undefined}
                 value={dev.removed_date || null}
                 onChange={(v) => setDevice(dev.idx, { removed_date: v ?? '' })}
                 onBlur={(e) =>

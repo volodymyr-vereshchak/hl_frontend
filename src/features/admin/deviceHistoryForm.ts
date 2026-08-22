@@ -104,33 +104,39 @@ export function toDevicePayload(devices: DeviceForm[]): EnterpriseDevice[] {
 const MIN_YEAR = 1990
 const MAX_YEAR = 2100
 
+/** The one shape a typed date may take. Shown to the reader on a mistake. */
+export const DATE_FORMAT_HINT = 'дд.мм.рррр'
+
 /**
- * A date typed by hand, in the shapes people actually type.
+ * A date typed by hand — in exactly one format, `дд.мм.рррр`.
  *
- * Returns `YYYY-MM-DD` — the form the rest of this module stores — or null
- * when the text is not a real date. Both halves matter: `дд.мм.рррр` is what
- * the field shows, but a hand-entered `31.02.2026` has to be refused rather
- * than rolled over into March, which is what the Date constructor does with it.
+ * Returns `YYYY-MM-DD` — the form the rest of this module stores — or null for
+ * anything else. Two refusals are the point of it.
  *
- * Separators are whatever is at hand (dot, slash, dash) or nothing at all,
- * because typing eight digits is faster than reaching for the dot. `YYYY-MM-DD`
- * is accepted too — that is what a value pasted out of the archive looks like.
+ * A slash or a dash is refused rather than read as a separator: `08/22/2026`
+ * is a date in one country and nonsense in another, and a field that guesses
+ * between them will eventually guess wrong on a date nobody re-checks. One
+ * separator, one reading.
+ *
+ * `31.02.2026` is refused rather than rolled over into March, which is what
+ * the Date constructor does with it — and a corrector's install date silently
+ * moved by a day hands part of the archive to the wrong device.
+ *
+ * Eight bare digits are the one shortcut: `05032026` is the same order as the
+ * dotted form, just faster to type, so it cannot be read two ways either.
  */
 export function parseTypedDate(input: string): string | null {
   const text = input.trim()
   if (!text) return null
 
-  const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(text)
-  const dmy = /^(\d{1,2})[.\-/](\d{1,2})[.\-/](\d{4})$/.exec(text)
+  const dotted = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(text)
   const digits = /^(\d{2})(\d{2})(\d{4})$/.exec(text)
 
   let year: number
   let month: number
   let day: number
-  if (iso) {
-    ;[year, month, day] = [Number(iso[1]), Number(iso[2]), Number(iso[3])]
-  } else if (dmy) {
-    ;[day, month, year] = [Number(dmy[1]), Number(dmy[2]), Number(dmy[3])]
+  if (dotted) {
+    ;[day, month, year] = [Number(dotted[1]), Number(dotted[2]), Number(dotted[3])]
   } else if (digits) {
     ;[day, month, year] = [Number(digits[1]), Number(digits[2]), Number(digits[3])]
   } else {
