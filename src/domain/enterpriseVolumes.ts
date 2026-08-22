@@ -86,21 +86,42 @@ export function buildEnterpriseBreakdown(
 }
 
 /**
- * Column order of the breakdown export: NET and the enterprise total come
- * FIRST, right after the line's own columns, and only then one column per
- * enterprise.
+ * Where NET and the enterprise total go: immediately after the volume column,
+ * i.e. the third and fourth columns of the sheet.
+ *
+ * Volume, NET and the enterprise total are one thought — the line measured, what
+ * the enterprises took out of it, what is left — and they are read side by side.
+ * Everything else the line reports (pressure, temperature, working volume) sits
+ * after them. Falls back to the end of the line block if there is no volume
+ * column at all, which no daily/hourly line has.
+ */
+export function breakdownInsertAt(columnKeys: string[]): number {
+  const volume = columnKeys.indexOf('volume')
+  return volume === -1 ? columnKeys.length : volume + 1
+}
+
+/**
+ * Column order of the breakdown export: NET and the enterprise total sit at
+ * `insertAt` inside the line's own columns, and the per-enterprise columns come
+ * last.
  *
  * The enterprise set differs from line to line and is sorted by name, so with
  * the per-enterprise columns in front the two numbers people actually compare
  * landed in a different spreadsheet column for every line. Fixed positions are
- * the whole point. This is also the order the on-screen table uses
- * (ArchiveTable adds netVolume then totalEnterprise), so file and screen agree.
+ * the whole point, and putting them next to the volume they are derived from
+ * fixes them near the left edge, where two sheets can be compared without
+ * scrolling past columns that differ by line type.
  */
-export function breakdownHeader(lineLabels: string[], enterpriseNames: string[]): string[] {
+export function breakdownHeader(
+  lineLabels: string[],
+  enterpriseNames: string[],
+  insertAt: number = lineLabels.length,
+): string[] {
   return [
-    ...lineLabels,
+    ...lineLabels.slice(0, insertAt),
     'NET (лінія − підприємства)',
     'Разом підприємства',
+    ...lineLabels.slice(insertAt),
     ...enterpriseNames,
   ]
 }
@@ -118,12 +139,19 @@ export function breakdownRow(
   volume: unknown,
   enterpriseNames: string[],
   entry: Record<string, number | null> | undefined,
+  insertAt: number = lineCells.length,
 ): (string | number)[] {
   // Unpolled periods stay blank rather than reading as a measured zero.
   const perEnterprise = enterpriseNames.map((name) => entry?.[name] ?? '')
   const totalEnt = perEnterprise.reduce<number>((s, v) => s + (typeof v === 'number' ? v : 0), 0)
   const net = (Number(volume) || 0) - totalEnt
-  return [...lineCells, net, totalEnt, ...perEnterprise]
+  return [
+    ...lineCells.slice(0, insertAt),
+    net,
+    totalEnt,
+    ...lineCells.slice(insertAt),
+    ...perEnterprise,
+  ]
 }
 
 /**

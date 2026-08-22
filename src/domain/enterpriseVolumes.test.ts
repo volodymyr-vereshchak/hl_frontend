@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   breakdownHeader,
+  breakdownInsertAt,
   breakdownRow,
   buildEnterpriseBreakdown,
   enterpriseRecordTotal,
@@ -131,7 +132,9 @@ describe('buildEnterpriseBreakdown', () => {
 /**
  * Column order of the breakdown export. The point of these is comparability
  * between lines: NET and the total must sit at the same spreadsheet column
- * whatever enterprises a particular line happens to have.
+ * whatever enterprises a particular line happens to have, and whatever else
+ * the line reports — a DPD line has pressure and temperature where a physical
+ * one also has working volume.
  */
 describe('breakdown column order', () => {
   const lineCols = ['Період', "Об'єм"]
@@ -178,6 +181,31 @@ describe('breakdown column order', () => {
       0,
       '',
     ])
+  })
+
+  it('puts NET and the total right after the volume, ahead of the other line columns', () => {
+    const wide = ['Період', "Об'єм", 'Тиск', 'Температура']
+    expect(breakdownHeader(wide, ['Авіа'], 2)).toEqual([
+      'Період',
+      "Об'єм",
+      'NET (лінія − підприємства)',
+      'Разом підприємства',
+      'Тиск',
+      'Температура',
+      'Авіа',
+    ])
+  })
+
+  it('splits the row at the same place as the header', () => {
+    const row = breakdownRow(['2026-07-01', 1000, 5.5, 12], 1000, ['Авіа'], { Авіа: 100 }, 2)
+    expect(row).toEqual(['2026-07-01', 1000, 900, 100, 5.5, 12, 100])
+  })
+
+  it('finds the split from the column keys, whatever the line reports', () => {
+    expect(breakdownInsertAt(['period', 'volume'])).toBe(2)
+    expect(breakdownInsertAt(['period', 'volume', 'pressure', 'temperature'])).toBe(2)
+    // No volume column: nothing to sit next to, so they go after the line block.
+    expect(breakdownInsertAt(['period', 'sys_name'])).toBe(2)
   })
 })
 

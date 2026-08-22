@@ -4,6 +4,7 @@ import { resolveEditName } from '@/domain/archiveColumns'
 import { formatEditValue } from '@/domain/valueConverter'
 import {
   breakdownHeader,
+  breakdownInsertAt,
   breakdownRow,
   buildEnterpriseBreakdown,
   enterprisePeriodKey,
@@ -59,10 +60,10 @@ export function exportArchiveToExcel(
 }
 
 /**
- * Excel export with a per-enterprise breakdown: net (line volume − enterprises)
- * and the enterprise total right after the line's columns, then one column per
- * enterprise, joined on the commercial period. Column order lives in
- * `breakdownHeader`/`breakdownRow` — see there for why net comes first.
+ * Excel export with a per-enterprise breakdown: period, volume, net (line volume
+ * − enterprises), the enterprise total, then the rest of the line's columns and
+ * one column per enterprise, joined on the commercial period. Column order lives
+ * in `breakdownHeader`/`breakdownRow` — see there for why net sits where it does.
  */
 export async function exportWithEnterpriseBreakdown(
   rows: ArchiveRow[],
@@ -88,7 +89,8 @@ export async function exportWithEnterpriseBreakdown(
   )
 
   const { names: enterpriseCols, byPeriod } = buildEnterpriseBreakdown(records, periodType)
-  const header = breakdownHeader(columns.map((c) => c.label), enterpriseCols)
+  const insertAt = breakdownInsertAt(columns.map((c) => c.key))
+  const header = breakdownHeader(columns.map((c) => c.label), enterpriseCols, insertAt)
 
   const body = rows.map((row) => {
     const base = columns.map((c) => {
@@ -98,7 +100,7 @@ export async function exportWithEnterpriseBreakdown(
       return isFinite(n) ? n : (raw ?? '')
     })
     const entry = byPeriod.get(enterprisePeriodKey(row.period, periodType))
-    return breakdownRow(base as (string | number)[], row.volume, enterpriseCols, entry)
+    return breakdownRow(base as (string | number)[], row.volume, enterpriseCols, entry, insertAt)
   })
 
   const ws = XLSX.utils.aoa_to_sheet([header, ...body])
