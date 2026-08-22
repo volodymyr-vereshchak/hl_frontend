@@ -7,6 +7,7 @@ import {
   Center,
   Divider,
   Group,
+  Modal,
   Paper,
   ScrollArea,
   Select,
@@ -435,8 +436,21 @@ export function EnterprisesTab() {
     )
 
   // ── Form (shared by add and edit) ─────────────────────────────────────────
+  /**
+   * Add and edit both happen in a window rather than in a panel above the list.
+   *
+   * The panel was pinned to the top of the page while the row being edited was
+   * wherever the list had scrolled to — on 491 points that meant scrolling up
+   * to the form, then back down to see what had changed, for every single
+   * edit. A window opens where the eyes already are.
+   */
   const formRow = (
-    <Paper withBorder radius="md" p="md">
+    <Modal
+      opened={adding || editingId != null}
+      onClose={cancel}
+      title={editingId == null ? 'Нове підприємство' : 'Редагування підприємства'}
+      size="60rem"
+    >
       <Stack gap="sm">
       <Group gap="sm" align="flex-end" wrap="wrap">
         <TextInput
@@ -500,16 +514,16 @@ export function EnterprisesTab() {
 
       {deviceBlock}
 
-      <Group gap="sm">
-        <Button size="xs" onClick={submit} loading={save.isPending}>
-          Зберегти
-        </Button>
+      <Group gap="sm" justify="flex-end">
         <Button size="xs" variant="default" onClick={cancel}>
           Скасувати
         </Button>
+        <Button size="xs" onClick={submit} loading={save.isPending}>
+          Зберегти
+        </Button>
       </Group>
       </Stack>
-    </Paper>
+    </Modal>
   )
 
   return (
@@ -702,7 +716,7 @@ export function EnterprisesTab() {
         </Button>
       </Group>
 
-      {(adding || editingId != null) && formRow}
+      {formRow}
 
       {isLoading ? (
         <LoadingState py={40} />
