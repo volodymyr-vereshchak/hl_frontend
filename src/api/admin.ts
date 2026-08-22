@@ -1,7 +1,15 @@
 import { api, apiBaseUrl } from '@/lib/apiClient'
 import type {
-  Branch, Lumg, Line, GasVolumeCalc, CalcType, VirtualLine, DpdLine, UserRole,
-  GasRoute, FreeLine,
+  Branch,
+  Lumg,
+  Line,
+  GasVolumeCalc,
+  CalcType,
+  VirtualLine,
+  DpdLine,
+  UserRole,
+  GasRoute,
+  FreeLine,
 } from '@/types'
 
 // ── Users ───────────────────────────────────────────────────────────────────
@@ -13,6 +21,11 @@ export interface AdminUser {
   active: boolean
   /** Empty = access to every branch; non-empty = only those listed. */
   allowed_branch_ids?: number[]
+  /**
+   * False = a domain account: it signs in against Active Directory and has no
+   * password stored here, so there is nothing for an admin to reset.
+   */
+  has_password?: boolean
 }
 
 /**
@@ -34,8 +47,18 @@ export interface UserCreated {
   password: string
 }
 
+/**
+ * How the server authenticates. Deployment switches, not settings — the panel
+ * reads them to explain which accounts the current mode leaves stranded.
+ */
+export interface AuthMode {
+  ldap_enabled: boolean
+  auto_login: boolean
+}
+
 export const userApi = {
   getAll: () => api.get<AdminUser[]>('/auth/users'),
+  getMode: () => api.get<AuthMode>('/auth/mode'),
   create: (data: UserWrite) => api.post<UserCreated>('/auth/users', data),
   update: (id: number, data: UserWrite) => api.patch<AdminUser>(`/auth/users/${id}`, data),
   /** Server-side reset; the new password comes back in the response. */
@@ -131,7 +154,8 @@ export interface EventTypeTransferResult {
 export const calcTypeAdminApi = {
   getAll: () => api.get<CalcType[]>('/gas-volume-calc-types/'),
   create: (data: Partial<CalcType>) => api.post<CalcType>('/gas-volume-calc-types/', data),
-  update: (id: number, data: Partial<CalcType>) => api.patch<CalcType>(`/gas-volume-calc-types/${id}`, data),
+  update: (id: number, data: Partial<CalcType>) =>
+    api.patch<CalcType>(`/gas-volume-calc-types/${id}`, data),
   remove: (id: number) => api.delete<true>(`/gas-volume-calc-types/${id}`),
 
   /**
@@ -159,7 +183,8 @@ export const calcTypeAdminApi = {
 export const virtualLineAdminApi = {
   getAll: () => api.get<VirtualLine[]>('/virtual_lines/'),
   create: (data: Partial<VirtualLine>) => api.post<VirtualLine>('/virtual_lines/', data),
-  update: (id: number, data: Partial<VirtualLine>) => api.patch<VirtualLine>(`/virtual_lines/${id}`, data),
+  update: (id: number, data: Partial<VirtualLine>) =>
+    api.patch<VirtualLine>(`/virtual_lines/${id}`, data),
   remove: (id: number) => api.delete<true>(`/virtual_lines/${id}`),
 }
 
@@ -167,8 +192,7 @@ export const gasRouteAdminApi = {
   getAll: (branchId?: number) =>
     api.get<GasRoute[]>('/gas_routes/', branchId ? { branch_id: branchId } : undefined),
   create: (data: Partial<GasRoute>) => api.post<GasRoute>('/gas_routes/', data),
-  update: (id: number, data: Partial<GasRoute>) =>
-    api.patch<GasRoute>(`/gas_routes/${id}`, data),
+  update: (id: number, data: Partial<GasRoute>) => api.patch<GasRoute>(`/gas_routes/${id}`, data),
   remove: (id: number) => api.delete<true>(`/gas_routes/${id}`),
   /** Lines of the branch free to be claimed; `routeId` keeps its own members. */
   freeLines: (branchId: number, routeId?: number) =>
@@ -389,7 +413,8 @@ export interface UploadResult {
 
 export const enterpriseMappingApi = {
   getAll: () => api.get<EnterpriseMapping[]>('/enterprise-mappings/'),
-  create: (data: Partial<EnterpriseMapping>) => api.post<EnterpriseMapping>('/enterprise-mappings/', data),
+  create: (data: Partial<EnterpriseMapping>) =>
+    api.post<EnterpriseMapping>('/enterprise-mappings/', data),
   update: (id: number, data: Partial<EnterpriseMapping>) =>
     api.patch<EnterpriseMapping>(`/enterprise-mappings/${id}`, data),
   remove: (id: number) => api.delete<true>(`/enterprise-mappings/${id}`),

@@ -24,7 +24,14 @@ import {
 import { useDisclosure } from '@mantine/hooks'
 import { modals } from '@mantine/modals'
 import { notifications } from '@mantine/notifications'
-import { IconKey, IconPencil, IconPlus, IconSearch, IconTrash } from '@tabler/icons-react'
+import {
+  IconAlertTriangle,
+  IconKey,
+  IconPencil,
+  IconPlus,
+  IconSearch,
+  IconTrash,
+} from '@tabler/icons-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { branchAdminApi, userApi, type AdminUser, type UserWrite } from '@/api/admin'
 import { LoadingState } from '@/components/LoadingState'
@@ -70,8 +77,18 @@ export function UsersTab() {
   // until it is dismissed.
   const [newPassword, setNewPassword] = useState<{ login: string; password: string } | null>(null)
 
-  const { data: users, isLoading } = useQuery({ queryKey: ['admin', 'users'], queryFn: userApi.getAll })
-  const { data: branches } = useQuery({ queryKey: ['admin', 'branches'], queryFn: branchAdminApi.getAll })
+  const { data: users, isLoading } = useQuery({
+    queryKey: ['admin', 'users'],
+    queryFn: userApi.getAll,
+  })
+  const { data: branches } = useQuery({
+    queryKey: ['admin', 'branches'],
+    queryFn: branchAdminApi.getAll,
+  })
+  const { data: authMode } = useQuery({
+    queryKey: ['admin', 'auth-mode'],
+    queryFn: userApi.getMode,
+  })
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['admin', 'users'] })
 
@@ -145,6 +162,13 @@ export function UsersTab() {
 
   const branchName = (id: number) => (branches ?? []).find((b) => b.id === id)?.name ?? `#${id}`
 
+  // Domain accounts on a server with domain login switched off cannot sign in
+  // at all — and nothing says so until someone tries. Sessions already open
+  // keep running to their expiry, so the breakage arrives days late and one
+  // user at a time, which is exactly when nobody connects it to the switch.
+  const domainStranded =
+    authMode?.ldap_enabled === false && (users ?? []).some((u) => u.has_password === false)
+
   const q = search.trim().toLowerCase()
   const rows = (users ?? []).filter(
     (u) =>
@@ -178,6 +202,33 @@ export function UsersTab() {
           </Button>
         </Group>
       </Group>
+
+      {domainStranded && (
+        <Alert
+          color="red"
+          variant="light"
+          icon={<IconAlertTriangle size={16} />}
+          title="Доменна авторизація вимкнена на сервері"
+        >
+          <Text size="sm">
+            Облікові записи з позначкою «домен» увійти не зможуть — їхній пароль зберігається в
+            Active Directory, а звертатися до неї сервер зараз не буде. Ті, хто вже в системі,
+            працюють до завершення сеансу, після чого теж втратять доступ.
+          </Text>
+          <Text size="sm" mt={6}>
+            Видати їм локальний пароль не можна: він лишився б чинним і після повернення доменної
+            авторизації, тобто пережив би і зміну доменного пароля, і блокування облікового запису в
+            домені. Або увімкніть доменну авторизацію назад, або видаліть ці записи й створіть
+            натомість локальні.
+          </Text>
+          {authMode?.auto_login && (
+            <Text size="sm" mt={6} fw={600}>
+              Увага: увімкнено автоматичний вхід. Ці користувачі не побачать помилки — їх мовчки
+              пустить під спільним обліковим записом за замовчуванням, з чужими правами на філії.
+            </Text>
+          )}
+        </Alert>
+      )}
 
       {newPassword && (
         <Alert
@@ -232,10 +283,37 @@ export function UsersTab() {
               <Table.Tbody>
                 {rows.map((u) => {
                   const allowed = u.allowed_branch_ids ?? []
+                  // No password of ours = provisioned by a domain login. Older
+                  // API builds omit the field; treat that as a local account,
+                  // which is what every account was before domain login existed.
+                  const domainAccount = u.has_password === false
                   return (
                     <Table.Tr key={u.id}>
                       <Table.Td c="dimmed">{u.id}</Table.Td>
-                      <Table.Td>{u.username}</Table.Td>
+                      <Table.Td>
+                        <Group gap={6} wrap="nowrap">
+                          <Text size="sm">{u.username}</Text>
+                          {domainAccount && (
+                            <Tooltip
+                              label={
+                                domainStranded
+                                  ? 'Доменна авторизація вимкнена — цей запис увійти не зможе'
+                                  : 'Вхід за доменними обліковими даними (Active Directory)'
+                              }
+                              withArrow
+                            >
+                              <Badge
+                                variant={domainStranded ? 'light' : 'default'}
+                                color={domainStranded ? 'red' : undefined}
+                                size="xs"
+                                tt="none"
+                              >
+                                домен
+                              </Badge>
+                            </Tooltip>
+                          )}
+                        </Group>
+                      </Table.Td>
                       <Table.Td>{u.display_name || '—'}</Table.Td>
                       <Table.Td>
                         <Badge
@@ -272,23 +350,40 @@ export function UsersTab() {
                       </Table.Td>
                       <Table.Td>
                         <Group gap={2} justify="flex-end" wrap="nowrap">
-                          <Tooltip label="Згенерувати новий пароль" withArrow>
+                          <Tooltip
+                            label={
+                              domainAccount
+                                ? 'Пароль зберігається в домені (Active Directory) — змінюється засобами домену'
+                                : 'Згенерувати новий пароль'
+                            }
+                            withArrow
+                          >
+                            {/* Kept in place, inert, rather than dropped: the
+                                gap would read as a missing feature instead of
+                                an answer to "why can I not reset this one?".
+                                `data-disabled` and not `disabled` — a truly
+                                disabled control swallows the pointer events the
+                                tooltip needs, so the explanation would never
+                                appear. */}
                             <ActionIcon
                               variant="subtle"
                               color="amber"
+                              data-disabled={domainAccount || undefined}
                               onClick={() =>
-                                modals.openConfirmModal({
-                                  title: 'Скидання пароля',
-                                  children: (
-                                    <Text size="sm">
-                                      Згенерувати новий пароль для «{u.username}»? Старий перестане
-                                      діяти.
-                                    </Text>
-                                  ),
-                                  labels: { confirm: 'Скинути', cancel: 'Скасувати' },
-                                  confirmProps: { color: 'amber' },
-                                  onConfirm: () => resetPassword.mutate(u),
-                                })
+                                domainAccount
+                                  ? undefined
+                                  : modals.openConfirmModal({
+                                      title: 'Скидання пароля',
+                                      children: (
+                                        <Text size="sm">
+                                          Згенерувати новий пароль для «{u.username}»? Старий
+                                          перестане діяти, і поточний сеанс користувача завершиться.
+                                        </Text>
+                                      ),
+                                      labels: { confirm: 'Скинути', cancel: 'Скасувати' },
+                                      confirmProps: { color: 'amber' },
+                                      onConfirm: () => resetPassword.mutate(u),
+                                    })
                               }
                             >
                               <IconKey size={16} />

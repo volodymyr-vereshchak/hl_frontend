@@ -75,10 +75,23 @@ export function formatDetail(detail: unknown): string {
 }
 
 // ── Session-expiry handling ────────────────────────────────────────────────
-let _onSessionLost: (() => void) | null = null
+/**
+ * Why the session ended. 'expired' needs no explanation — the token simply ran
+ * out. 'perms-changed' does: the backend killed the session on purpose because
+ * an admin changed what this account may do, and a user dropped back to the
+ * login form without being told why reads it as a bug.
+ */
+export type SessionLostReason = 'expired' | 'perms-changed'
+
+/** Response header the backend marks a rights-change 401 with. */
+const SESSION_ENDED_HEADER = 'X-Session-Ended'
+
+let _onSessionLost: ((reason: SessionLostReason) => void) | null = null
 let _reauthPromise: Promise<boolean> | null = null
 
-export function setSessionHandlers({ onSessionLost }: { onSessionLost?: () => void } = {}) {
+export function setSessionHandlers({
+  onSessionLost,
+}: { onSessionLost?: (reason: SessionLostReason) => void } = {}) {
   _onSessionLost = onSessionLost ?? null
 }
 
@@ -138,13 +151,8 @@ async function makeRequest<T>(endpoint: string, options: RequestOptions = {}): P
       clearTimeout(timer)
 
       if (!response.ok) {
-        if (response.status === 401 && !endpoint.startsWith('/auth/')) {
-          if (!_reauthTried && (await tryReauth(baseUrl))) {
-            return await makeRequest<T>(endpoint, { ...options, _reauthTried: true })
-          }
-          if (_onSessionLost) _onSessionLost()
-        }
-
+        // Read the body before the re-auth branch: it can only be read once,
+        // and the ApiError below needs it whichever way the branch goes.
         let detail = response.statusText
         try {
           const body = await response.json()
@@ -152,6 +160,20 @@ async function makeRequest<T>(endpoint: string, options: RequestOptions = {}): P
         } catch {
           /* non-JSON error body */
         }
+
+        if (response.status === 401 && !endpoint.startsWith('/auth/')) {
+          if (!_reauthTried && (await tryReauth(baseUrl))) {
+            return await makeRequest<T>(endpoint, { ...options, _reauthTried: true })
+          }
+          if (_onSessionLost) {
+            _onSessionLost(
+              response.headers.get(SESSION_ENDED_HEADER) === 'perms-changed'
+                ? 'perms-changed'
+                : 'expired',
+            )
+          }
+        }
+
         throw new ApiError(detail, response.status, url)
       }
 

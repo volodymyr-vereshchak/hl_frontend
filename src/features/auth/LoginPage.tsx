@@ -12,7 +12,7 @@ import {
   ThemeIcon,
   Alert,
 } from '@mantine/core'
-import { IconGauge, IconAlertTriangle } from '@tabler/icons-react'
+import { IconGauge, IconAlertTriangle, IconShieldLock } from '@tabler/icons-react'
 import { ApiError } from '@/lib/apiClient'
 import { useLanguage } from '@/locales/LanguageContext'
 import { ColorSchemeToggle } from '@/components/ColorSchemeToggle'
@@ -20,7 +20,7 @@ import { LanguagePicker } from '@/components/LanguagePicker'
 import { useUser } from './UserContext'
 
 export function LoginPage() {
-  const { login } = useUser()
+  const { login, sessionNotice } = useUser()
   const { t } = useLanguage()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -73,6 +73,17 @@ export function LoginPage() {
               </Text>
             </Box>
           </Group>
+
+          {sessionNotice === 'perms-changed' && (
+            <Alert
+              color="amber"
+              variant="light"
+              icon={<IconShieldLock size={16} />}
+              py="xs"
+            >
+              {t('sessionRightsChanged')}
+            </Alert>
+          )}
 
           <form onSubmit={handleSubmit}>
             <Stack gap="md">
