@@ -7,6 +7,7 @@ import {
   PRESSURE_UNIT_DEFAULT,
   DP_UNIT_DEFAULT,
   convertPressureValue,
+  normalizeUnit,
 } from './pressureUnits'
 import type { Line } from '@/types'
 
@@ -184,7 +185,15 @@ export class OverviewCalculator {
       const records24h = lineRecords.filter((r) => r.periodDate.getTime() >= windowStart)
 
       const isHighPressure = line ? line.is_high_pressure || false : false
-      const pressureUnit = (line && line.pressure_unit) || PRESSURE_UNIT_DEFAULT
+      // A DPD line has no unit configuration of its own — the unit arrives with
+      // the data, as the device reported it over the API (usually kPa). Without
+      // this its card captioned everything кгс/см² and the number underneath was
+      // read as a hundredfold error. Physical lines always have a configured
+      // unit and their rows carry no `press_unit`, so this only fires for DPD.
+      const pressureUnit =
+        (line && line.pressure_unit) ||
+        normalizeUnit(lastRecord.press_unit as string | null | undefined) ||
+        PRESSURE_UNIT_DEFAULT
       const dpUnit = (line && line.dp_unit) || DP_UNIT_DEFAULT
 
       let pressure = lastRecord.pressure || 0
