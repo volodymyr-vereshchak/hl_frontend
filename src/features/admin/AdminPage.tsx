@@ -17,6 +17,7 @@ import {
   IconListDetails,
   IconAlertTriangle,
   IconCategory,
+  IconPackageExport,
 } from '@tabler/icons-react'
 import { useUser } from '@/features/auth/UserContext'
 import {
@@ -37,6 +38,7 @@ import { DpdLinesTab } from './tabs/DpdLinesTab'
 import { RoutesTab } from './tabs/RoutesTab'
 import { EnterprisesTab } from './tabs/EnterprisesTab'
 import { UsersTab } from './tabs/UsersTab'
+import { BranchTransferTab } from './tabs/BranchTransferTab'
 
 interface TabDef {
   id: string
@@ -63,6 +65,12 @@ const GROUPS: GroupDef[] = [
       { id: 'paths', label: 'Шляхи до даних', icon: <IconFolders size={16} />, element: <DataPathsTab /> },
       { id: 'dpd-cred', label: 'Доступ ДПД', icon: <IconKey size={16} />, element: <DpdCredentialsTab /> },
       { id: 'update', label: 'Оновлення даних', icon: <IconRefresh size={16} />, element: <UpdateTab /> },
+      {
+        id: 'transfer',
+        label: 'Перенесення філії',
+        icon: <IconPackageExport size={16} />,
+        element: <BranchTransferTab />,
+      },
     ],
   },
   {

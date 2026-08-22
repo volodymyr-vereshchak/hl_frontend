@@ -500,3 +500,76 @@ export const updateApi = {
     api.post<unknown>('/update_data/direct', { lumg_id: lumgId, path }),
   reset: () => api.post<unknown>('/update_data/reset'),
 }
+
+// ── Branch configuration transfer ───────────────────────────────────────────
+/**
+ * Carrying a configured branch to the central server: one JSON file down from
+ * the branch, the same file up on the other side. Both go around the JSON
+ * client — a download needs the browser to save it, and `api.post` cannot send
+ * FormData (it stringifies the body and forces Content-Type: application/json).
+ */
+export interface BranchImportReport {
+  branch_name: string
+  /**
+   * How the target was decided: `chosen` — the administrator picked it; the
+   * rest is what the file matched by itself (transfer id, name, or nothing).
+   */
+  matched_by: 'chosen' | 'uid' | 'name' | 'new'
+  /** The branch this lands on, so the screen can preselect it. null = new. */
+  branch_id: number | null
+  dry_run: boolean
+  created: Record<string, number>
+  updated: Record<string, number>
+  /** Rows here and not in the file — listed only, never touched. */
+  local_only: Record<string, string[]>
+  /** ЛУМГ in the file with no counterpart here — each would be created. */
+  new_lumgs: string[]
+  /** ЛУМГ here with no counterpart in the file — candidates for a rename. */
+  unmatched_lumgs: { id: number; name: string }[]
+  warnings: string[]
+  errors: string[]
+  notes: Record<string, unknown>
+  applied: boolean
+}
+
+export interface BranchImportTarget {
+  /** Branch to update. Omit together with `createNew` to let the file decide. */
+  targetBranchId?: number | null
+  createNew?: boolean
+  /** File ЛУМГ name → id of the existing ЛУМГ it renames. */
+  lumgMap?: Record<string, number>
+}
+
+export const branchTransferApi = {
+  download: (branchId: number, includeSecrets = true) =>
+    window.open(
+      `${apiBaseUrl()}/grmu_branch/${branchId}/config-export?include_secrets=${includeSecrets}`,
+      '_blank',
+    ),
+
+  async upload(
+    file: File,
+    dryRun: boolean,
+    target: BranchImportTarget = {},
+  ): Promise<BranchImportReport> {
+    const form = new FormData()
+    form.append('file', file)
+    if (target.lumgMap && Object.keys(target.lumgMap).length) {
+      form.append('lumg_map', JSON.stringify(target.lumgMap))
+    }
+    const qs = new URLSearchParams({ dry_run: String(dryRun) })
+    if (target.targetBranchId != null) qs.set('target_branch_id', String(target.targetBranchId))
+    if (target.createNew) qs.set('create_new', 'true')
+
+    const res = await fetch(`${apiBaseUrl()}/grmu_branch/config-import?${qs}`, {
+      method: 'POST',
+      body: form,
+      credentials: 'include',
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }))
+      throw new Error(typeof err.detail === 'string' ? err.detail : JSON.stringify(err.detail))
+    }
+    return res.json()
+  },
+}
