@@ -25,7 +25,7 @@ import {
   Text,
   Tooltip,
 } from '@mantine/core'
-import { DatePickerInput } from '@mantine/dates'
+import { DateInput } from '@mantine/dates'
 import { notifications } from '@mantine/notifications'
 import { IconAlertTriangle, IconPlus, IconX } from '@tabler/icons-react'
 import { useMutation } from '@tanstack/react-query'
@@ -46,6 +46,7 @@ import {
   stamp,
   toDeviceForms,
   toDevicePayload,
+  parseTypedDate,
   type DeviceForm,
 } from './deviceHistoryForm'
 
@@ -211,6 +212,19 @@ export function DeviceHistoryEditor({
   const ctsForMfr = (mfrId: string | null) =>
     (corectorTypes ?? []).filter((c) => String(c.manufacturer_id) === mfrId)
 
+  /**
+   * Which date fields hold text that is not a date.
+   *
+   * `DateInput` with `fixOnBlur={false}` keeps whatever was typed instead of
+   * snapping back, so without this a mistyped 31.02 would just sit there
+   * looking accepted while the form held nothing. Keyed `<idx>-installed` /
+   * `<idx>-removed`; checked on blur rather than per keystroke, because every
+   * half-typed date is invalid and the error would strobe.
+   */
+  const [badDates, setBadDates] = useState<Record<string, boolean>>({})
+  const markDate = (key: string, raw: string, parsed: string) =>
+    setBadDates((prev) => ({ ...prev, [key]: raw.trim() !== '' && parsed === '' }))
+
   const setDevice = (idx: number, patch: Partial<DeviceForm>) =>
     onChange(
       devices.map((d, i) =>
@@ -295,15 +309,21 @@ export function DeviceHistoryEditor({
                 value={dev.ch_num}
                 onChange={(v) => setDevice(dev.idx, { ch_num: Number(v) || 0 })}
               />
-              <DatePickerInput
+              <DateInput
                 label="Встановлено"
                 size="xs"
-                w={130}
+                w={140}
                 valueFormat="DD.MM.YYYY"
                 placeholder="від початку"
                 clearable
+                fixOnBlur={false}
+                dateParser={parseTypedDate}
+                error={badDates[`${dev.idx}-installed`] ? 'дд.мм.рррр' : undefined}
                 value={dev.installed_date || null}
                 onChange={(v) => setDevice(dev.idx, { installed_date: v ?? '' })}
+                onBlur={(e) =>
+                  markDate(`${dev.idx}-installed`, e.currentTarget.value, dev.installed_date)
+                }
               />
               <Select
                 label="Година"
@@ -314,15 +334,21 @@ export function DeviceHistoryEditor({
                 onChange={(v) => setDevice(dev.idx, { installed_hour: Number(v) })}
                 disabled={!dev.installed_date}
               />
-              <DatePickerInput
+              <DateInput
                 label="Знято"
                 size="xs"
-                w={130}
+                w={140}
                 valueFormat="DD.MM.YYYY"
                 placeholder="—"
                 clearable
+                fixOnBlur={false}
+                dateParser={parseTypedDate}
+                error={badDates[`${dev.idx}-removed`] ? 'дд.мм.рррр' : undefined}
                 value={dev.removed_date || null}
                 onChange={(v) => setDevice(dev.idx, { removed_date: v ?? '' })}
+                onBlur={(e) =>
+                  markDate(`${dev.idx}-removed`, e.currentTarget.value, dev.removed_date)
+                }
               />
               <Select
                 label="Година"

@@ -99,3 +99,52 @@ export function toDevicePayload(devices: DeviceForm[]): EnterpriseDevice[] {
     removed_at: d.removed_date ? `${d.removed_date}T${pad(d.removed_hour)}:00:00` : null,
   }))
 }
+
+/** Dates outside this stay unparsed — a mistyped year is the usual cause. */
+const MIN_YEAR = 1990
+const MAX_YEAR = 2100
+
+/**
+ * A date typed by hand, in the shapes people actually type.
+ *
+ * Returns `YYYY-MM-DD` — the form the rest of this module stores — or null
+ * when the text is not a real date. Both halves matter: `дд.мм.рррр` is what
+ * the field shows, but a hand-entered `31.02.2026` has to be refused rather
+ * than rolled over into March, which is what the Date constructor does with it.
+ *
+ * Separators are whatever is at hand (dot, slash, dash) or nothing at all,
+ * because typing eight digits is faster than reaching for the dot. `YYYY-MM-DD`
+ * is accepted too — that is what a value pasted out of the archive looks like.
+ */
+export function parseTypedDate(input: string): string | null {
+  const text = input.trim()
+  if (!text) return null
+
+  const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(text)
+  const dmy = /^(\d{1,2})[.\-/](\d{1,2})[.\-/](\d{4})$/.exec(text)
+  const digits = /^(\d{2})(\d{2})(\d{4})$/.exec(text)
+
+  let year: number
+  let month: number
+  let day: number
+  if (iso) {
+    ;[year, month, day] = [Number(iso[1]), Number(iso[2]), Number(iso[3])]
+  } else if (dmy) {
+    ;[day, month, year] = [Number(dmy[1]), Number(dmy[2]), Number(dmy[3])]
+  } else if (digits) {
+    ;[day, month, year] = [Number(digits[1]), Number(digits[2]), Number(digits[3])]
+  } else {
+    return null
+  }
+
+  if (year < MIN_YEAR || year > MAX_YEAR) return null
+
+  // Round-tripped through Date on purpose: it is the only check that knows
+  // February has 29 days in 2028 and 28 in 2026. A rolled-over date comes back
+  // with a different month, so comparing the parts back is the whole test.
+  const date = new Date(year, month - 1, day)
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
+    return null
+  }
+  return `${year}-${pad(month)}-${pad(day)}`
+}
