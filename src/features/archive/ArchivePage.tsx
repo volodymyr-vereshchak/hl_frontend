@@ -21,6 +21,7 @@ import { getArchiveColumns } from '@/domain/archiveColumns'
 import { commercialHourlyRange } from '@/domain/commercialDay'
 import { DP_UNIT_DEFAULT, normalizeUnit, PRESSURE_UNIT_DEFAULT } from '@/domain/pressureUnits'
 import { TablePagination, type PageSizeOption } from '@/components/TablePagination'
+import { DEFAULT_PERIOD_PAGE_SIZE, PERIOD_PAGE_SIZES } from '@/domain/periodPaging'
 import type { ArchiveType } from '@/types'
 import { TreeView } from './TreeView'
 import { GroupVolumes } from './GroupVolumes'
@@ -47,26 +48,14 @@ function commercialWindow(fromDate: string, toDate: string) {
 const SPLIT_HEIGHT = 'calc(100dvh - 150px)'
 
 /**
- * A page is a stretch of time, not a row count: a month of the daily archive
- * and a month of the hourly one are the units people actually work in.
  * sys/edit stay on plain row counts — their rows are events, not periods, and
- * they page on the server.
+ * they page on the server. The two period archives share their page spans with
+ * the enterprise poll; see domain/periodPaging.
  */
-const PAGE_SIZES: Partial<Record<ArchiveType, { value: number; labelKey: string }[]>> = {
-  daily: [
-    { value: 31, labelKey: 'pageMonth' },
-    { value: 92, labelKey: 'pageQuarter' },
-    { value: 366, labelKey: 'pageYear' },
-  ],
-  hourly: [
-    { value: 24, labelKey: 'pageDay' },
-    { value: 168, labelKey: 'pageWeek' },
-    { value: 744, labelKey: 'pageMonth' },
-  ],
-}
+const PAGE_SIZES: Partial<Record<ArchiveType, { value: number; labelKey: string }[]>> =
+  PERIOD_PAGE_SIZES
 const DEFAULT_PAGE_SIZE: Record<ArchiveType, number> = {
-  daily: 31,
-  hourly: 744,
+  ...DEFAULT_PERIOD_PAGE_SIZE,
   sys: 50,
   edit: 50,
   param: 50,

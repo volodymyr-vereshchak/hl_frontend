@@ -1,4 +1,4 @@
-import { startTransition, useMemo, useRef, useState } from 'react'
+import { startTransition, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Stack,
   Group,
@@ -39,6 +39,10 @@ import {
 import { useLocalStorage } from '@mantine/hooks'
 import { useQuery } from '@tanstack/react-query'
 import * as XLSX from 'xlsx'
+import { AggregateCell } from '@/components/AggregateCell'
+import { TablePagination, type PageSizeOption } from '@/components/TablePagination'
+import { columnAggregate, fold, type Aggregate } from '@/domain/aggregate'
+import { DEFAULT_PERIOD_PAGE_SIZE, PERIOD_PAGE_SIZES } from '@/domain/periodPaging'
 import { branchAdminApi, dpdLineAdminApi, lineAdminApi } from '@/api/admin'
 import {
   enterpriseApi,
@@ -82,6 +86,21 @@ const fmtNum = (v: number | null | undefined, digits = 2) =>
   v == null || isNaN(v) ? '—' : v.toLocaleString('uk-UA', { maximumFractionDigits: digits })
 
 const pad = (n: number) => String(n).padStart(2, '0')
+
+/**
+ * The three numeric columns of the poll table, in the order they are shown.
+ * `isSummable` picks the footer's default: volumes add up, a temperature or a
+ * pressure summed over a month means nothing, so those average.
+ */
+const COLUMNS: {
+  key: 'volume' | 'temperature' | 'pressure'
+  isSummable: boolean
+  decimals: number
+}[] = [
+  { key: 'volume', isSummable: true, decimals: 3 },
+  { key: 'temperature', isSummable: false, decimals: 2 },
+  { key: 'pressure', isSummable: false, decimals: 2 },
+]
 
 /** Opens on the current month: 1st -> today, like the reports. */
 function defaultRange() {
@@ -446,21 +465,64 @@ export function EnterprisePollPage() {
     [rows],
   )
 
-  /** Volume sums; temperature and pressure average, like the archive footer. */
+  // ── Paging ────────────────────────────────────────────────────────────────
+  // A page is a stretch of time, the same spans the daily and hourly archives
+  // page by — a month of hourly readings is 744 rows, and scrolling through
+  // them to reach the totals row was the whole problem.
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useLocalStorage({
+    key: `hlv-poll-pagesize-${periodType}`,
+    defaultValue: DEFAULT_PERIOD_PAGE_SIZE[periodType],
+  })
+  // A new poll, or a switch between daily and hourly, starts at page one —
+  // clamping alone would leave the reader on page 7 of a different dataset.
+  useEffect(() => {
+    setPage(1)
+  }, [records, periodType])
+  const pageSizeOptions: PageSizeOption[] = useMemo(
+    () => PERIOD_PAGE_SIZES[periodType].map((o) => ({ value: o.value, label: t(o.labelKey) })),
+    [periodType, t],
+  )
+  // A fresh poll, or a shorter page, can leave the open page past the end.
+  const pageCount = Math.max(1, Math.ceil(rows.length / pageSize))
+  const currentPage = Math.min(page, pageCount)
+  const visibleRows = useMemo(
+    () => rows.slice((currentPage - 1) * pageSize, currentPage * pageSize),
+    [rows, currentPage, pageSize],
+  )
+
+  // ── Footer ────────────────────────────────────────────────────────────────
+  /**
+   * Per column, kept per granularity — a daily poll and an hourly one get read
+   * for different things. Folded over the WHOLE poll, not the open page: the
+   * row answers "what did this point consume over the period", which a page
+   * cannot. Same rule, and the same picker, as the archive footer.
+   */
+  const [aggregates, setAggregates] = useLocalStorage<Record<string, Aggregate>>({
+    key: `hlv-poll-agg-cols-${periodType}`,
+    defaultValue: {},
+  })
+  const pickAggregate = (key: string, how: Aggregate) =>
+    setAggregates({ ...aggregates, [key]: how })
+
   const totals = useMemo(() => {
-    const avg = (vals: number[]) => (vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null)
-    return {
-      volume: rows.reduce((sum, r) => sum + (Number(r.volume) || 0), 0),
-      temperature: avg(rows.map((r) => r.temperature).filter((v): v is number => v != null)),
-      pressure: avg(rows.map((r) => r.pressure).filter((v): v is number => v != null)),
+    const out: Record<string, { text: string; how: Aggregate }> = {}
+    for (const col of COLUMNS) {
+      const how = columnAggregate(col, aggregates[col.key])
+      const values = rows
+        .map((r) => Number(r[col.key]))
+        .filter((n) => isFinite(n))
+      const folded = fold(values, how)
+      out[col.key] = { text: folded == null ? '—' : fmtNum(folded, col.decimals), how }
     }
-  }, [rows])
+    return out
+  }, [rows, aggregates])
 
   const exportExcel = () => {
     if (!rows.length) return
     const header = ['Період', 'Обʼєм, м³', 'Температура, °C', `Тиск, ${pressureUnit}`]
     const body = rows.map((r) => [r.period, r.volume, r.temperature ?? '', r.pressure ?? ''])
-    body.push(['Разом', totals.volume, totals.temperature ?? '', totals.pressure ?? ''])
+    body.push(['Разом', totals.volume.text, totals.temperature.text, totals.pressure.text])
     const ws = XLSX.utils.aoa_to_sheet([header, ...body])
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Підприємство')
@@ -879,7 +941,7 @@ export function EnterprisePollPage() {
                       </Table.Tr>
                     </Table.Thead>
                     <Table.Tbody>
-                      {rows.map((r, i) => (
+                      {visibleRows.map((r, i) => (
                         <Table.Tr key={i}>
                           <td className="hlv-cell hlv-cell-num">
                             {r.period.replace('T', ' ').slice(0, 16)}
@@ -907,20 +969,32 @@ export function EnterprisePollPage() {
                         <Table.Td ta="center" fw={700}>
                           Разом
                         </Table.Td>
-                        <Table.Td ta="center" fw={700} style={numericStyle}>
-                          {fmtNum(totals.volume, 3)}
-                        </Table.Td>
-                        <Table.Td ta="center" fw={700} style={numericStyle}>
-                          {fmtNum(totals.temperature)}
-                        </Table.Td>
-                        <Table.Td ta="center" fw={700} style={numericStyle}>
-                          {fmtNum(totals.pressure)}
-                        </Table.Td>
+                        {COLUMNS.map((col) => (
+                          <Table.Td key={col.key} ta="center" style={numericStyle}>
+                            <AggregateCell
+                              value={totals[col.key].text}
+                              how={totals[col.key].how}
+                              onPick={(how) => pickAggregate(col.key, how)}
+                              t={t}
+                            />
+                          </Table.Td>
+                        ))}
                       </Table.Tr>
                     </Table.Tfoot>
                   </Table>
                 </ScrollArea>
               </Box>
+              {view !== 'chart' && rows.length > pageSize && (
+                <TablePagination
+                  page={currentPage}
+                  pageSize={pageSize}
+                  total={rows.length}
+                  onPageChange={setPage}
+                  onPageSizeChange={setPageSize}
+                  shownLabel={`${t('records')}: ${rows.length.toLocaleString('uk-UA')}`}
+                  pageSizes={pageSizeOptions}
+                />
+              )}
               {view === 'chart' && (
                 <ArchiveChart
                   rows={rows as unknown as ArchiveRow[]}
