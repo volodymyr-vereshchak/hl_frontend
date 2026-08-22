@@ -396,6 +396,17 @@ export function DeviceHistoryEditor({
 
 // ── Modal ───────────────────────────────────────────────────────────────────
 interface ModalProps {
+  /**
+   * Which slot of the surrounding `Modal.Stack` this window takes.
+   *
+   * The history is opened both from the table and from inside the enterprise
+   * edit window. In the second case two modals are open at once, and without a
+   * stack the one rendered first in the tree paints on top — the history ended
+   * up BEHIND the form it was opened from. The stack orders them by the moment
+   * they open instead, and hands Escape to the topmost one, so the history has
+   * to be closed before the form underneath it.
+   */
+  stackId?: string
   /** null closes the window; the point is remounted on every open, so the
    * editor always starts from what is actually saved. */
   enterprise: EnterpriseMapping | null
@@ -406,6 +417,7 @@ interface ModalProps {
 }
 
 export function DeviceHistoryModal({
+  stackId,
   enterprise,
   onClose,
   onSaved,
@@ -414,6 +426,7 @@ export function DeviceHistoryModal({
 }: ModalProps) {
   return (
     <Modal
+      stackId={stackId}
       opened={enterprise !== null}
       onClose={onClose}
       size="90rem"

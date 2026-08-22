@@ -446,6 +446,7 @@ export function EnterprisesTab() {
    */
   const formRow = (
     <Modal
+      stackId="enterprise-form"
       opened={adding || editingId != null}
       onClose={cancel}
       title={editingId == null ? 'Нове підприємство' : 'Редагування підприємства'}
@@ -528,13 +529,23 @@ export function EnterprisesTab() {
 
   return (
     <Stack gap="md">
-      <DeviceHistoryModal
-        enterprise={historyOf}
-        onClose={() => setHistoryOf(null)}
-        onSaved={invalidate}
-        manufacturers={manufacturers}
-        corectorTypes={corectorTypes}
-      />
+      {/* Both windows in one stack: the history is opened from inside the edit
+          form, and without a stack the one rendered first paints on top — the
+          history ended up behind the form that opened it. The stack orders them
+          by the moment they open and hands Escape to the topmost, so the
+          history has to be closed before the form under it. Modals are
+          portals, so keeping them together here costs the layout nothing. */}
+      <Modal.Stack>
+        {formRow}
+        <DeviceHistoryModal
+          stackId="device-history"
+          enterprise={historyOf}
+          onClose={() => setHistoryOf(null)}
+          onSaved={invalidate}
+          manufacturers={manufacturers}
+          corectorTypes={corectorTypes}
+        />
+      </Modal.Stack>
 
       <Box>
         <Text fw={600} fz="lg" ff="'Space Grotesk Variable', sans-serif">
@@ -715,8 +726,6 @@ export function EnterprisesTab() {
           Додати
         </Button>
       </Group>
-
-      {formRow}
 
       {isLoading ? (
         <LoadingState py={40} />
