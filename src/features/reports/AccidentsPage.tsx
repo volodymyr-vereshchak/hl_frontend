@@ -183,7 +183,7 @@ function GroupRow({
   )
 }
 
-/** The by-type table: one branch's accidents, or all of them when there is one. */
+/** The by-type table: the accidents of one branch, or of the whole report. */
 function AccidentTable({
   groups,
   lineMeta,
@@ -228,9 +228,11 @@ function AccidentTable({
 
 /**
  * One branch, holding its own by-type table — the outer level of the report
- * when the selection spans several branches (as on the overview, where LUMG is
- * the outer level). With a single branch this level is skipped entirely: the
- * name would be the same on every row and only cost a click.
+ * whenever it was run for all branches (as on the overview, where LUMG is the
+ * outer level). It appears even if only one branch turned out to have
+ * accidents: that is a result worth naming, not a reason to hide the heading.
+ * Picking a branch in the selector removes the level — the name is right there
+ * in the selector, so on every section it would only cost a click.
  */
 function BranchSection({
   branch,
@@ -282,6 +284,10 @@ export function AccidentsPage() {
   const [from, setFrom] = useState(initial.from)
   const [to, setTo] = useState(initial.to)
   const [branchGroups, setBranchGroups] = useState<BranchAccidentGroup[] | null>(null)
+  // Whether the RUN that produced these results spanned every branch. Captured
+  // at run time, not read from the selector: changing the selector afterwards
+  // must not relabel results that were computed for something else.
+  const [sectioned, setSectioned] = useState(false)
   const [unionVolume, setUnionVolume] = useState(0)
   // Kept so the expandable rows use the same daily totals as the summary.
   const [dailyLookup, setDailyLookup] = useState<DailyVolumeLookup>(() => () => undefined)
@@ -356,12 +362,17 @@ export function AccidentsPage() {
       // Contract bounds are passed on so accidents missing their start/end
       // record snap to 07:00 rather than calendar midnight.
       const accidents = pairAccidents(rows, { fromDate: contractFrom, toDate: contractEnd })
+      // With a branch picked in the selector everything belongs to it by
+      // construction, so the whole report collapses into that one bucket and
+      // is rendered without a header — the name is already in the selector.
+      const chosen = branchId ? Number(branchId) : null
       const byBranch = groupAccidentsByBranch(
         accidents,
-        (id) => (id != null ? (lineMeta.get(id)?.branchId ?? null) : null),
+        chosen != null ? () => chosen : (id) => (id != null ? (lineMeta.get(id)?.branchId ?? null) : null),
         dailyVolume,
       )
       setBranchGroups(byBranch)
+      setSectioned(chosen == null)
 
       // Overall volume is the union across ALL types per line: alarms of
       // different types overlap in time, so summing their volumes would count
@@ -545,7 +556,7 @@ export function AccidentsPage() {
         </SimpleGrid>
       )}
 
-      {branchGroups && branchGroups.length === 1 && (
+      {branchGroups && branchGroups.length > 0 && !sectioned && (
         <Paper withBorder radius="md">
           <AccidentTable
             groups={branchGroups[0].groups}
@@ -555,7 +566,7 @@ export function AccidentsPage() {
         </Paper>
       )}
 
-      {branchGroups && branchGroups.length > 1 && (
+      {branchGroups && branchGroups.length > 0 && sectioned && (
         <Stack gap="md">
           {branchGroups.map((b) => (
             <BranchSection
