@@ -143,9 +143,28 @@ export const archiveCountsApi = {
     api.get<CountRow[]>('/sys_counts/', { line_id: lineIds, from_date: fromDate, to_date: toDate }),
 }
 
+/**
+ * Every event of a period, in the shape the accidents report reads.
+ *
+ * `rows` are tuples — [line_id, epoch ms, sys_type_id, volume, name index] —
+ * and the name each index points at is in `names`. A month over every line is
+ * ~435 000 events: as ordinary objects that is 160 MB of mostly repeated names
+ * and ISO timestamps, and this is 21 MB of the same data.
+ */
+export interface SysEventsPayload {
+  names: string[]
+  rows: [number, number, number, number, number][]
+}
+
 export const sysArchiveApi = {
   getData: (lineIds: number[], fromDate: string, toDate: string) =>
     api.get<ArchiveRow[]>('/sys/', { line_id: lineIds, from_date: fromDate, to_date: toDate }),
+  getEvents: (lineIds: number[], fromDate: string, toDate: string) =>
+    api.get<SysEventsPayload>('/sys/events/', {
+      line_id: lineIds,
+      from_date: fromDate,
+      to_date: toDate,
+    }),
   getPaged: (lineIds: number[], fromDate: string, toDate: string, o?: PageOptions) =>
     api.get<PagedResult>('/sys/paged/', pagedParams(lineIds, fromDate, toDate, o)),
 }

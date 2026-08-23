@@ -27,11 +27,11 @@ export function isStandaloneCode(sysTypeId: number): boolean {
 export const getAccidentEndCode = (startCode: number) => startCode - 128
 export const getAccidentStartCode = (endCode: number) => endCode + 128
 
-/** "HH:MM:SS" between two instants (clamped at zero). */
-export function calculateDuration(startTime: string | Date, endTime: string | Date): string {
-  const diffMs = new Date(endTime).getTime() - new Date(startTime).getTime()
-  if (diffMs < 0) return '00:00:00'
-  return formatMs(diffMs)
+/** "HH:MM:SS" between two instants, in epoch ms (clamped at zero). */
+export function calculateDuration(startMs: number, endMs: number): string {
+  const diff = endMs - startMs
+  if (diff < 0) return '00:00:00'
+  return formatMs(diff)
 }
 
 /**
@@ -71,9 +71,18 @@ function formatMs(ms: number): string {
   return `${pad(h)}:${pad(m)}:${pad(s)}`
 }
 
+/**
+ * One archive event.
+ *
+ * The instant is epoch milliseconds all the way through the report, never an
+ * ISO string. A month over every line is ~435 000 events, and parsing a date
+ * inside a sort comparator parses it once per comparison — 2.9s of a run went
+ * into `new Date()` alone. The API sends the number, and only the few hundred
+ * rows that reach the screen are ever formatted.
+ */
 export interface SysRecord {
   line_id?: number
-  period: string
+  ms: number
   sys_type_id: number
   sys_name?: string
   volume?: number
@@ -84,8 +93,8 @@ export type AccidentKind = 'full' | 'start_only' | 'end_only' | 'standalone'
 export interface Accident {
   sys_type_id: number
   sys_name?: string
-  startTime: string
-  endTime: string
+  startMs: number
+  endMs: number
   startVolume?: number
   endVolume?: number | null
   line_id?: number
@@ -95,13 +104,11 @@ export interface Accident {
 /** Pair start/end events into accidents; unmatched ends/starts are clipped to the period. */
 export function pairAccidents(
   sysData: SysRecord[],
-  range: { fromDate: string; toDate: string },
+  range: { fromMs: number; toMs: number },
 ): Accident[] {
   if (!sysData || sysData.length === 0) return []
 
-  const sorted = [...sysData].sort(
-    (a, b) => new Date(a.period).getTime() - new Date(b.period).getTime(),
-  )
+  const sorted = [...sysData].sort((a, b) => a.ms - b.ms)
   const accidents: Accident[] = []
   // Keyed by LINE + end code: an accident always starts and ends on the same
   // line, so pairing globally would match a start on one line with an end on
@@ -110,8 +117,8 @@ export function pairAccidents(
   const openKey = (lineId: number | undefined, endCode: number) => `${lineId ?? 0}_${endCode}`
   const nameByTypeId = new Map(sorted.map((r) => [r.sys_type_id, r.sys_name]))
 
-  const periodStart = new Date(range.fromDate)
-  const periodEnd = new Date(range.toDate)
+  const periodStart = range.fromMs
+  const periodEnd = range.toMs
 
   for (const record of sorted) {
     const id = record.sys_type_id
@@ -120,8 +127,8 @@ export function pairAccidents(
       accidents.push({
         sys_type_id: id,
         sys_name: record.sys_name,
-        startTime: record.period,
-        endTime: record.period,
+        startMs: record.ms,
+        endMs: record.ms,
         startVolume: record.volume,
         endVolume: record.volume,
         line_id: record.line_id,
@@ -133,8 +140,8 @@ export function pairAccidents(
       openAccidents.get(key)!.push({
         sys_type_id: id,
         sys_name: record.sys_name,
-        startTime: record.period,
-        endTime: '',
+        startMs: record.ms,
+        endMs: 0,
         startVolume: record.volume,
         line_id: record.line_id,
         type: 'start_only',
@@ -148,8 +155,8 @@ export function pairAccidents(
         accidents.push({
           sys_type_id: open.sys_type_id,
           sys_name: open.sys_name,
-          startTime: open.startTime,
-          endTime: record.period,
+          startMs: open.startMs,
+          endMs: record.ms,
           startVolume: open.startVolume,
           endVolume: record.volume,
           line_id: record.line_id,
@@ -162,8 +169,8 @@ export function pairAccidents(
         accidents.push({
           sys_type_id: startTypeId,
           sys_name: nameByTypeId.get(startTypeId) ?? record.sys_name,
-          startTime: periodStart.toISOString(),
-          endTime: record.period,
+          startMs: periodStart,
+          endMs: record.ms,
           startVolume: 0,
           endVolume: record.volume,
           line_id: record.line_id,
@@ -176,7 +183,7 @@ export function pairAccidents(
   // Still-open accidents run to the end of the period.
   for (const openList of openAccidents.values()) {
     for (const open of openList) {
-      accidents.push({ ...open, endTime: periodEnd.toISOString(), endVolume: null, type: 'start_only' })
+      accidents.push({ ...open, endMs: periodEnd, endVolume: null, type: 'start_only' })
     }
   }
 
@@ -184,8 +191,8 @@ export function pairAccidents(
 }
 
 /** Commercial day (YYYY-MM-DD) an instant belongs to. */
-function commercialDayOfInstant(iso: string): string {
-  const d = new Date(iso)
+function commercialDayOfInstant(ms: number): string {
+  const d = new Date(ms)
   const pad = (n: number) => String(n).padStart(2, '0')
   const date = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
   return commercialDayOf(date, d.getHours())
@@ -213,9 +220,9 @@ export function calculateAccidentVolume(
 ): number | null {
   return volumeBetween(
     accident.line_id,
-    accident.startTime,
+    accident.startMs,
     accident.type === 'end_only' ? 0 : (accident.startVolume ?? null),
-    accident.endTime,
+    accident.endMs,
     accident.type === 'start_only' ? null : (accident.endVolume ?? null),
     dailyVolume,
   )
@@ -227,48 +234,45 @@ export function calculateAccidentVolume(
  */
 function volumeBetween(
   lineId: number | undefined,
-  startTime: string,
+  startMs: number,
   startReading: number | null,
-  endTime: string,
+  endMs: number,
   endReading: number | null,
   dailyVolume: DailyVolumeLookup,
 ): number | null {
-  const accident = { line_id: lineId, startTime, endTime }
-  const startDay = commercialDayOfInstant(accident.startTime)
+  const startDay = commercialDayOfInstant(startMs)
   // The upper bound is exclusive: an instant at exactly the contract hour closes
   // the PREVIOUS commercial day, so step back before resolving its day.
-  const endDay = commercialDayOfInstant(
-    new Date(new Date(accident.endTime).getTime() - 1000).toISOString(),
-  )
+  const endDay = commercialDayOfInstant(endMs - 1000)
 
   if (startDay === endDay) {
     if (startReading == null) return null
     if (endReading != null) return Math.max(0, endReading - startReading)
     // Open at the period end: the rest of that day comes from the daily archive.
-    const daily = dailyVolume(accident.line_id, endDay)
+    const daily = dailyVolume(lineId, endDay)
     return daily == null ? null : Math.max(0, daily - startReading)
   }
 
   // Spans day boundaries: rest of the first day + full days between + last day.
   if (startReading == null) return null
-  const firstDayTotal = dailyVolume(accident.line_id, startDay)
+  const firstDayTotal = dailyVolume(lineId, startDay)
   if (firstDayTotal == null) return null
   let total = Math.max(0, firstDayTotal - startReading)
 
   for (let day = addDays(startDay, 1); day < endDay; day = addDays(day, 1)) {
-    const v = dailyVolume(accident.line_id, day)
+    const v = dailyVolume(lineId, day)
     if (v == null) return null
     total += v
   }
 
   if (endReading != null) return total + Math.max(0, endReading)
-  const lastDay = dailyVolume(accident.line_id, endDay)
+  const lastDay = dailyVolume(lineId, endDay)
   return lastDay == null ? null : total + lastDay
 }
 
 export interface AccidentOccurrence {
-  startTime: string
-  endTime: string
+  startMs: number
+  endMs: number
   duration: string
   /** null when a counter reading is missing (open at a period boundary). */
   volume: number | null
@@ -293,11 +297,7 @@ export function volumeOverOccurrences(
 ): number {
   const spans = occs
     .filter((o) => o.type !== 'standalone')
-    .map((o) => ({
-      start: new Date(o.startTime).getTime(),
-      end: new Date(o.endTime).getTime(),
-      occ: o,
-    }))
+    .map((o) => ({ start: o.startMs, end: o.endMs, occ: o }))
     .filter((s) => s.end > s.start)
     .sort((a, b) => a.start - b.start)
 
@@ -308,9 +308,9 @@ export function volumeOverOccurrences(
     if (!cur) return
     const v = volumeBetween(
       cur.startOcc.line_id,
-      cur.startOcc.startTime,
+      cur.startOcc.startMs,
       cur.startOcc.startReading,
-      cur.endOcc.endTime,
+      cur.endOcc.endMs,
       cur.endOcc.endReading,
       dailyVolume,
     )
@@ -371,9 +371,9 @@ export function groupAccidentsByType(
     const volume = calculateAccidentVolume(accident, dailyVolume)
 
     group.occurrences.push({
-      startTime: accident.startTime,
-      endTime: accident.endTime,
-      duration: standalone ? '—' : calculateDuration(accident.startTime, accident.endTime),
+      startMs: accident.startMs,
+      endMs: accident.endMs,
+      duration: standalone ? '—' : calculateDuration(accident.startMs, accident.endMs),
       volume,
       type: accident.type,
       line_id: accident.line_id,
@@ -399,8 +399,8 @@ export function groupAccidentsByType(
 
 export interface LineSummary {
   line_id: number
-  firstStart: string
-  lastEnd: string
+  firstStartMs: number
+  lastEndMs: number
   count: number
   /** Union of the occurrence intervals — overlaps counted once. */
   durationMs: number
@@ -425,20 +425,21 @@ export function summarizeOccurrencesByLine(
   }
   return [...byLine.entries()]
     .map(([lineId, occs]) => {
-      const starts = occs.map((o) => new Date(o.startTime).getTime())
-      const ends = occs.map((o) => new Date(o.endTime).getTime())
+      // Reduced, not spread into Math.min: a line with tens of thousands of
+      // occurrences would blow the argument limit.
+      let firstStartMs = Infinity
+      let lastEndMs = -Infinity
+      for (const o of occs) {
+        if (o.startMs < firstStartMs) firstStartMs = o.startMs
+        if (o.endMs > lastEndMs) lastEndMs = o.endMs
+      }
       const totalMs = isStandalone
         ? 0
-        : mergeIntervalsMs(
-            occs.map((o) => ({
-              start: new Date(o.startTime).getTime(),
-              end: new Date(o.endTime).getTime(),
-            })),
-          )
+        : mergeIntervalsMs(occs.map((o) => ({ start: o.startMs, end: o.endMs })))
       return {
         line_id: lineId,
-        firstStart: new Date(Math.min(...starts)).toISOString(),
-        lastEnd: new Date(Math.max(...ends)).toISOString(),
+        firstStartMs,
+        lastEndMs,
         count: occs.length,
         durationMs: totalMs,
         durationFormatted: isStandalone ? '—' : formatMs(totalMs),
@@ -449,14 +450,15 @@ export function summarizeOccurrencesByLine(
     .sort((a, b) => b.count - a.count)
 }
 
-/** First start / last end across every occurrence of a group. */
-export function groupBounds(group: AccidentGroup): { firstStart: string; lastEnd: string } {
-  const starts = group.occurrences.map((o) => new Date(o.startTime).getTime())
-  const ends = group.occurrences.map((o) => new Date(o.endTime).getTime())
-  return {
-    firstStart: new Date(Math.min(...starts)).toISOString(),
-    lastEnd: new Date(Math.max(...ends)).toISOString(),
+/** First start / last end across every occurrence of a group, in epoch ms. */
+export function groupBounds(group: AccidentGroup): { firstStartMs: number; lastEndMs: number } {
+  let firstStartMs = Infinity
+  let lastEndMs = -Infinity
+  for (const o of group.occurrences) {
+    if (o.startMs < firstStartMs) firstStartMs = o.startMs
+    if (o.endMs > lastEndMs) lastEndMs = o.endMs
   }
+  return { firstStartMs, lastEndMs }
 }
 
 export function filterAccidentsByLine(accidents: Accident[], lineId: number | null): Accident[] {

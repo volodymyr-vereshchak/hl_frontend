@@ -51,14 +51,17 @@ function defaultRange() {
  * is kept short by the two-digit year and by never wrapping (see stampStyle),
  * not by dropping precision.
  */
-const fmtTime = (iso: string) => {
-  const d = new Date(iso)
-  if (isNaN(d.getTime())) return iso
+const fmtTime = (ms: number) => {
+  const d = new Date(ms)
+  if (isNaN(d.getTime())) return String(ms)
   const date = `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${String(d.getFullYear()).slice(2)}`
   return `${date} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
 
 const fmtNum = (n: number) => n.toLocaleString('uk-UA', { maximumFractionDigits: 2 })
+
+/** Tooltip on a timestamp cell: the same instant, spelled out with the full year. */
+const fmtFull = (ms: number) => new Date(ms).toLocaleString('uk-UA')
 
 /**
  * Where a line sits in the topology.
@@ -117,11 +120,11 @@ function GroupRow({
             </Group>
           </UnstyledButton>
         </Table.Td>
-        <Table.Td ta="center" style={stampStyle} title={bounds.firstStart}>
-          {fmtTime(bounds.firstStart)}
+        <Table.Td ta="center" style={stampStyle} title={fmtFull(bounds.firstStartMs)}>
+          {fmtTime(bounds.firstStartMs)}
         </Table.Td>
-        <Table.Td ta="center" style={stampStyle} title={bounds.lastEnd}>
-          {group.isStandalone ? '—' : fmtTime(bounds.lastEnd)}
+        <Table.Td ta="center" style={stampStyle} title={fmtFull(bounds.lastEndMs)}>
+          {group.isStandalone ? '—' : fmtTime(bounds.lastEndMs)}
         </Table.Td>
         <Table.Td ta="center" style={numericStyle}>
           {group.totalCount}
@@ -155,11 +158,11 @@ function GroupRow({
                       <Table.Tr key={l.line_id}>
                         <Table.Td>{metaOf(lineMeta, l.line_id).calcName}</Table.Td>
                         <Table.Td>{metaOf(lineMeta, l.line_id).lineName}</Table.Td>
-                        <Table.Td ta="center" style={stampStyle} title={l.firstStart}>
-                          {fmtTime(l.firstStart)}
+                        <Table.Td ta="center" style={stampStyle} title={fmtFull(l.firstStartMs)}>
+                          {fmtTime(l.firstStartMs)}
                         </Table.Td>
-                        <Table.Td ta="center" style={stampStyle} title={l.lastEnd}>
-                          {group.isStandalone ? '—' : fmtTime(l.lastEnd)}
+                        <Table.Td ta="center" style={stampStyle} title={fmtFull(l.lastEndMs)}>
+                          {group.isStandalone ? '—' : fmtTime(l.lastEndMs)}
                         </Table.Td>
                         <Table.Td ta="center" style={numericStyle}>
                           {l.count}
@@ -341,8 +344,8 @@ export function AccidentsPage() {
 
       // The daily archive supplies each commercial day's total, needed to close
       // accidents that are still open when the period (or a day) ends.
-      const [raw, daily] = await Promise.all([
-        sysArchiveApi.getData(ids, contractFrom, contractEnd) as unknown as Promise<SysRecord[]>,
+      const [events, daily] = await Promise.all([
+        sysArchiveApi.getEvents(ids, contractFrom, contractEnd),
         archiveDataApi.getDailyData(ids, from, to).catch(() => []),
       ])
       const dailyByLineDay = new Map<string, number>()
@@ -356,12 +359,20 @@ export function AccidentsPage() {
 
       // The backend filters period <= to_date, but the contract day ends at
       // 07:00 EXCLUSIVE — an event at exactly 07:00 belongs to the next day.
+      const fromMs = new Date(contractFrom).getTime()
       const endMs = new Date(contractEnd).getTime()
-      const rows = (raw ?? []).filter((r) => new Date(r.period).getTime() < endMs)
+      // The tuples become records here and nowhere else; `names` is shared by
+      // reference, so an event name is one string for the whole report rather
+      // than one per row.
+      const rows: SysRecord[] = []
+      for (const [line_id, ms, sys_type_id, volume, nameIdx] of events?.rows ?? []) {
+        if (ms >= endMs) continue
+        rows.push({ line_id, ms, sys_type_id, volume, sys_name: events.names[nameIdx] })
+      }
 
       // Contract bounds are passed on so accidents missing their start/end
       // record snap to 07:00 rather than calendar midnight.
-      const accidents = pairAccidents(rows, { fromDate: contractFrom, toDate: contractEnd })
+      const accidents = pairAccidents(rows, { fromMs, toMs: endMs })
       // With a branch picked in the selector everything belongs to it by
       // construction, so the whole report collapses into that one bucket and
       // is rendered without a header — the name is already in the selector.
@@ -415,8 +426,8 @@ export function AccidentsPage() {
         summary.push([
           branchName,
           name,
-          fmtTime(b.firstStart),
-          g.isStandalone ? '—' : fmtTime(b.lastEnd),
+          fmtTime(b.firstStartMs),
+          g.isStandalone ? '—' : fmtTime(b.lastEndMs),
           String(g.totalCount),
           g.totalDurationFormatted,
           String(g.totalVolume),
@@ -428,8 +439,8 @@ export function AccidentsPage() {
             name,
             meta.calcName,
             meta.lineName,
-            fmtTime(l.firstStart),
-            g.isStandalone ? '—' : fmtTime(l.lastEnd),
+            fmtTime(l.firstStartMs),
+            g.isStandalone ? '—' : fmtTime(l.lastEndMs),
             String(l.count),
             l.durationFormatted,
             String(l.volume),
