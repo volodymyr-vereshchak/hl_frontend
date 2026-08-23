@@ -11,6 +11,7 @@ import {
   Select,
   SimpleGrid,
   Card,
+  Stack,
 } from '@mantine/core'
 import { IconChevronRight, IconAlertTriangle, IconList, IconGauge } from '@tabler/icons-react'
 import * as XLSX from 'xlsx'
@@ -19,11 +20,11 @@ import { useLanguage } from '@/locales/LanguageContext'
 import { numericStyle } from '@/theme/theme'
 import {
   pairAccidents,
-  groupAccidentsByType,
+  groupAccidentsByBranch,
   summarizeOccurrencesByLine,
-  volumeOverOccurrences,
   groupBounds,
   type AccidentGroup,
+  type BranchAccidentGroup,
   type SysRecord,
   type DailyVolumeLookup,
 } from '@/domain/accidentsCalculator'
@@ -59,13 +60,33 @@ const fmtTime = (iso: string) => {
 
 const fmtNum = (n: number) => n.toLocaleString('uk-UA', { maximumFractionDigits: 2 })
 
+/**
+ * Where a line sits in the topology.
+ *
+ * The archive knows only `line_id`, but an accident is only actionable once you
+ * know whose line it is — so branch, LUMG and calculator are resolved once, up
+ * front, and carried through both the grouping and the expanded rows.
+ */
+export interface LineMeta {
+  lineName: string
+  calcName: string
+  branchId: number | null
+}
+
+export type LineMetaMap = Map<number, LineMeta>
+
+const UNKNOWN: LineMeta = { lineName: '', calcName: '—', branchId: null }
+
+const metaOf = (meta: LineMetaMap, lineId: number): LineMeta =>
+  meta.get(lineId) ?? { ...UNKNOWN, lineName: `Лінія ${lineId}` }
+
 function GroupRow({
   group,
-  lineNames,
+  lineMeta,
   dailyVolume,
 }: {
   group: AccidentGroup
-  lineNames: Map<number, string>
+  lineMeta: LineMetaMap
   dailyVolume: DailyVolumeLookup
 }) {
   const [open, setOpen] = useState(false)
@@ -120,6 +141,7 @@ function GroupRow({
                 <Table verticalSpacing={4} fz="xs">
                   <Table.Thead>
                     <Table.Tr>
+                      <Table.Th>Обчислювач</Table.Th>
                       <Table.Th>Лінія</Table.Th>
                       <Table.Th ta="center">Перша поява</Table.Th>
                       <Table.Th ta="center">Остання поява</Table.Th>
@@ -131,7 +153,8 @@ function GroupRow({
                   <Table.Tbody>
                     {perLine.map((l) => (
                       <Table.Tr key={l.line_id}>
-                        <Table.Td>{lineNames.get(l.line_id) ?? `Лінія ${l.line_id}`}</Table.Td>
+                        <Table.Td>{metaOf(lineMeta, l.line_id).calcName}</Table.Td>
+                        <Table.Td>{metaOf(lineMeta, l.line_id).lineName}</Table.Td>
                         <Table.Td ta="center" style={stampStyle} title={l.firstStart}>
                           {fmtTime(l.firstStart)}
                         </Table.Td>
@@ -160,25 +183,137 @@ function GroupRow({
   )
 }
 
+/** The by-type table: one branch's accidents, or all of them when there is one. */
+function AccidentTable({
+  groups,
+  lineMeta,
+  dailyVolume,
+}: {
+  groups: AccidentGroup[]
+  lineMeta: LineMetaMap
+  dailyVolume: DailyVolumeLookup
+}) {
+  const { t } = useLanguage()
+  return (
+    /* Height follows the content; the page scrolls, not the table. */
+    <Table striped highlightOnHover verticalSpacing={4} fz="sm">
+      <Table.Thead>
+        <Table.Tr>
+          <Table.Th>{t('accidentType')}</Table.Th>
+          <Table.Th ta="center" w={170}>
+            {t('startTime')}
+          </Table.Th>
+          <Table.Th ta="center" w={170}>
+            {t('endTime')}
+          </Table.Th>
+          <Table.Th ta="center" w={120}>
+            {t('occurrenceCount')}
+          </Table.Th>
+          <Table.Th ta="center" w={150}>
+            {t('totalDuration')}
+          </Table.Th>
+          <Table.Th ta="center" w={150}>
+            {t('totalVolume')}
+          </Table.Th>
+        </Table.Tr>
+      </Table.Thead>
+      <Table.Tbody>
+        {groups.map((g) => (
+          <GroupRow key={g.sys_type_id} group={g} lineMeta={lineMeta} dailyVolume={dailyVolume} />
+        ))}
+      </Table.Tbody>
+    </Table>
+  )
+}
+
+/**
+ * One branch, holding its own by-type table — the outer level of the report
+ * when the selection spans several branches (as on the overview, where LUMG is
+ * the outer level). With a single branch this level is skipped entirely: the
+ * name would be the same on every row and only cost a click.
+ */
+function BranchSection({
+  branch,
+  branchName,
+  lineMeta,
+  dailyVolume,
+}: {
+  branch: BranchAccidentGroup
+  branchName: string
+  lineMeta: LineMetaMap
+  dailyVolume: DailyVolumeLookup
+}) {
+  const [open, setOpen] = useState(true)
+  return (
+    <Paper withBorder radius="md">
+      <UnstyledButton onClick={() => setOpen((o) => !o)} p="sm" w="100%">
+        <Group gap="xs">
+          <IconChevronRight
+            size={16}
+            style={{ transform: open ? 'rotate(90deg)' : 'none', transition: 'transform 150ms' }}
+          />
+          <Text fw={600} fz="lg" ff="'Space Grotesk Variable', sans-serif">
+            {branchName}
+          </Text>
+          <Badge variant="light" color="amber" size="sm">
+            {branch.totalCount}
+          </Badge>
+          <Badge variant="light" color="steel" size="sm" style={numericStyle}>
+            {fmtNum(branch.totalVolume)}
+          </Badge>
+        </Group>
+      </UnstyledButton>
+      <Collapse expanded={open}>
+        <AccidentTable groups={branch.groups} lineMeta={lineMeta} dailyVolume={dailyVolume} />
+      </Collapse>
+    </Paper>
+  )
+}
+
 export function AccidentsPage() {
   const { t } = useLanguage()
   const [branchId, setBranchId] = useState('')
   const [calcId, setCalcId] = useState('')
   const [lineId, setLineId] = useState('')
-  const { branches, calcs, lines, allLines } = useTopologySelects(branchId, calcId)
+  const { branches, lumgs, calcs, lines, allCalcs, allLines } = useTopologySelects(branchId, calcId)
 
   // Calendar dates only — the 07:00 contract-day window is derived in run().
   const initial = defaultRange()
   const [from, setFrom] = useState(initial.from)
   const [to, setTo] = useState(initial.to)
-  const [groups, setGroups] = useState<AccidentGroup[] | null>(null)
+  const [branchGroups, setBranchGroups] = useState<BranchAccidentGroup[] | null>(null)
   const [unionVolume, setUnionVolume] = useState(0)
   // Kept so the expandable rows use the same daily totals as the summary.
   const [dailyLookup, setDailyLookup] = useState<DailyVolumeLookup>(() => () => undefined)
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const lineNames = useMemo(() => new Map(allLines.map((l) => [l.id, l.name])), [allLines])
+  // line → (branch, calculator). Built from the whole topology, not the
+  // filtered selectors: a report run for «всі філії» shows lines from all of them.
+  // The LUMG is only walked through to reach the branch — it is not shown,
+  // since a line is named within its calculator anyway.
+  const lineMeta = useMemo<LineMetaMap>(() => {
+    const lumgById = new Map(lumgs.map((l) => [l.id, l]))
+    const calcById = new Map(allCalcs.map((c) => [c.id, c]))
+    const map: LineMetaMap = new Map()
+    for (const line of allLines) {
+      const calc = line.gas_volume_calc_id != null ? calcById.get(line.gas_volume_calc_id) : undefined
+      // `line.lumg_id` is the fallback: DPD and virtual lines hang off a LUMG
+      // directly, without a calculator.
+      const lumgId = calc?.lumg_id ?? line.lumg_id ?? null
+      const lumg = lumgId != null ? lumgById.get(lumgId) : undefined
+      map.set(line.id, {
+        lineName: line.name,
+        calcName: calc?.name ?? '—',
+        branchId: lumg?.branch_id ?? null,
+      })
+    }
+    return map
+  }, [allLines, allCalcs, lumgs])
+
+  const branchNames = useMemo(() => new Map(branches.map((b) => [b.id, b.name])), [branches])
+  const branchLabel = (id: number | null) =>
+    (id != null ? branchNames.get(id) : undefined) ?? 'Поза філіями'
 
   const run = async () => {
     const ids = lineId ? [Number(lineId)] : lines.map((l) => l.id)
@@ -221,58 +356,74 @@ export function AccidentsPage() {
       // Contract bounds are passed on so accidents missing their start/end
       // record snap to 07:00 rather than calendar midnight.
       const accidents = pairAccidents(rows, { fromDate: contractFrom, toDate: contractEnd })
-      const byType = groupAccidentsByType(accidents, dailyVolume)
-      setGroups(byType)
+      const byBranch = groupAccidentsByBranch(
+        accidents,
+        (id) => (id != null ? (lineMeta.get(id)?.branchId ?? null) : null),
+        dailyVolume,
+      )
+      setBranchGroups(byBranch)
 
       // Overall volume is the union across ALL types per line: alarms of
       // different types overlap in time, so summing their volumes would count
-      // the same gas twice and could exceed what the line actually passed.
-      const byLine = new Map<number, typeof byType[number]['occurrences']>()
-      for (const g of byType) {
-        for (const o of g.occurrences) {
-          const lid = o.line_id ?? 0
-          if (!byLine.has(lid)) byLine.set(lid, [])
-          byLine.get(lid)!.push(o)
-        }
-      }
-      let union = 0
-      for (const occs of byLine.values()) union += volumeOverOccurrences(occs, dailyVolume)
-      setUnionVolume(union)
+      // the same gas twice and could exceed what the line actually passed. A
+      // line belongs to one branch, so summing the branch unions is exact.
+      setUnionVolume(byBranch.reduce((s, b) => s + b.totalVolume, 0))
     } catch (e) {
       setError((e as Error).message)
-      setGroups(null)
+      setBranchGroups(null)
     } finally {
       setRunning(false)
     }
   }
 
   const exportExcel = () => {
-    if (!groups) return
-    const summary = [['Тип аварії', 'Перша поява', 'Остання поява', 'Кількість', 'Тривалість', 'Обʼєм']]
-    const perLine = [
-      ['Тип аварії', 'Лінія', 'Перша поява', 'Остання поява', 'Кількість', 'Тривалість', 'Обʼєм'],
+    if (!branchGroups) return
+    // The sheets are flat, so the branch that the UI shows as a section header
+    // becomes a column on every row.
+    const summary = [
+      ['Філія', 'Тип аварії', 'Перша поява', 'Остання поява', 'Кількість', 'Тривалість', 'Обʼєм'],
     ]
-    for (const g of groups) {
-      const b = groupBounds(g)
-      const name = g.sys_name ?? `#${g.sys_type_id}`
-      summary.push([
-        name,
-        fmtTime(b.firstStart),
-        g.isStandalone ? '—' : fmtTime(b.lastEnd),
-        String(g.totalCount),
-        g.totalDurationFormatted,
-        String(g.totalVolume),
-      ])
-      for (const l of summarizeOccurrencesByLine(g.occurrences, g.isStandalone, dailyLookup)) {
-        perLine.push([
+    const perLine = [
+      [
+        'Філія',
+        'Тип аварії',
+        'Обчислювач',
+        'Лінія',
+        'Перша поява',
+        'Остання поява',
+        'Кількість',
+        'Тривалість',
+        'Обʼєм',
+      ],
+    ]
+    for (const branch of branchGroups) {
+      const branchName = branchLabel(branch.branchId)
+      for (const g of branch.groups) {
+        const b = groupBounds(g)
+        const name = g.sys_name ?? `#${g.sys_type_id}`
+        summary.push([
+          branchName,
           name,
-          lineNames.get(l.line_id) ?? `Лінія ${l.line_id}`,
-          fmtTime(l.firstStart),
-          g.isStandalone ? '—' : fmtTime(l.lastEnd),
-          String(l.count),
-          l.durationFormatted,
-          String(l.volume),
+          fmtTime(b.firstStart),
+          g.isStandalone ? '—' : fmtTime(b.lastEnd),
+          String(g.totalCount),
+          g.totalDurationFormatted,
+          String(g.totalVolume),
         ])
+        for (const l of summarizeOccurrencesByLine(g.occurrences, g.isStandalone, dailyLookup)) {
+          const meta = metaOf(lineMeta, l.line_id)
+          perLine.push([
+            branchName,
+            name,
+            meta.calcName,
+            meta.lineName,
+            fmtTime(l.firstStart),
+            g.isStandalone ? '—' : fmtTime(l.lastEnd),
+            String(l.count),
+            l.durationFormatted,
+            String(l.volume),
+          ])
+        }
       }
     }
     const wb = XLSX.utils.book_new()
@@ -282,13 +433,17 @@ export function AccidentsPage() {
   }
 
   const totals = useMemo(() => {
-    if (!groups) return null
-    return {
-      types: groups.length,
-      count: groups.reduce((s, g) => s + g.totalCount, 0),
-      volume: unionVolume,
+    if (!branchGroups) return null
+    // One event type can fire in several branches; the card counts types, not
+    // branch-type pairs.
+    const types = new Set<number>()
+    let count = 0
+    for (const branch of branchGroups) {
+      count += branch.totalCount
+      for (const g of branch.groups) types.add(g.sys_type_id)
     }
-  }, [groups, unionVolume])
+    return { types: types.size, count, volume: unionVolume }
+  }, [branchGroups, unionVolume])
 
   return (
     <ReportShell
@@ -297,7 +452,7 @@ export function AccidentsPage() {
       onRun={run}
       running={running}
       onExport={exportExcel}
-      canExport={!!groups?.length}
+      canExport={!!branchGroups?.length}
       error={error}
       withBranchPicker={false}
       controls={
@@ -390,45 +545,31 @@ export function AccidentsPage() {
         </SimpleGrid>
       )}
 
-      {groups && groups.length > 0 && (
-        /* Height follows the content; the page scrolls, not the table. */
+      {branchGroups && branchGroups.length === 1 && (
         <Paper withBorder radius="md">
-          <Table striped highlightOnHover verticalSpacing={4} fz="sm">
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th>{t('accidentType')}</Table.Th>
-                <Table.Th ta="center" w={170}>
-                  {t('startTime')}
-                </Table.Th>
-                <Table.Th ta="center" w={170}>
-                  {t('endTime')}
-                </Table.Th>
-                <Table.Th ta="center" w={120}>
-                  {t('occurrenceCount')}
-                </Table.Th>
-                <Table.Th ta="center" w={150}>
-                  {t('totalDuration')}
-                </Table.Th>
-                <Table.Th ta="center" w={150}>
-                  {t('totalVolume')}
-                </Table.Th>
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {groups.map((g) => (
-                <GroupRow
-                  key={g.sys_type_id}
-                  group={g}
-                  lineNames={lineNames}
-                  dailyVolume={dailyLookup}
-                />
-              ))}
-            </Table.Tbody>
-          </Table>
+          <AccidentTable
+            groups={branchGroups[0].groups}
+            lineMeta={lineMeta}
+            dailyVolume={dailyLookup}
+          />
         </Paper>
       )}
 
-      {groups && groups.length === 0 && (
+      {branchGroups && branchGroups.length > 1 && (
+        <Stack gap="md">
+          {branchGroups.map((b) => (
+            <BranchSection
+              key={b.branchId ?? 'unknown'}
+              branch={b}
+              branchName={branchLabel(b.branchId)}
+              lineMeta={lineMeta}
+              dailyVolume={dailyLookup}
+            />
+          ))}
+        </Stack>
+      )}
+
+      {branchGroups && branchGroups.length === 0 && (
         <Text c="dimmed" ta="center" py="xl">
           {t('noAccidentsFound')}
         </Text>

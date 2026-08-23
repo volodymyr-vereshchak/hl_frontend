@@ -463,3 +463,77 @@ export function filterAccidentsByLine(accidents: Accident[], lineId: number | nu
   if (!lineId) return accidents
   return accidents.filter((a) => a.line_id === lineId)
 }
+
+/** Branch a line belongs to; null when the topology does not know the line. */
+export type LineBranchLookup = (lineId: number | undefined) => number | null
+
+/**
+ * Gas that passed while ANY accident of ANY type was active, over a set of
+ * groups.
+ *
+ * Types overlap in time on the same line, so summing `group.totalVolume` would
+ * count the same gas once per type. The occurrences are therefore pooled per
+ * line first and only then measured — see `volumeOverOccurrences`.
+ */
+export function unionVolumeOverGroups(
+  groups: AccidentGroup[],
+  dailyVolume: DailyVolumeLookup = () => undefined,
+): number {
+  const byLine = new Map<number, AccidentOccurrence[]>()
+  for (const group of groups) {
+    for (const occ of group.occurrences) {
+      const lid = occ.line_id ?? 0
+      if (!byLine.has(lid)) byLine.set(lid, [])
+      byLine.get(lid)!.push(occ)
+    }
+  }
+  let total = 0
+  for (const occs of byLine.values()) total += volumeOverOccurrences(occs, dailyVolume)
+  return total
+}
+
+export interface BranchAccidentGroup {
+  /** null = the line is not in the loaded topology. */
+  branchId: number | null
+  groups: AccidentGroup[]
+  totalCount: number
+  /** Union across the branch's lines — never the sum of the type volumes. */
+  totalVolume: number
+}
+
+/**
+ * Split accidents per branch, then group each branch's own accidents by type.
+ *
+ * A line belongs to exactly one branch, so the branches partition both the
+ * occurrences and the volume: the report's overall figures stay the sum of the
+ * branch figures, and no accident is counted twice.
+ */
+export function groupAccidentsByBranch(
+  accidents: Accident[],
+  branchOf: LineBranchLookup,
+  dailyVolume: DailyVolumeLookup = () => undefined,
+): BranchAccidentGroup[] {
+  const byBranch = new Map<number | null, Accident[]>()
+  for (const accident of accidents) {
+    const key = branchOf(accident.line_id)
+    if (!byBranch.has(key)) byBranch.set(key, [])
+    byBranch.get(key)!.push(accident)
+  }
+
+  return [...byBranch.entries()]
+    .map(([branchId, list]) => {
+      const groups = groupAccidentsByType(list, dailyVolume)
+      return {
+        branchId,
+        groups,
+        totalCount: groups.reduce((s, g) => s + g.totalCount, 0),
+        totalVolume: unionVolumeOverGroups(groups, dailyVolume),
+      }
+    })
+    .sort((a, b) => {
+      // Lines the topology does not know sit last: the bucket has no name to
+      // show and nothing to drill into beyond the line id.
+      if ((a.branchId === null) !== (b.branchId === null)) return a.branchId === null ? 1 : -1
+      return b.totalCount - a.totalCount
+    })
+}

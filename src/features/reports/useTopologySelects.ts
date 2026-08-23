@@ -39,5 +39,15 @@ export function useTopologySelects(branchId: string, calcId: string) {
     return lines
   }, [calcId, branchId, lines, filteredCalcs])
 
-  return { ...query, branches, lumgs, calcs: filteredCalcs, lines: filteredLines, allLines: lines }
+  return {
+    ...query,
+    branches,
+    lumgs,
+    calcs: filteredCalcs,
+    lines: filteredLines,
+    // Unfiltered, for resolving a line's calc/LUMG/branch names in the results:
+    // the report may show lines outside the current selector scope.
+    allCalcs: calcs,
+    allLines: lines,
+  }
 }

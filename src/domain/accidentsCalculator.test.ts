@@ -7,6 +7,8 @@ import {
   groupAccidentsByType,
   summarizeOccurrencesByLine,
   volumeOverOccurrences,
+  groupAccidentsByBranch,
+  unionVolumeOverGroups,
   type SysRecord,
 } from './accidentsCalculator'
 
@@ -208,5 +210,78 @@ describe('summarizeOccurrencesByLine', () => {
     expect(perLine).toHaveLength(2)
     expect(perLine.every((l) => l.count === 1)).toBe(true)
     expect(perLine.find((l) => l.line_id === 2)?.volume).toBe(12) // 19 − 7
+  })
+})
+
+describe('groupAccidentsByBranch', () => {
+  // Lines 1–2 in branch 10, line 3 in branch 20, line 9 unknown to the topology.
+  const branchOf = (lineId: number | undefined) =>
+    ({ 1: 10, 2: 10, 3: 20 })[lineId ?? 0] ?? null
+
+  const rows: SysRecord[] = [
+    { line_id: 1, period: '2026-04-01T08:00:00', sys_type_id: 130, sys_name: 'dP > max', volume: 10 },
+    { line_id: 1, period: '2026-04-01T12:00:00', sys_type_id: 2, sys_name: 'dP норма', volume: 40 },
+    { line_id: 2, period: '2026-04-01T09:00:00', sys_type_id: 130, sys_name: 'dP > max', volume: 5 },
+    { line_id: 2, period: '2026-04-01T10:00:00', sys_type_id: 2, sys_name: 'dP норма', volume: 25 },
+    { line_id: 3, period: '2026-04-01T09:00:00', sys_type_id: 175, sys_name: 'P < min', volume: 0 },
+    { line_id: 3, period: '2026-04-01T11:00:00', sys_type_id: 47, sys_name: 'P норма', volume: 7 },
+  ]
+
+  it('puts each accident under its own branch and groups by type inside', () => {
+    const byBranch = groupAccidentsByBranch(pairAccidents(rows, CONTRACT), branchOf)
+    expect(byBranch.map((b) => b.branchId)).toEqual([10, 20])
+
+    const first = byBranch[0]
+    expect(first.totalCount).toBe(2) // two lines, one accident each
+    expect(first.groups).toHaveLength(1) // both of the same type
+    expect(summarizeOccurrencesByLine(first.groups[0].occurrences, false)).toHaveLength(2)
+
+    expect(byBranch[1].groups[0].sys_name).toBe('P < min')
+  })
+
+  it('partitions the totals — the branches add up to the whole report', () => {
+    const accidents = pairAccidents(rows, CONTRACT)
+    const byBranch = groupAccidentsByBranch(accidents, branchOf)
+    const all = groupAccidentsByType(accidents)
+
+    expect(byBranch.reduce((s, b) => s + b.totalCount, 0)).toBe(
+      all.reduce((s, g) => s + g.totalCount, 0),
+    )
+    expect(byBranch.reduce((s, b) => s + b.totalVolume, 0)).toBe(unionVolumeOverGroups(all))
+  })
+
+  it('collects lines the topology does not know into a trailing bucket', () => {
+    const withOrphan: SysRecord[] = [
+      ...rows,
+      { line_id: 9, period: '2026-04-01T08:00:00', sys_type_id: 130, volume: 0 },
+      { line_id: 9, period: '2026-04-01T09:00:00', sys_type_id: 2, volume: 3 },
+    ]
+    const byBranch = groupAccidentsByBranch(pairAccidents(withOrphan, CONTRACT), branchOf)
+    expect(byBranch.at(-1)?.branchId).toBeNull()
+    expect(byBranch.at(-1)?.totalCount).toBe(1)
+  })
+})
+
+describe('unionVolumeOverGroups', () => {
+  it('counts gas covered by two types at once only once', () => {
+    const rows: SysRecord[] = [
+      { line_id: 1, period: '2026-04-01T08:00:00', sys_type_id: 130, volume: 10 },
+      { line_id: 1, period: '2026-04-01T18:00:00', sys_type_id: 2, volume: 90 },
+      { line_id: 1, period: '2026-04-01T09:00:00', sys_type_id: 175, volume: 20 },
+      { line_id: 1, period: '2026-04-01T17:00:00', sys_type_id: 47, volume: 80 },
+    ]
+    const groups = groupAccidentsByType(pairAccidents(rows, CONTRACT))
+    expect(unionVolumeOverGroups(groups)).toBe(80) // not 80 + 60
+  })
+
+  it('adds up separate lines', () => {
+    const rows: SysRecord[] = [
+      { line_id: 1, period: '2026-04-01T08:00:00', sys_type_id: 130, volume: 10 },
+      { line_id: 1, period: '2026-04-01T12:00:00', sys_type_id: 2, volume: 30 },
+      { line_id: 2, period: '2026-04-01T08:00:00', sys_type_id: 130, volume: 0 },
+      { line_id: 2, period: '2026-04-01T12:00:00', sys_type_id: 2, volume: 5 },
+    ]
+    const groups = groupAccidentsByType(pairAccidents(rows, CONTRACT))
+    expect(unionVolumeOverGroups(groups)).toBe(25)
   })
 })
