@@ -314,6 +314,8 @@ grsTrends: "Тренди ГРС",
   status: "Статус",
   statusEnabled: "Включена",
   statusDisabled: "Відключена",
+  inactive: "Неактивне",
+  inactiveNotInReports: "Опитується вручну, але у звіти не входить",
 
   // Shared UI
   branch: "Філія",

@@ -418,6 +418,12 @@ export function EnterprisePollPage() {
           // and answered with whatever the last scheduled import had left —
           // the one thing an operator opening "Опитування" is not asking for.
           live: true,
+          // A deactivated point is still selectable here, and asking its meter
+          // is often WHY it is being looked at. Without this the poll ran and
+          // came back empty, because every lookup drops inactive points. It
+          // changes nothing anywhere else: daily, hourly, trends and the night
+          // report resolve through the ring path, which refuses this flag.
+          include_inactive: true,
         },
         { onProgress: setProgress, signal: ctrl.signal },
       )
@@ -772,6 +778,17 @@ export function EnterprisePollPage() {
                                         >
                                           {enterpriseLabel(m)}
                                         </Text>
+                                        {m.active === false && (
+                                          <Badge
+                                            size="xs"
+                                            variant="light"
+                                            color="amber"
+                                            tt="none"
+                                            title={t('inactiveNotInReports')}
+                                          >
+                                            {t('inactive')}
+                                          </Badge>
+                                        )}
                                         {currentDevice(m) && (
                                           <Text size="10px" c="dimmed" style={numericStyle}>
                                             {currentDevice(m)!.ser_num}
@@ -857,6 +874,13 @@ export function EnterprisePollPage() {
                 {lineLabel(selectedMapping) && (
                   <Badge variant="outline" color="gray" tt="none">
                     {lineLabel(selectedMapping)}
+                  </Badge>
+                )}
+                {/* Polling one of these works on purpose; what it must not do
+                    is look like data the reports counted. */}
+                {selectedMapping.active === false && (
+                  <Badge variant="light" color="amber" tt="none" title={t('inactiveNotInReports')}>
+                    {t('inactive')}
                   </Badge>
                 )}
                 {currentDevice(selectedMapping) && (

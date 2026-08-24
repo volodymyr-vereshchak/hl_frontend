@@ -125,6 +125,12 @@ export interface VolumesParams {
   include_devices?: boolean
   /** Hourly only: fetch just these wall-clock hours (0-23). */
   hours?: number[]
+  /**
+   * Resolve DEACTIVATED points too. The poll screen sets it so a switched-off
+   * point can still be read from its meter; nothing that computes a volume
+   * does, and the backend refuses it together with `virtual`.
+   */
+  include_inactive?: boolean
   live?: boolean
   serNum?: number | string
   mfDev?: number
