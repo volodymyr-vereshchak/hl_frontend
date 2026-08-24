@@ -123,6 +123,8 @@ export interface VolumesParams {
   to_date: string
   period_type?: 'daily' | 'hourly'
   include_devices?: boolean
+  /** Hourly only: fetch just these wall-clock hours (0-23). */
+  hours?: number[]
   live?: boolean
   serNum?: number | string
   mfDev?: number

@@ -5,26 +5,44 @@ import {
   buildHourlySheets,
   SHEET_HOURS,
 } from './nightConsumption'
-import type { ArchiveRow } from '@/api/entities'
+import type { HourlyCompact } from '@/api/entities'
 
-const row = (period: string, line_id: number, volume: number) =>
-  ({ period, line_id, volume }) as unknown as ArchiveRow
+/**
+ * Build the compact payload the endpoint sends: stamps listed once, rows
+ * pointing at them by index. Assembled the way the server assembles it, so the
+ * tests exercise the real indirection rather than a convenient stand-in.
+ */
+const payload = (...entries: [string, number, number][]): HourlyCompact => {
+  const stamps: string[] = []
+  const index = new Map<string, number>()
+  const rows = entries.map(([period, lineId, volume]) => {
+    const stamp = period.slice(0, 13)
+    let at = index.get(stamp)
+    if (at === undefined) {
+      at = stamps.length
+      index.set(stamp, at)
+      stamps.push(stamp)
+    }
+    return [lineId, at, volume] as [number, number, number]
+  })
+  return { stamps, rows }
+}
 
 describe('buildNetByDayLineHour', () => {
   it('attributes 00:00–06:00 to the PREVIOUS commercial day', () => {
-    const map = buildNetByDayLineHour([
-      row('2026-04-02T02:00:00', 1, 100),
-      row('2026-04-01T23:00:00', 1, 50),
-    ])
+    const map = buildNetByDayLineHour(
+      payload(['2026-04-02T02:00:00', 1, 100], ['2026-04-01T23:00:00', 1, 50]),
+    )
     // 02:00 of 02.04 belongs to commercial day 01.04; 23:00 stays on its own day.
     expect(map['2026-04-01'][1][2]).toBe(100)
     expect(map['2026-04-01'][1][23]).toBe(50)
     expect(map['2026-04-02']).toBeUndefined()
   })
 
-  it('parses the period as local wall-clock, not UTC', () => {
-    // Under UTC parsing this 00:00 record would shift and land on another day.
-    const map = buildNetByDayLineHour([row('2026-04-02T00:00:00', 7, 10)])
+  it('reads the stamp as wall-clock, not as an instant', () => {
+    // Parsed as UTC and rendered locally, this 00:00 would shift into another
+    // commercial day for every viewer outside the server's timezone.
+    const map = buildNetByDayLineHour(payload(['2026-04-02T00:00:00', 7, 10]))
     expect(map['2026-04-01'][7][0]).toBe(10)
   })
 
@@ -34,7 +52,7 @@ describe('buildNetByDayLineHour', () => {
       { line_id: 1, period: '2026-04-02T03:00:00', devices: [{ volume: 600 }, { volume: 399 }] },
     ] as never
     const map = buildNetByDayLineHour(
-      [row('2026-04-02T02:00:00', 1, 100), row('2026-04-02T03:00:00', 1, 100)],
+      payload(['2026-04-02T02:00:00', 1, 100], ['2026-04-02T03:00:00', 1, 100]),
       ent,
     )
     expect(map['2026-04-01'][1][2]).toBe(70)
@@ -42,23 +60,33 @@ describe('buildNetByDayLineHour', () => {
   })
 
   it('ignores hours outside the night window and rows without a line', () => {
-    const map = buildNetByDayLineHour([
-      row('2026-04-01T12:00:00', 1, 500),
-      row('2026-04-02T02:00:00', undefined as unknown as number, 500),
-    ])
+    // The endpoint filters the hours too, but a caller that asks for the whole
+    // day must still get only the night out of this.
+    const map = buildNetByDayLineHour(
+      payload(
+        ['2026-04-01T12:00:00', 1, 500],
+        ['2026-04-02T02:00:00', undefined as unknown as number, 500],
+      ),
+    )
     expect(map).toEqual({})
+  })
+
+  it('survives an empty answer', () => {
+    expect(buildNetByDayLineHour({ stamps: [], rows: [] })).toEqual({})
   })
 })
 
 describe('nightRowsFromMap', () => {
-  const map = buildNetByDayLineHour([
-    row('2026-04-02T00:00:00', 1, 442.5),
-    row('2026-04-02T01:00:00', 1, 69.5),
-    row('2026-04-02T02:00:00', 1, 67.17),
-    row('2026-04-02T03:00:00', 1, 129.34),
-    row('2026-04-02T04:00:00', 1, 1170.97),
-    row('2026-04-02T05:00:00', 1, 1359.99),
-  ])
+  const map = buildNetByDayLineHour(
+    payload(
+      ['2026-04-02T00:00:00', 1, 442.5],
+      ['2026-04-02T01:00:00', 1, 69.5],
+      ['2026-04-02T02:00:00', 1, 67.17],
+      ['2026-04-02T03:00:00', 1, 129.34],
+      ['2026-04-02T04:00:00', 1, 1170.97],
+      ['2026-04-02T05:00:00', 1, 1359.99],
+    ),
+  )
 
   it('takes the minimum over 00–05 in "min" mode', () => {
     // Matches the live API check for line 379 on commercial day 01.04.2026.
@@ -70,30 +98,27 @@ describe('nightRowsFromMap', () => {
   })
 
   it('returns null for a line with no night data, and sorts by day', () => {
-    const two = buildNetByDayLineHour([
-      row('2026-04-03T02:00:00', 1, 5),
-      row('2026-04-02T02:00:00', 1, 9),
-    ])
+    const two = buildNetByDayLineHour(
+      payload(['2026-04-03T02:00:00', 1, 5], ['2026-04-02T02:00:00', 1, 9]),
+    )
     const rows = nightRowsFromMap(two, [1, 42], 'min')
     expect(rows.map((r) => r.date)).toEqual(['2026-04-01', '2026-04-02'])
     expect(rows[0].line_42).toBeNull()
   })
 
   it('ignores missing hours instead of treating them as zero', () => {
-    const sparse = buildNetByDayLineHour([
-      row('2026-04-02T02:00:00', 1, 80),
-      row('2026-04-02T04:00:00', 1, 120),
-    ])
+    const sparse = buildNetByDayLineHour(
+      payload(['2026-04-02T02:00:00', 1, 80], ['2026-04-02T04:00:00', 1, 120]),
+    )
     expect(nightRowsFromMap(sparse, [1], 'min')[0].line_1).toBe(80)
   })
 })
 
 describe('buildHourlySheets', () => {
   it('emits one row per requested day with every sheet hour, null when absent', () => {
-    const map = buildNetByDayLineHour([
-      row('2026-04-01T22:00:00', 1, 700),
-      row('2026-04-02T02:00:00', 1, 67),
-    ])
+    const map = buildNetByDayLineHour(
+      payload(['2026-04-01T22:00:00', 1, 700], ['2026-04-02T02:00:00', 1, 67]),
+    )
     const sheets = buildHourlySheets(map, ['2026-04-01', '2026-04-09'], [1])
     expect(sheets[1]).toHaveLength(2)
     expect(sheets[1][0][22]).toBe(700)

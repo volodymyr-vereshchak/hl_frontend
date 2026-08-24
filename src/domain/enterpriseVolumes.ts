@@ -161,10 +161,17 @@ export function breakdownRow(
  * `includeDevices` controls response size, not the data source: a month of
  * hourly data with per-device breakdowns is ~18 MB. Totals-only consumers
  * (chart overlay) keep false; breakdown consumers (Excel, poll page) pass true.
+ *
+ * `hours` narrows an hourly fetch to those wall-clock hours. A report that
+ * reads nine hours of the day was paying for the other fifteen twice over —
+ * the backend aggregated them and the browser parsed them. Only the stream
+ * honours it; the plain GET used as the transport fallback ignores the
+ * parameter and answers with the whole day, which is bigger but not wrong —
+ * callers filter the hours they use anyway.
  */
 export function getEnterpriseFetchFn(
   isVirtualLine: boolean,
-  { includeDevices = false }: { includeDevices?: boolean } = {},
+  { includeDevices = false, hours }: { includeDevices?: boolean; hours?: number[] } = {},
 ) {
   return async (
     lines: number[],
@@ -180,6 +187,7 @@ export function getEnterpriseFetchFn(
       period_type: type,
       virtual: isVirtualLine || undefined,
       include_devices: includeDevices ? undefined : false,
+      ...(hours?.length && type === 'hourly' ? { hours } : {}),
     }
     try {
       return await streamEnterpriseVolumes(params, { onProgress })

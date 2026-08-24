@@ -20,12 +20,7 @@ import {
   ResponsiveContainer,
 } from 'recharts'
 import * as XLSX from 'xlsx'
-import {
-  archiveDataApi,
-  archiveDataVirtualApi,
-  dpdLineApi,
-  type ArchiveRow,
-} from '@/api/entities'
+import { archiveDataApi } from '@/api/entities'
 import { commercialHourlyRange } from '@/domain/commercialDay'
 import { getEnterpriseFetchFn } from '@/domain/enterpriseVolumes'
 import { trendColor } from '@/domain/grsTrends'
@@ -33,6 +28,7 @@ import {
   buildNetByDayLineHour,
   nightRowsFromMap,
   buildHourlySheets,
+  MIN_HOURS,
   SHEET_HOURS,
   type NetMap,
   type NightMode,
@@ -59,6 +55,9 @@ function defaultRange() {
 
 const fmt = (v: unknown) =>
   v == null ? '—' : Number(v).toLocaleString('uk-UA', { maximumFractionDigits: 2 })
+
+/** The only hours the report ever looks at — the summary's and the export's. */
+const NIGHT_HOURS = [...new Set([...MIN_HOURS, ...SHEET_HOURS])].sort((a, b) => a - b)
 
 export function NightConsumptionPage() {
   const { t, getLocale } = useLanguage()
@@ -101,44 +100,32 @@ export function NightConsumptionPage() {
       // Night hours belong to commercial days, so the hourly window runs
       // 07:00 → next-day 06:00 across the selected range.
       const win = commercialHourlyRange(from, to)
-      const phys = reportLines.filter((l) => l.kind === 'physical').map((l) => l.id)
-      const virt = reportLines.filter((l) => l.kind === 'virtual').map((l) => l.id)
-      const dpd = reportLines.filter((l) => l.kind === 'dpd').map((l) => l.id)
+      const ids = reportLines.map((l) => l.id)
 
-      // Failures are collected rather than swallowed: if nothing comes back the
-      // user must see WHY (e.g. the backend rejecting an over-long range).
-      const settled = await Promise.allSettled<ArchiveRow[]>([
-        phys.length
-          ? archiveDataApi.getHourlyData(phys, win.from, win.to)
-          : Promise.resolve<ArchiveRow[]>([]),
-        virt.length
-          ? archiveDataVirtualApi.getHourlyData(virt, win.from, win.to)
-          : Promise.resolve<ArchiveRow[]>([]),
-        dpd.length
-          ? dpdLineApi.getHourlyData(dpd, win.from, win.to)
-          : Promise.resolve<ArchiveRow[]>([]),
+      // Both halves at once. Industry does not depend on the archive, and on a
+      // long range each is seconds of server work — running them one after the
+      // other simply added the two waits together.
+      //
+      // Night consumption is by definition the населення share, i.e. what is
+      // left after industry — so industry is always subtracted, never optional.
+      // Bare commercial days for it, NOT `win`: the enterprise endpoint applies
+      // the hourly 07:00→06:00 expansion itself.
+      const [hourly, enterprise] = await Promise.all([
+        archiveDataApi.getHourlyCompact(ids, win.from, win.to, NIGHT_HOURS),
+        getEnterpriseFetchFn(true, { hours: NIGHT_HOURS })(
+          ids,
+          from,
+          to,
+          'hourly',
+          (pr) => setProgress(pollPhaseLabel(pr, t)),
+        ).catch(() => []),
       ])
-      const hourly = settled.flatMap((r) => (r.status === 'fulfilled' ? r.value : []))
-      const failure = settled.find((r) => r.status === 'rejected') as PromiseRejectedResult | undefined
-      if (hourly.length === 0) {
-        if (failure) throw failure.reason
+
+      if (!hourly?.rows?.length) {
         setNetMap({})
         setUsedLines(reportLines)
         return
       }
-
-      // Night consumption is by definition the населення share, i.e. what is
-      // left after industry — so industry is always subtracted, never optional.
-      // Bare commercial days, NOT `win`: the enterprise endpoint applies the
-      // hourly 07:00→06:00 expansion itself.
-      setProgress(t('phaseEnterprise'))
-      const enterprise = await getEnterpriseFetchFn(true)(
-        reportLines.map((l) => l.id),
-        from,
-        to,
-        'hourly',
-        (pr) => setProgress(pollPhaseLabel(pr, t)),
-      ).catch(() => [])
 
       setProgress(t('phaseCalculating'))
       setNetMap(buildNetByDayLineHour(hourly, enterprise))

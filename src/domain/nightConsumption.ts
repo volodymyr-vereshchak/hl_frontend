@@ -6,10 +6,10 @@
  * of calendar date C belongs to day C−1), then summarised per day and line as
  * either the minimum over 00:00–05:00 or the average of 02:00 and 03:00.
  */
-import { buildEnterpriseByLinePeriod, enterprisePeriodKey } from './enterpriseVolumes'
+import { buildEnterpriseByLinePeriod } from './enterpriseVolumes'
 import { commercialDayOf } from './commercialDay'
 import type { EnterpriseRecord } from '@/api/enterprise'
-import type { ArchiveRow } from '@/api/entities'
+import type { HourlyCompact } from '@/api/entities'
 
 export type NightMode = 'min' | 'avg23'
 
@@ -21,40 +21,54 @@ export const SHEET_HOURS = [21, 22, 23, 0, 1, 2, 3, 4]
 /** commercialDay → lineId → hour → NET volume. */
 export type NetMap = Record<string, Record<number, Record<number, number>>>
 
+/** What a stamp resolves to; worked out once per stamp, not once per row. */
+interface StampInfo {
+  /** The commercial day the hour belongs to. */
+  day: string
+  hour: number
+  /** Join key into the enterprise lookup — the stamp itself. */
+  key: string
+  /** Whether the report looks at this hour at all. */
+  wanted: boolean
+}
+
 /**
- * Parse "YYYY-MM-DDTHH:mm:ss" as LOCAL wall-clock time. `new Date()` would treat
- * a bare timestamp as UTC and shift the hour in UTC+ zones, moving records into
- * the wrong commercial day.
+ * Read a stamp as LOCAL wall-clock time. The archive sends
+ * "YYYY-MM-DDTHH" — plant wall clock, no zone — and so does the enterprise
+ * endpoint; comparing anything else (an instant, a parsed Date) would make the
+ * two sides agree only in the timezone the server happens to run in.
  */
-function splitPeriod(period: string): { date: string; hour: number } | null {
-  const m = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2})/.exec(String(period))
-  if (!m) return null
-  return { date: `${m[1]}-${m[2]}-${m[3]}`, hour: parseInt(m[4], 10) }
+function readStamp(stamp: string, wanted: Set<number>): StampInfo | null {
+  if (stamp.length < 13) return null
+  const hour = Number(stamp.slice(11, 13))
+  if (!Number.isInteger(hour)) return null
+  const date = stamp.slice(0, 10)
+  return { day: commercialDayOf(date, hour), hour, key: stamp, wanted: wanted.has(hour) }
 }
 
 export function buildNetByDayLineHour(
-  hourlyData: ArchiveRow[],
+  hourly: HourlyCompact,
   enterpriseData: EnterpriseRecord[] = [],
 ): NetMap {
   const enterpriseMap = buildEnterpriseByLinePeriod(enterpriseData, 'hourly')
   const wanted = new Set([...MIN_HOURS, ...SHEET_HOURS])
+  // Hundreds of thousands of rows over some seven hundred stamps: resolving
+  // the stamp per row was the whole cost of this loop.
+  const stamps = (hourly?.stamps ?? []).map((s) => readStamp(s, wanted))
   const map: NetMap = {}
 
-  for (const record of hourlyData) {
-    const parsed = splitPeriod(String(record.period))
-    if (!parsed || !wanted.has(parsed.hour)) continue
+  for (const [lineId, stampIdx, volume] of hourly?.rows ?? []) {
+    const at = stamps[stampIdx]
+    if (!at || !at.wanted || lineId == null) continue
 
-    const lineId = record.line_id as number
-    if (lineId == null) continue
+    const gs = Number(volume) || 0
+    const ent = enterpriseMap[lineId]?.[at.key] ?? 0
 
-    const commDate = commercialDayOf(parsed.date, parsed.hour)
-    const key = enterprisePeriodKey(record.period, 'hourly')
-    const gs = Number(record.volume) || 0
-    const ent = enterpriseMap[lineId]?.[key] ?? 0
-
-    if (!map[commDate]) map[commDate] = {}
-    if (!map[commDate][lineId]) map[commDate][lineId] = {}
-    map[commDate][lineId][parsed.hour] = Math.max(0, gs - ent)
+    let byLine = map[at.day]
+    if (!byLine) byLine = map[at.day] = {}
+    let byHour = byLine[lineId]
+    if (!byHour) byHour = byLine[lineId] = {}
+    byHour[at.hour] = Math.max(0, gs - ent)
   }
   return map
 }

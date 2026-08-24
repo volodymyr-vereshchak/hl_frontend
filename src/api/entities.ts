@@ -47,12 +47,47 @@ export const dpdLineApi = {
     api.get<HourlyRecord[]>('/hourly_dpd/', { line_id: lineIds, from_date: fromDate, to_date: toDate }),
 }
 
+/**
+ * Compact hourly archive: physical lines, rings and DPD lines in one answer.
+ *
+ * `rows` are [line_id, stampIdx, volume]; `stamps` holds each stamp once as
+ * "YYYY-MM-DDTHH" — plant WALL-CLOCK time, the same key the enterprise
+ * endpoint's periods reduce to. Deliberately not an instant: the two sides are
+ * joined hour by hour, and an epoch would only line them up for a viewer whose
+ * timezone matched the server's.
+ */
+export interface HourlyCompact {
+  stamps: string[]
+  rows: [number, number, number][]
+}
+
 // ── Archive data ──────────────────────────────────────────────────────────────
 export const archiveDataApi = {
   getDailyData: (lineIds: number[], fromDate: string, toDate: string) =>
     api.get<HourlyRecord[]>('/daily/', { line_id: lineIds, from_date: fromDate, to_date: toDate }),
   getHourlyData: (lineIds: number[], fromDate: string, toDate: string) =>
     api.get<HourlyRecord[]>('/hourly/', { line_id: lineIds, from_date: fromDate, to_date: toDate }),
+
+  /**
+   * The three columns a bulk reader needs, for every kind of line at once.
+   *
+   * `/hourly/` sends all eight columns of every row through a response model
+   * and two more full passes of the payload — a month over a branch cost 18 s
+   * and 69 MB, of which the night report used three columns and nine hours of
+   * the twenty-four. `hours` pushes that filter into the database.
+   */
+  getHourlyCompact: (
+    lineIds: number[],
+    fromDate: string,
+    toDate: string,
+    hours?: number[],
+  ) =>
+    api.get<HourlyCompact>('/hourly_compact/', {
+      line_id: lineIds,
+      from_date: fromDate,
+      to_date: toDate,
+      ...(hours?.length ? { hours } : {}),
+    }),
 
   async getLastPeriod(lineIds: number[] = []): Promise<Date | null> {
     const result = await api.get<{ last_period?: string }>(
