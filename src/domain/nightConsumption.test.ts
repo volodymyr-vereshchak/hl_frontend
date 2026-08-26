@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   buildNetByDayLineHour,
+  nightHourlyRange,
   nightRowsFromMap,
   buildHourlySheets,
   SHEET_HOURS,
@@ -126,5 +127,98 @@ describe('buildHourlySheets', () => {
     expect(sheets[1][0][21]).toBeNull()
     // A day with no data still produces a full, empty row.
     expect(SHEET_HOURS.every((h) => sheets[1][1][h] === null)).toBe(true)
+  })
+})
+
+describe('the calendar (astronomical) day', () => {
+  // The same night, told twice: the gas day files it under the evening it
+  // started on, the calendar day under the morning it ends on.
+  const night = payload(
+    ['2026-04-01T22:00:00', 1, 700],
+    ['2026-04-02T00:00:00', 1, 300],
+    ['2026-04-02T02:00:00', 1, 67],
+    ['2026-04-02T03:00:00', 1, 129],
+    ['2026-04-02T04:00:00', 1, 90],
+  )
+
+  it('files the small hours under their own date, not the day before', () => {
+    const calendar = buildNetByDayLineHour(night, [], { dayMode: 'calendar' })
+    expect(calendar['2026-04-02'][1][2]).toBe(67)
+    expect(calendar['2026-04-01']?.[1]?.[2]).toBeUndefined()
+    // The gas day says the opposite about the very same hour.
+    expect(buildNetByDayLineHour(night)['2026-04-01'][1][2]).toBe(67)
+  })
+
+  it('pulls the evening hours forward from the previous date', () => {
+    const calendar = buildNetByDayLineHour(night, [], { dayMode: 'calendar' })
+    expect(calendar['2026-04-02'][1][22]).toBe(700)
+    expect(calendar['2026-04-01']).toBeUndefined()
+  })
+
+  it('gives the export sheet one continuous night per row', () => {
+    const calendar = buildNetByDayLineHour(night, [], { dayMode: 'calendar' })
+    const row = buildHourlySheets(calendar, ['2026-04-02'], [1])[1][0]
+    expect(row[22]).toBe(700)
+    expect(row[2]).toBe(67)
+    expect(row[21]).toBeNull()
+  })
+
+  it('summarises the hours of its own date', () => {
+    const calendar = buildNetByDayLineHour(night, [], { dayMode: 'calendar' })
+    expect(nightRowsFromMap(calendar, [1], 'min')[0]).toEqual({
+      date: '2026-04-02',
+      line_1: 67,
+    })
+    expect(nightRowsFromMap(calendar, [1], 'avg23')[0].line_1).toBe(98)
+  })
+})
+
+describe('clamping to the report range', () => {
+  // The window is one day wider than the report on each side, so both modes can
+  // be served from one fetch; the days that fall outside must not become rows.
+  const wide = payload(
+    ['2026-03-31T22:00:00', 1, 10],
+    ['2026-04-01T02:00:00', 1, 20],
+    ['2026-04-02T02:00:00', 1, 30],
+  )
+
+  it('drops the day before the range in gas mode', () => {
+    const map = buildNetByDayLineHour(wide, [], { from: '2026-04-01', to: '2026-04-01' })
+    // 22:00 of 31.03 and 02:00 of 01.04 both belong to gas day 31.03.
+    expect(Object.keys(map)).toEqual(['2026-04-01'])
+    expect(map['2026-04-01'][1][2]).toBe(30)
+  })
+
+  it('ignores a time part on the bounds', () => {
+    // The picker hands out bare days, but every other control in the app hands
+    // out '2026-04-01 00:00:00' — which sorts AFTER '2026-04-01' and would drop
+    // the report's own first day.
+    const map = buildNetByDayLineHour(wide, [], {
+      dayMode: 'calendar',
+      from: '2026-04-01 00:00:00',
+      to: '2026-04-01 00:00:00',
+    })
+    expect(Object.keys(map)).toEqual(['2026-04-01'])
+  })
+
+  it('drops the day after the range in calendar mode', () => {
+    const map = buildNetByDayLineHour(wide, [], {
+      dayMode: 'calendar',
+      from: '2026-04-01',
+      to: '2026-04-01',
+    })
+    // 22:00 of 31.03 is the evening of night 01.04; 02:00 of 02.04 is out.
+    expect(Object.keys(map)).toEqual(['2026-04-01'])
+    expect(map['2026-04-01'][1][22]).toBe(10)
+    expect(map['2026-04-01'][1][2]).toBe(20)
+  })
+})
+
+describe('nightHourlyRange', () => {
+  it('reaches one day back and one day forward, so both modes fit', () => {
+    expect(nightHourlyRange('2026-04-01', '2026-04-30')).toEqual({
+      from: '2026-03-31T21:00:00',
+      to: '2026-05-01T06:00:00',
+    })
   })
 })

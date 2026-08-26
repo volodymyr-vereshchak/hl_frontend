@@ -20,17 +20,19 @@ import {
   ResponsiveContainer,
 } from 'recharts'
 import * as XLSX from 'xlsx'
-import { archiveDataApi } from '@/api/entities'
-import { commercialHourlyRange } from '@/domain/commercialDay'
+import { archiveDataApi, type HourlyCompact } from '@/api/entities'
+import type { EnterpriseRecord } from '@/api/enterprise'
+import { addDays } from '@/domain/commercialDay'
 import { getEnterpriseFetchFn } from '@/domain/enterpriseVolumes'
 import { trendColor } from '@/domain/grsTrends'
 import {
   buildNetByDayLineHour,
+  nightHourlyRange,
   nightRowsFromMap,
   buildHourlySheets,
   MIN_HOURS,
   SHEET_HOURS,
-  type NetMap,
+  type DayMode,
   type NightMode,
 } from '@/domain/nightConsumption'
 import { useLanguage } from '@/locales/LanguageContext'
@@ -70,7 +72,20 @@ export function NightConsumptionPage() {
   const [from, setFrom] = useState(initial.from)
   const [to, setTo] = useState(initial.to)
   const [mode, setMode] = useState<NightMode>('min')
-  const [netMap, setNetMap] = useState<NetMap | null>(null)
+  // Which day the night is filed under. Remembered, unlike the min/avg variant:
+  // it is how the branch reads its nights, not something switched per report.
+  const [dayMode, setDayMode] = useLocalStorage<DayMode>({
+    key: 'hlv-night-day-mode',
+    defaultValue: 'commercial',
+  })
+  // The fetched night, with the range it was fetched for. Both day modes are
+  // served out of it, so switching between them costs no request.
+  const [raw, setRaw] = useState<{
+    hourly: HourlyCompact
+    enterprise: EnterpriseRecord[]
+    from: string
+    to: string
+  } | null>(null)
   const [usedLines, setUsedLines] = useState<ReportLine[]>([])
   const [running, setRunning] = useState(false)
   const [progress, setProgress] = useState<string | null>(null)
@@ -97,9 +112,9 @@ export function NightConsumptionPage() {
     setError(null)
     setProgress(t('phaseArchives'))
     try {
-      // Night hours belong to commercial days, so the hourly window runs
-      // 07:00 → next-day 06:00 across the selected range.
-      const win = commercialHourlyRange(from, to)
+      // One window for both day modes: the evening before the range and the
+      // morning after it (see nightHourlyRange).
+      const win = nightHourlyRange(from, to)
       const ids = reportLines.map((l) => l.id)
 
       // Both halves at once. Industry does not depend on the archive, and on a
@@ -109,35 +124,50 @@ export function NightConsumptionPage() {
       // Night consumption is by definition the населення share, i.e. what is
       // left after industry — so industry is always subtracted, never optional.
       // Bare commercial days for it, NOT `win`: the enterprise endpoint applies
-      // the hourly 07:00→06:00 expansion itself.
+      // the hourly 07:00→06:00 expansion itself. One day back, so that days
+      // `from−1`..`to` expand to exactly the window asked of the archive.
       const [hourly, enterprise] = await Promise.all([
         archiveDataApi.getHourlyCompact(ids, win.from, win.to, NIGHT_HOURS),
         getEnterpriseFetchFn(true, { hours: NIGHT_HOURS })(
           ids,
-          from,
+          addDays(from, -1),
           to,
           'hourly',
           (pr) => setProgress(pollPhaseLabel(pr, t)),
         ).catch(() => []),
       ])
 
-      if (!hourly?.rows?.length) {
-        setNetMap({})
-        setUsedLines(reportLines)
-        return
-      }
-
       setProgress(t('phaseCalculating'))
-      setNetMap(buildNetByDayLineHour(hourly, enterprise))
+      setRaw({ hourly, enterprise, from, to })
       setUsedLines(reportLines)
     } catch (e) {
       setError((e as Error).message)
-      setNetMap(null)
+      setRaw(null)
     } finally {
       setRunning(false)
       setProgress(null)
     }
   }
+
+  // The day mode decides which day every hour lands on, so it is applied while
+  // the NET map is built — from the data already in hand, not a new request.
+  //
+  // Clamped to the days the run asked for: the window fetched is a day wider
+  // than the report on each side (it has to serve both day modes), and without
+  // this the gas day would open with a row for the evening before the period.
+  // The range comes from the run, not from the pickers — moving the period
+  // without pressing "Сформувати" must not empty the table that is on screen.
+  const netMap = useMemo(
+    () =>
+      raw
+        ? buildNetByDayLineHour(raw.hourly, raw.enterprise, {
+            dayMode,
+            from: raw.from,
+            to: raw.to,
+          })
+        : null,
+    [raw, dayMode],
+  )
 
   // Switching the variant recomputes from the same NET map — no refetch.
   const rows = useMemo(
@@ -165,7 +195,7 @@ export function NightConsumptionPage() {
   const tickInterval = Math.max(0, Math.ceil(rows.length / 24) - 1)
 
   const exportExcel = () => {
-    if (!netMap) return
+    if (!netMap || !raw) return
     const wb = XLSX.utils.book_new()
     const header = ['Доба', ...usedLines.map((l) => l.name)]
     const body = rows.map((r) => [r.date, ...usedLines.map((l) => r[`line_${l.id}`] ?? '')])
@@ -182,11 +212,15 @@ export function NightConsumptionPage() {
       const safe = line.name.replace(/[[\]:*?/\\]/g, ' ').slice(0, 31)
       XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(h), safe || `line_${line.id}`)
     }
-    XLSX.writeFile(wb, `night_consumption_${from}_${to}.xlsx`)
+    // The day mode is in the name: two files for the same period mean different
+    // nights, and nothing inside the workbook says which is which.
+    const kind = dayMode === 'calendar' ? 'calendar' : 'gas'
+    XLSX.writeFile(wb, `night_consumption_${kind}_${raw.from}_${raw.to}.xlsx`)
   }
 
-  const description =
+  const description = `${
     mode === 'avg23' ? t('nightConsumptionAvgDescription') : t('nightConsumptionNetDescription')
+  } · ${dayMode === 'calendar' ? t('nightDayCalendar') : t('nightDayCommercial')}`
 
   return (
     <ReportShell
@@ -211,6 +245,16 @@ export function NightConsumptionPage() {
             data={[
               { value: 'min', label: t('nightReportMin') },
               { value: 'avg23', label: t('nightReportAvg') },
+            ]}
+          />
+          <SegmentedControl
+            size="xs"
+            value={dayMode}
+            onChange={(v) => setDayMode(v as DayMode)}
+            disabled={running}
+            data={[
+              { value: 'commercial', label: t('nightDayCommercialShort') },
+              { value: 'calendar', label: t('nightDayCalendarShort') },
             ]}
           />
           <PeriodPicker
