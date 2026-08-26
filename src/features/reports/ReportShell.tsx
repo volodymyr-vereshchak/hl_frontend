@@ -3,7 +3,7 @@ import { Stack, Group, Title, Select, Button, Text, Alert } from '@mantine/core'
 import { IconAlertTriangle, IconFileSpreadsheet, IconPlayerPlay } from '@tabler/icons-react'
 import { useLanguage } from '@/locales/LanguageContext'
 import { useSelectionStore } from '@/store/selectionStore'
-import { useBranches } from './useBranchLines'
+import { useBranches, useEnsureValidBranch } from './useBranchLines'
 import { LoadingState } from '@/components/LoadingState'
 
 interface Props {
@@ -40,6 +40,7 @@ export function ReportShell({
   const { t } = useLanguage()
   const { branchId, setBranchId } = useSelectionStore()
   const { data: branches } = useBranches()
+  useEnsureValidBranch(branches)
 
   return (
     <Stack gap="md">
@@ -52,12 +53,15 @@ export function ReportShell({
             </Text>
           )}
         </div>
+        {/* allowDeselect: clicking the branch already chosen used to clear it,
+            and the report was left with no branch at all. */}
         {withBranchPicker && (
           <Select
             placeholder={t('branch')}
             data={(branches ?? []).map((b) => ({ value: String(b.id), label: b.name }))}
             value={branchId != null ? String(branchId) : null}
             onChange={(v) => setBranchId(v ? Number(v) : null)}
+            allowDeselect={false}
             searchable
             size="xs"
             w={260}

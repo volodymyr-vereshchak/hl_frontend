@@ -1,4 +1,3 @@
-import { useEffect } from 'react'
 import {
   Select,
   Group,
@@ -31,6 +30,7 @@ import { useLanguage } from '@/locales/LanguageContext'
 import { numericStyle } from '@/theme/theme'
 import { LineCard } from './LineCard'
 import { useOverviewData, type OverviewData, type LumgGroup } from './useOverviewData'
+import { useEnsureValidBranch } from '@/features/reports/useBranchLines'
 import { LoadingState } from '@/components/LoadingState'
 
 function fmtNum(n: number, digits = 0) {
@@ -158,9 +158,9 @@ export function OverviewPage() {
 
   const branches = topology.data?.branches ?? []
 
-  useEffect(() => {
-    if (branchId == null && branches.length > 0) setBranchId(branches[0].id)
-  }, [branchId, branches, setBranchId])
+  // Not just "pick one if none is picked": a branch id persisted from another
+  // deployment or from a branch since removed has to be replaced too.
+  useEnsureValidBranch(topology.data?.branches)
 
   const setAll = (value: boolean) => {
     if (!data) return
@@ -187,6 +187,7 @@ export function OverviewPage() {
           data={branches.map((b) => ({ value: String(b.id), label: b.name }))}
           value={branchId != null ? String(branchId) : null}
           onChange={(v) => setBranchId(v ? Number(v) : null)}
+          allowDeselect={false}
           w={280}
           placeholder={t('branch')}
           searchable

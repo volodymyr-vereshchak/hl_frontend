@@ -117,6 +117,11 @@ function defaultRange() {
 export function EnterprisePollPage() {
   const { t } = useLanguage()
   const { branchId, setBranchId } = useSelectionStore()
+  // "Всі філії" belongs to THIS screen, not to the reports. It used to write
+  // straight into the shared selection, so clearing the filter here left every
+  // report screen with no branch — the branch looked lost on the next tab.
+  // Picking a branch still carries over; only the empty state stays local.
+  const [branchFilter, setBranchFilter] = useState<number | null>(branchId)
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<number | null>(null)
   // Feed the scrollbars, which run between the sticky header and totals row.
@@ -198,7 +203,7 @@ export function EnterprisePollPage() {
     const all = mappings ?? []
     const q = search.trim().toLowerCase()
     return all
-      .filter((m) => !branchId || m.branch_id === branchId)
+      .filter((m) => !branchFilter || m.branch_id === branchFilter)
       .filter((m) => {
         if (!q) return true
         return (
@@ -207,7 +212,7 @@ export function EnterprisePollPage() {
           (lineLabel(m) ?? '').toLowerCase().includes(q)
         )
       })
-  }, [mappings, branchId, search, lineLabel])
+  }, [mappings, branchFilter, search, lineLabel])
 
   /**
    * Branch → line → enterprises, the same shape as the old poll screen. A flat
@@ -272,7 +277,7 @@ export function EnterprisePollPage() {
    */
   const checkUnpolled = async () => {
     const active = (mappings ?? []).filter(
-      (m) => m.active !== false && (!branchId || m.branch_id === branchId),
+      (m) => m.active !== false && (!branchFilter || m.branch_id === branchFilter),
     )
     // setDate, not millisecond arithmetic: subtracting 24h across a DST switch
     // lands on the wrong calendar day.
@@ -617,8 +622,12 @@ export function EnterprisePollPage() {
         <Select
           placeholder="Всі філії"
           data={(branches ?? []).map((b) => ({ value: String(b.id), label: b.name }))}
-          value={branchId != null ? String(branchId) : null}
-          onChange={(v) => setBranchId(v ? Number(v) : null)}
+          value={branchFilter != null ? String(branchFilter) : null}
+          onChange={(v) => {
+            const next = v ? Number(v) : null
+            setBranchFilter(next)
+            if (next != null) setBranchId(next)
+          }}
           clearable
           searchable
           size="xs"

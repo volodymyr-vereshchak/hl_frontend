@@ -1,5 +1,8 @@
+import { useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { branchApi, lumgApi, lineApi, virtualLineApi, dpdLineApi } from '@/api/entities'
+import { resolveBranchId } from '@/domain/branchSelection'
+import { useSelectionStore } from '@/store/selectionStore'
 import type { Line, VirtualLine, DpdLine } from '@/types'
 
 export interface ReportLine {
@@ -16,6 +19,23 @@ export interface ReportLine {
  */
 export function useBranches() {
   return useQuery({ queryKey: ['branches'], queryFn: branchApi.getAll, staleTime: 5 * 60_000 })
+}
+
+/**
+ * Keep the shared branch selection pointing at a branch that exists.
+ *
+ * Runs on every screen that shows the branch picker: the selection is persisted
+ * and shared, so a stale id survives reloads and follows the user from screen
+ * to screen until something reconciles it (see resolveBranchId). `branches`
+ * being undefined means "not loaded yet" — never "none".
+ */
+export function useEnsureValidBranch<T extends { id: number }>(branches: T[] | undefined) {
+  const { branchId, setBranchId } = useSelectionStore()
+  useEffect(() => {
+    if (!branches) return
+    const next = resolveBranchId(branchId, branches)
+    if (next !== branchId) setBranchId(next)
+  }, [branches, branchId, setBranchId])
 }
 
 export function useBranchLines(branchId: number | null) {
