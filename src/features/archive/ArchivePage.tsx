@@ -17,10 +17,11 @@ import { notifications } from '@mantine/notifications'
 import { IconAlertTriangle, IconInfoCircle } from '@tabler/icons-react'
 import { useSelectionStore } from '@/store/selectionStore'
 import { useLanguage } from '@/locales/LanguageContext'
-import { getArchiveColumns } from '@/domain/archiveColumns'
+import { getArchiveColumns, eventTypeLabel } from '@/domain/archiveColumns'
 import { commercialHourlyRange } from '@/domain/commercialDay'
 import { DP_UNIT_DEFAULT, normalizeUnit, PRESSURE_UNIT_DEFAULT } from '@/domain/pressureUnits'
 import { TablePagination, type PageSizeOption } from '@/components/TablePagination'
+import { CheckboxFilter } from '@/components/CheckboxFilter'
 import { DEFAULT_PERIOD_PAGE_SIZE, PERIOD_PAGE_SIZES } from '@/domain/periodPaging'
 import type { ArchiveType } from '@/types'
 import { TreeView } from './TreeView'
@@ -29,7 +30,13 @@ import { linesOfGroup, useTreeData } from './useTreeData'
 import { DateRangeControls } from './DateRangeControls'
 import { ArchiveTable } from './ArchiveTable'
 import { ArchiveChart } from './ArchiveChart'
-import { useArchiveData, useArchivePage, isPagedArchive, fetchFullArchive } from './useArchiveData'
+import {
+  useArchiveData,
+  useArchivePage,
+  useArchiveTypeOptions,
+  isPagedArchive,
+  fetchFullArchive,
+} from './useArchiveData'
 import { useEnterpriseOverlay, applyOverlay } from './useEnterpriseOverlay'
 import { exportArchiveToExcel, exportWithEnterpriseBreakdown } from './exportArchive'
 
@@ -130,10 +137,21 @@ export function ArchivePage() {
   const groupType = archiveType === 'daily' || archiveType === 'hourly' ? archiveType : null
   const showGroup = !!groupSel && !!groupType
 
+  /**
+   * Event codes the sys/edit table is narrowed to; empty = every code.
+   *
+   * Dropped when the archive or the line changes, because the codes on offer
+   * are the ones THAT line's calculator emits — carrying a selection across
+   * would silently filter the next line by codes it never produces. A change
+   * of period keeps it: the reader is following the same kind of event.
+   */
+  const [typeIds, setTypeIds] = useState<number[]>([])
+  useEffect(() => setTypeIds([]), [archiveType, lineId])
+
   /** Identifies what is on screen: a change to any part restarts the paging. */
   const loadKey =
     `${archiveType}|${lineId}|${groupSel?.kind}${groupSel?.id}` +
-    `|${dateRange.fromDate}|${dateRange.toDate}`
+    `|${dateRange.fromDate}|${dateRange.toDate}|${typeIds.join(',')}`
   const enabled = !!lineId && !!lineMeta && dateFilterEnabled && !restricted
   const paged = isPagedArchive(archiveType)
   // Table or chart in the same pane — no scrolling to reach the plot. Kept per
@@ -168,9 +186,28 @@ export function ArchivePage() {
     type: archiveType,
     range: dateRange,
     enabled,
+    typeIds,
     page,
     pageSize,
   })
+  const typeOptionsQuery = useArchiveTypeOptions({
+    lineId,
+    meta: lineMeta,
+    type: archiveType,
+    range: dateRange,
+    enabled,
+  })
+  const typeOptions = useMemo(
+    () =>
+      (typeOptionsQuery.data ?? []).map((o) => ({
+        value: String(o.type_id),
+        label: eventTypeLabel(o.name),
+        count: o.count,
+      })),
+    [typeOptionsQuery.data],
+  )
+  /** sys/edit only, and only once there is something to choose between. */
+  const showTypeFilter = paged && typeOptions.length > 1
 
   const rawRows = paged ? pageQuery.data?.items : full.data
   const total = paged ? (pageQuery.data?.total ?? 0) : (rawRows?.length ?? 0)
@@ -236,7 +273,9 @@ export function ArchivePage() {
       t,
     })
     // Paged archives export the whole range, not just the visible page.
-    const data = paged ? await fetchFullArchive(lineId, archiveType, dateRange) : rows
+    const data = paged
+      ? await fetchFullArchive(lineId, archiveType, dateRange, typeIds)
+      : rows
     // Name the file after the line, not its database id: a folder of exports
     // should be readable without looking anything up.
     const lineName = sanitizeForFileName(meta.name || `#${lineId}`)
@@ -404,6 +443,33 @@ export function ArchivePage() {
                       { value: 'chart', label: t('chart') },
                     ]}
                   />
+                </Group>
+              )}
+              {/* sys/edit: narrow the events to the kinds being investigated.
+                  Rendered from the period's own code list, not from the loaded
+                  page, and shown even when the filter left nothing — otherwise
+                  the only way back from an empty table would be to guess. */}
+              {showTypeFilter && (
+                <Group
+                  px="sm"
+                  py={6}
+                  gap="xs"
+                  wrap="wrap"
+                  style={{ borderBottom: '1px solid var(--hlv-border)', flexShrink: 0 }}
+                >
+                  <CheckboxFilter
+                    label={archiveType === 'sys' ? t('operationType') : t('editType')}
+                    options={typeOptions}
+                    value={typeIds.map(String)}
+                    onChange={(v) => setTypeIds(v.map(Number))}
+                    searchPlaceholder={t('searchEventType')}
+                    width={380}
+                  />
+                  {typeIds.length > 0 && (
+                    <Text size="xs" c="dimmed">
+                      {t('records')}: {total.toLocaleString('uk-UA')}
+                    </Text>
+                  )}
                 </Group>
               )}
               {/*

@@ -149,7 +149,18 @@ export interface PageOptions {
   limit?: number
   orderBy?: string
   orderDir?: 'asc' | 'desc'
+  /**
+   * Event codes to keep (sys_type_id / edit_type_id). EMPTY OR ABSENT MEANS NO
+   * RESTRICTION — the filter narrows the server's own count as well as the
+   * page, so the pagination keeps describing what the table actually shows.
+   */
+  typeIds?: number[]
 }
+
+/** Type filter, or nothing at all: `type_id=[]` would be read as "no filter"
+ *  by FastAPI anyway, and an empty array in the query string is noise. */
+const typeParam = (typeIds?: number[]) =>
+  typeIds && typeIds.length ? { type_id: typeIds } : {}
 
 function pagedParams(lineIds: number[], fromDate: string, toDate: string, o: PageOptions = {}) {
   return {
@@ -160,7 +171,15 @@ function pagedParams(lineIds: number[], fromDate: string, toDate: string, o: Pag
     limit: o.limit ?? 50,
     order_by: o.orderBy ?? 'period',
     order_dir: o.orderDir ?? 'asc',
+    ...typeParam(o.typeIds),
   }
+}
+
+/** One event code present in a period, with how many rows carry it. */
+export interface TypeCount {
+  type_id: number
+  name: string
+  count: number
 }
 
 export interface CountRow {
@@ -192,8 +211,20 @@ export interface SysEventsPayload {
 }
 
 export const sysArchiveApi = {
-  getData: (lineIds: number[], fromDate: string, toDate: string) =>
-    api.get<ArchiveRow[]>('/sys/', { line_id: lineIds, from_date: fromDate, to_date: toDate }),
+  getData: (lineIds: number[], fromDate: string, toDate: string, typeIds?: number[]) =>
+    api.get<ArchiveRow[]>('/sys/', {
+      line_id: lineIds,
+      from_date: fromDate,
+      to_date: toDate,
+      ...typeParam(typeIds),
+    }),
+  /** Options for the table's type filter: the codes this period holds. */
+  getTypeCounts: (lineIds: number[], fromDate: string, toDate: string) =>
+    api.get<TypeCount[]>('/sys/type_counts/', {
+      line_id: lineIds,
+      from_date: fromDate,
+      to_date: toDate,
+    }),
   getEvents: (lineIds: number[], fromDate: string, toDate: string) =>
     api.get<SysEventsPayload>('/sys/events/', {
       line_id: lineIds,
@@ -205,8 +236,19 @@ export const sysArchiveApi = {
 }
 
 export const editArchiveApi = {
-  getData: (lineIds: number[], fromDate: string, toDate: string) =>
-    api.get<ArchiveRow[]>('/edit/', { line_id: lineIds, from_date: fromDate, to_date: toDate }),
+  getData: (lineIds: number[], fromDate: string, toDate: string, typeIds?: number[]) =>
+    api.get<ArchiveRow[]>('/edit/', {
+      line_id: lineIds,
+      from_date: fromDate,
+      to_date: toDate,
+      ...typeParam(typeIds),
+    }),
+  getTypeCounts: (lineIds: number[], fromDate: string, toDate: string) =>
+    api.get<TypeCount[]>('/edit/type_counts/', {
+      line_id: lineIds,
+      from_date: fromDate,
+      to_date: toDate,
+    }),
   getPaged: (lineIds: number[], fromDate: string, toDate: string, o?: PageOptions) =>
     api.get<PagedResult>('/edit/paged/', pagedParams(lineIds, fromDate, toDate, o)),
 }

@@ -17,6 +17,18 @@ export function resolveEditName(
   return editName.replace('%s', channelName)
 }
 
+/**
+ * Label for one entry of the sys/edit type filter.
+ *
+ * Filtering is by event CODE, so an edit name with a "%s" channel placeholder
+ * stands for every channel at once — the option must say so. Naming the
+ * channels beats a bare "…": the reader picking "Постановка на константу"
+ * needs to know it will bring back the P rows AND the T rows.
+ */
+export function eventTypeLabel(name: string): string {
+  return name.includes('%s') ? name.replace('%s', EDIT_CHANNEL_NAMES.join('/')) : name
+}
+
 export interface ArchiveColumn {
   key: string
   label: string
@@ -50,6 +62,16 @@ export function getArchiveColumns({
   const wVolumeDpLabel = lineUnits?.meter
     ? `${t('workingVolume')}, ${t('volumeUnit')}`
     : `${t('differentialPressure')}, ${dpUnit}`
+
+  // Max/min dP are the alarm band of an ORIFICE plate. A meter-based line has
+  // no differential pressure at all — the device stores its flow limits in the
+  // same two fields, so the numbers are right and only the caption was wrong.
+  const maxLimitLabel = lineUnits?.meter
+    ? `${t('paramMaxFlow')}, ${t('flowUnit')}`
+    : t('paramMaxDp')
+  const minLimitLabel = lineUnits?.meter
+    ? `${t('paramMinFlow')}, ${t('flowUnit')}`
+    : t('paramMinDp')
 
   switch (archiveType) {
     case 'daily':
@@ -114,8 +136,8 @@ export function getArchiveColumns({
         { key: 'd20', label: 'd20', sortable: true, isAveragable: true },
         { key: 'cutoff', label: 'Cutoff', sortable: true, isAveragable: true },
         { key: 'roughness', label: 'Roughness', sortable: true, isAveragable: true },
-        { key: 'max_dp', label: t('paramMaxDp'), sortable: true, isAveragable: true },
-        { key: 'min_dp', label: t('paramMinDp'), sortable: true, isAveragable: true },
+        { key: 'max_dp', label: maxLimitLabel, sortable: true, isAveragable: true },
+        { key: 'min_dp', label: minLimitLabel, sortable: true, isAveragable: true },
         { key: 'radius', label: t('paramRadius'), sortable: true, isAveragable: true },
         { key: 'max_p', label: t('paramMaxP'), sortable: true, isAveragable: true },
         { key: 'min_p', label: t('paramMinP'), sortable: true, isAveragable: true },

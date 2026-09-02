@@ -38,6 +38,8 @@ interface ArchiveQuery {
   type: ArchiveType
   range: DateRange
   enabled: boolean
+  /** sys/edit only — event codes to keep. Empty = every code (see PageOptions). */
+  typeIds?: number[]
 }
 
 /** Pickers emit 'YYYY-MM-DD' or 'YYYY-MM-DD HH:mm:ss'. */
@@ -66,6 +68,7 @@ async function fetchArchive(
   meta: LineMeta,
   type: ArchiveType,
   range: DateRange,
+  typeIds?: number[],
 ): Promise<ArchiveRow[]> {
   const ids = [lineId]
   const { fromDate, toDate } = range
@@ -108,8 +111,10 @@ async function fetchArchive(
   }
 
   // sys / edit / param — physical lines only.
-  if (type === 'sys') return byPeriod(await sysArchiveApi.getData(ids, toIso(fromDate), toIso(toDate)))
-  if (type === 'edit') return byPeriod(await editArchiveApi.getData(ids, toIso(fromDate), toIso(toDate)))
+  if (type === 'sys')
+    return byPeriod(await sysArchiveApi.getData(ids, toIso(fromDate), toIso(toDate), typeIds))
+  if (type === 'edit')
+    return byPeriod(await editArchiveApi.getData(ids, toIso(fromDate), toIso(toDate), typeIds))
   // Parameters honour the date filter like every other archive. `to_date` is
   // pushed to the end of its day: the pickers here are date-only, and a bare
   // date means midnight, which would drop everything recorded on the last day.
@@ -180,19 +185,65 @@ export function useArchiveData({ lineId, meta, type, range, enabled }: ArchiveQu
   })
 }
 
+/**
+ * Options for the sys/edit type filter: which event codes this period holds,
+ * with their counts.
+ *
+ * Not derived from the loaded rows — those are ONE PAGE, so a filter built
+ * from them would offer whatever happened to be on screen and lose options as
+ * the reader paged. Deliberately keyed WITHOUT the current selection, so
+ * picking a code does not shrink the list it was picked from.
+ */
+export function useArchiveTypeOptions({ lineId, type, range, enabled }: ArchiveQuery) {
+  return useQuery({
+    queryKey: ['archive-types', type, lineId, range.fromDate, range.toDate],
+    enabled: enabled && lineId != null && isPagedArchive(type),
+    // Keeps the filter button populated while a new period loads.
+    placeholderData: (prev) => prev,
+    queryFn: () => {
+      const ids = [lineId!]
+      const from = toIso(range.fromDate)
+      const to = toIso(range.toDate)
+      return type === 'sys'
+        ? sysArchiveApi.getTypeCounts(ids, from, to)
+        : editArchiveApi.getTypeCounts(ids, from, to)
+    },
+  })
+}
+
 interface PagedQuery extends ArchiveQuery {
   page: number
   pageSize: number
 }
 
 /** Server-paginated sys/edit page — returns { total, items }. */
-export function useArchivePage({ lineId, meta, type, range, enabled, page, pageSize }: PagedQuery) {
+export function useArchivePage({
+  lineId,
+  meta,
+  type,
+  range,
+  enabled,
+  typeIds,
+  page,
+  pageSize,
+}: PagedQuery) {
   return useQuery({
-    queryKey: ['archive-page', type, lineId, range.fromDate, range.toDate, page, pageSize],
+    queryKey: [
+      'archive-page',
+      type,
+      lineId,
+      range.fromDate,
+      range.toDate,
+      // Sorted: the filter is a set, and the order the boxes were ticked in
+      // must not split the cache into two entries for the same result.
+      [...(typeIds ?? [])].sort((a, b) => a - b).join(','),
+      page,
+      pageSize,
+    ],
     enabled: enabled && lineId != null && meta != null && isPagedArchive(type),
     placeholderData: (prev) => prev,
     queryFn: () => {
-      const opts = { skip: (page - 1) * pageSize, limit: pageSize }
+      const opts = { skip: (page - 1) * pageSize, limit: pageSize, typeIds }
       const ids = [lineId!]
       const from = toIso(range.fromDate)
       const to = toIso(range.toDate)
@@ -203,16 +254,24 @@ export function useArchivePage({ lineId, meta, type, range, enabled, page, pageS
   })
 }
 
-/** Full sys/edit dataset, fetched on demand for Excel export. */
+/**
+ * Full sys/edit dataset, fetched on demand for Excel export.
+ *
+ * Takes the same type filter as the table: the export is the report on screen
+ * over the whole period, not a different one.
+ */
 export async function fetchFullArchive(
   lineId: number,
   type: ArchiveType,
   range: DateRange,
+  typeIds?: number[],
 ): Promise<ArchiveRow[]> {
   const ids = [lineId]
+  const from = toIso(range.fromDate)
+  const to = toIso(range.toDate)
   return byPeriod(
     type === 'sys'
-      ? await sysArchiveApi.getData(ids, toIso(range.fromDate), toIso(range.toDate))
-      : await editArchiveApi.getData(ids, toIso(range.fromDate), toIso(range.toDate)),
+      ? await sysArchiveApi.getData(ids, from, to, typeIds)
+      : await editArchiveApi.getData(ids, from, to, typeIds),
   )
 }
