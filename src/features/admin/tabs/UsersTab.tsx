@@ -18,6 +18,7 @@ import { IconAlertTriangle, IconKey } from '@tabler/icons-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { branchAdminApi, userApi, type AdminUser, type UserWrite } from '@/api/admin'
 import { copyText } from '@/lib/clipboard'
+import { useUser } from '@/features/auth/UserContext'
 import { toOptions } from '../useAdminTopology'
 import { CrudTable } from '../CrudTable'
 
@@ -45,6 +46,11 @@ const ROLE_OPTIONS = [
  */
 export function UsersTab() {
   const qc = useQueryClient()
+  const { user: me } = useUser()
+  /** Switching yourself off ends your session on the next request, and only
+   *  another admin can switch you back on. The server refuses it; the switch
+   *  says so instead of looking broken. */
+  const isSelf = (u: AdminUser) => me?.id != null && u.id === me.id
   // A generated password is shown once and never again — keep it on screen
   // until it is dismissed.
   const [newPassword, setNewPassword] = useState<{ login: string; password: string } | null>(null)
@@ -348,14 +354,35 @@ export function UsersTab() {
           label: 'Активний',
           type: 'checkbox',
           onlyOn: 'edit',
-          render: (u) => (
-            <Switch
-              size="xs"
-              color="petrol"
-              checked={u.active}
-              onChange={() => toggleActive.mutate(u)}
-            />
-          ),
+          // The form knows the row only by what toForm put in it, and the
+          // username is what identifies an account everywhere else too.
+          renderField: (value, onChange, form) =>
+            form.username === me?.username ? (
+              <Tooltip label="Не можна деактивувати власний обліковий запис" withArrow>
+                <Switch label="Активний" checked={!!value} data-disabled readOnly />
+              </Tooltip>
+            ) : (
+              <Switch
+                label="Активний"
+                checked={!!value}
+                onChange={(e) => onChange(e.currentTarget.checked)}
+              />
+            ),
+          render: (u) =>
+            isSelf(u) ? (
+              <Tooltip label="Не можна деактивувати власний обліковий запис" withArrow>
+                {/* data-disabled, not disabled: a disabled control swallows the
+                    pointer events the tooltip needs. */}
+                <Switch size="xs" color="petrol" checked={u.active} data-disabled readOnly />
+              </Tooltip>
+            ) : (
+              <Switch
+                size="xs"
+                color="petrol"
+                checked={u.active}
+                onChange={() => toggleActive.mutate(u)}
+              />
+            ),
         },
       ]}
     />
