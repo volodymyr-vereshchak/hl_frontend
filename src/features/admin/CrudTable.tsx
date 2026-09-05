@@ -34,6 +34,7 @@ import { invalidateTopology } from '@/lib/invalidateTopology'
 import { numericStyle } from '@/theme/theme'
 import { TablePagination } from '@/components/TablePagination'
 import { LoadingState } from '@/components/LoadingState'
+import { isFieldMissing, missingFieldLabels } from './crudValidation'
 
 export interface CrudField<T> {
   key: string
@@ -49,6 +50,22 @@ export interface CrudField<T> {
   /** Select whose value must be sent as a number (foreign keys). */
   numericValue?: boolean
   render?: (row: T) => ReactNode
+  /**
+   * Options computed from the form as it stands, for a select that depends on
+   * another one — філія → обчислювач → лінія. Wins over `options`.
+   */
+  optionsFor?: (form: Record<string, unknown>) => { value: string; label: string }[]
+  /**
+   * Draw this field yourself. The escape hatch for anything the four built-in
+   * types cannot express — a member list, a branch-access picker, a nested
+   * sub-form — without which a tab needing ONE such field had to reimplement
+   * the whole table to get it.
+   */
+  renderField?: (
+    value: unknown,
+    onChange: (next: unknown) => void,
+    form: Record<string, unknown>,
+  ) => ReactNode
 }
 
 export interface CrudTableProps<T extends { id: number }> {
@@ -76,6 +93,17 @@ export interface CrudTableProps<T extends { id: number }> {
    * moved it to the end of the list and everything below it shifted up.
    */
   sortBy?: (row: T) => number | string
+  /**
+   * Row → form values, when the form is not simply the row's own fields.
+   * Defaults to copying each field key across.
+   */
+  toForm?: (row: T) => Record<string, unknown>
+  /**
+   * Form values → request body, when the API does not read and write the same
+   * shape. UsersTab is the case that forced this: it READS `allowed_branch_ids`
+   * and WRITES `branch_ids`, so a symmetric table could never save it.
+   */
+  toPayload?: (values: Record<string, unknown>) => Record<string, unknown>
 }
 
 const PAGE_SIZE_DEFAULT = 50
@@ -100,6 +128,8 @@ export function CrudTable<T extends { id: number }>({
   filter,
   createDefaults,
   sortBy = (row) => row.id,
+  toForm,
+  toPayload,
 }: CrudTableProps<T>) {
   const qc = useQueryClient()
   const { data, isLoading, error, refetch, isFetching } = useQuery({ queryKey, queryFn: fetchAll })
@@ -181,22 +211,23 @@ export function CrudTable<T extends { id: number }>({
   const openEdit = (row: T) => {
     setEditing(row)
     setAttempted(false)
-    const init: Record<string, unknown> = {}
-    fields.forEach((f) => {
-      init[f.key] = (row as Record<string, unknown>)[f.key]
-    })
+    let init: Record<string, unknown> = {}
+    if (toForm) {
+      init = toForm(row)
+    } else {
+      fields.forEach((f) => {
+        init[f.key] = (row as Record<string, unknown>)[f.key]
+      })
+    }
     setForm(init)
     open()
   }
 
-  /**
-   * A required field left empty is not sent at all, and the API answers with a
-   * validation error naming a column the person never saw. Catch it here, on
-   * the field itself. A checkbox is never "missing" — false is an answer.
-   */
-  const isMissing = (f: CrudField<T>) =>
-    !!f.required && f.type !== 'checkbox' && (form[f.key] == null || form[f.key] === '')
-  const missingLabels = fields.filter((f) => !f.hideInForm && isMissing(f)).map((f) => f.label)
+  // A required field left empty is not sent at all, and the API answers with a
+  // validation error naming a column the person never saw. Caught here, on the
+  // field itself; the rule and its exceptions live in crudValidation.
+  const isMissing = (f: CrudField<T>) => isFieldMissing(f, form)
+  const missingLabels = missingFieldLabels(fields, form)
 
   const submit = () => {
     setAttempted(true)
@@ -207,7 +238,7 @@ export function CrudTable<T extends { id: number }>({
       })
       return
     }
-    saveMutation.mutate(form)
+    saveMutation.mutate(toPayload ? toPayload(form) : form)
   }
 
   const confirmDelete = (row: T) =>
@@ -366,6 +397,21 @@ export function CrudTable<T extends { id: number }>({
           {formFields.map((f) => {
             const value = form[f.key]
             const error = attempted && isMissing(f) ? "Обов'язкове поле" : undefined
+            // A custom field draws itself. It still takes part in the required
+            // check above, so a member list left empty is caught like any
+            // other field rather than by the API.
+            if (f.renderField) {
+              return (
+                <Box key={f.key}>
+                  {f.renderField(value, (next) => setForm({ ...form, [f.key]: next }), form)}
+                  {error && (
+                    <Text size="xs" c="red" mt={4}>
+                      {error}
+                    </Text>
+                  )}
+                </Box>
+              )
+            }
             if (f.type === 'checkbox') {
               return (
                 <Checkbox
@@ -381,7 +427,7 @@ export function CrudTable<T extends { id: number }>({
                 <Select
                   key={f.key}
                   label={f.label}
-                  data={f.options ?? []}
+                  data={f.optionsFor ? f.optionsFor(form) : (f.options ?? [])}
                   value={value == null ? null : String(value)}
                   onChange={(v) =>
                     setForm({ ...form, [f.key]: v && f.numericValue ? Number(v) : v })
