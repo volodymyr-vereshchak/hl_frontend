@@ -177,9 +177,13 @@ export function FlowCalcPage() {
       return { branches, lumgs, calcs, lines }
     },
   })
-  const branches = topology?.branches ?? []
-  const lumgs = topology?.lumgs ?? []
-  const calcs = topology?.calcs ?? []
+  // All four memoised the same way: `?? []` mints a fresh array on every
+  // render while the query is still loading, and the memos below take these
+  // as dependencies. `lines` was already done; the other three were not, which
+  // is what the five exhaustive-deps warnings on this file were about.
+  const branches = useMemo(() => topology?.branches ?? [], [topology])
+  const lumgs = useMemo(() => topology?.lumgs ?? [], [topology])
+  const calcs = useMemo(() => topology?.calcs ?? [], [topology])
   const lines: Line[] = useMemo(() => topology?.lines ?? [], [topology])
 
   const filteredCalcs = useMemo(() => {

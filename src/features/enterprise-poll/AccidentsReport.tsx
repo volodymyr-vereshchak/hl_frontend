@@ -33,8 +33,7 @@ import {
 } from '@tabler/icons-react'
 import type { EventGroup, EventReport, StreamProgress } from '@/api/enterprise'
 import { useLanguage } from '@/locales/LanguageContext'
-
-const numericStyle = { fontVariantNumeric: 'tabular-nums' } as const
+import { numericStyle } from '@/theme/theme'
 
 /**
  * Seconds → "3 дн 4 год 05 хв". Alarms run from seconds to weeks, so a fixed

@@ -181,6 +181,19 @@ export function EnterprisePollPage() {
   const [accTo, setAccTo] = useState(initialRange.to)
   const accAbortRef = useRef<AbortController | null>(null)
 
+  // Leaving the page must hang up on the DPD polls this screen started. Each
+  // stream holds a backend generator and its branch advisory lock for as long
+  // as it runs — up to the 610s client timeout — and the server only learns
+  // the client is gone when the connection drops.
+  useEffect(
+    () => () => {
+      abortRef.current?.abort()
+      checkAbortRef.current?.abort()
+      accAbortRef.current?.abort()
+    },
+    [],
+  )
+
   const { data: branches } = useQuery({ queryKey: ['admin', 'branches'], queryFn: branchAdminApi.getAll })
   const { data: mappings, isLoading: mappingsLoading } = useQuery({
     queryKey: ['enterprise', 'mappings'],

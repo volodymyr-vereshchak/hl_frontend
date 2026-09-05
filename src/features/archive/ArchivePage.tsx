@@ -225,8 +225,17 @@ export function ArchivePage() {
   // a database read like any other. Only ranges the archive has never covered
   // reach the DPD API at all, and that is a backfill, not the normal path.
   const overlay = useEnterpriseOverlay(canOverlay ? lineId : null, lineMeta, archiveType, dateRange)
-  const rows =
-    canOverlay && overlay.enabled && rawRows ? applyOverlay(rawRows, overlay.byPeriod, archiveType) : rawRows
+  // Memoised because ArchiveTable is memoised and says so: "Callers must keep
+  // the props referentially stable." applyOverlay maps every row into a new
+  // object, so without this the overlay — the heaviest mode there is — handed
+  // the table a fresh array on every render and undid the ~0.8s optimisation.
+  const rows = useMemo(
+    () =>
+      canOverlay && overlay.enabled && rawRows
+        ? applyOverlay(rawRows, overlay.byPeriod, archiveType)
+        : rawRows,
+    [canOverlay, overlay.enabled, overlay.byPeriod, rawRows, archiveType],
+  )
   // A DPD line has no unit configuration of its own — its pressure unit comes
   // with the data, as the device reported it. Everything below (table, chart,
   // export) reads units off `meta`, so fold it in there once.

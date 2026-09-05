@@ -1,5 +1,6 @@
 import { createContext, use, useEffect, useState, type ReactNode } from 'react'
 import { setSessionHandlers, type SessionLostReason } from '@/lib/apiClient'
+import { queryClient } from '@/lib/queryClient'
 import type { User } from '@/types'
 import { authApi } from './authApi'
 
@@ -34,6 +35,10 @@ export function UserProvider({ children }: { children: ReactNode }) {
     setSessionHandlers({
       onSessionLost: (reason) => {
         setUser(null)
+        // The backend scopes most answers by the user's branches, and the
+        // cache holds them for five minutes — without this the next person to
+        // log in on this browser reads the previous one's tree of філії.
+        queryClient.clear()
         // Only a session the backend ended on purpose is worth a notice; an
         // ordinary expiry is what the login form is for.
         setSessionNotice(reason === 'expired' ? null : reason)
@@ -51,6 +56,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
   const logout = async () => {
     await authApi.logout()
     setUser(null)
+    queryClient.clear()
     setSessionNotice(null)
   }
 
