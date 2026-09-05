@@ -1,0 +1,1 @@
+function e(e,t){return e.phase===`waiting`?t(`phaseWaiting`):e.phase===`aggregating`?t(`phaseAggregating`):e.total?`${t(`phaseEnterprise`)}: ${e.done??0} / ${e.total} ${t(`phaseDevicesDone`)}`:t(`phaseEnterprise`)}export{e as t};

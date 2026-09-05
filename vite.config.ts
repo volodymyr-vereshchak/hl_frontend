@@ -33,7 +33,11 @@ export default defineConfig({
         manualChunks(id) {
           if (!id.includes('node_modules')) return
           if (id.includes('/xlsx')) return 'vendor-xlsx'
-          if (id.includes('/recharts') || id.includes('/d3-')) return 'vendor-charts'
+          // recharts and its d3 packages are deliberately NOT named here.
+          // Naming them made one chunk that the entry ended up importing
+          // a shared helper from, so all 358 KB sat on the critical path
+          // even though only chart views need it. Unnamed, it lands in
+          // the lazy route chunks that actually draw charts.
           if (id.includes('/@mantine/')) return 'vendor-mantine'
           if (id.includes('/@tanstack/')) return 'vendor-table'
           if (id.includes('/react-router') || id.includes('/react-dom')) return 'vendor-react'

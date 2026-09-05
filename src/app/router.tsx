@@ -1,16 +1,56 @@
-import { useEffect } from 'react'
+import { lazy, useEffect } from 'react'
 import { createBrowserRouter, Navigate, useLocation, useSearchParams } from 'react-router-dom'
 import { AppShellLayout } from '@/components/AppShellLayout'
-import { OverviewPage } from '@/features/overview/OverviewPage'
-import { ArchivePage } from '@/features/archive/ArchivePage'
-import { AdminPage } from '@/features/admin/AdminPage'
-import { EnterprisePollPage } from '@/features/enterprise-poll/EnterprisePollPage'
-import { AccidentsPage } from '@/features/reports/AccidentsPage'
-import { GrsTrendsPage } from '@/features/reports/GrsTrendsPage'
-import { NightConsumptionPage } from '@/features/reports/NightConsumptionPage'
-import { FhpComparisonPage } from '@/features/reports/FhpComparisonPage'
-import { LineComparisonPage } from '@/features/reports/LineComparisonPage'
-import { FlowCalcPage } from '@/features/flow-calc/FlowCalcPage'
+
+/**
+ * Screens load on demand. Statically imported, every page was in the entry
+ * graph, so the browser fetched xlsx (324 KB) and recharts (358 KB) before it
+ * could paint anything — though xlsx is only wanted the moment someone presses
+ * «Excel», and recharts only in chart view. vite.config already splits those
+ * two into their own vendor chunks; splitting the ROUTES is what stops those
+ * chunks being pulled in by the entry.
+ *
+ * The pages are named exports, hence the `.then` — React.lazy resolves a
+ * module's default.
+ */
+const OverviewPage = lazy(() =>
+  import('@/features/overview/OverviewPage').then((m) => ({ default: m.OverviewPage })),
+)
+const ArchivePage = lazy(() =>
+  import('@/features/archive/ArchivePage').then((m) => ({ default: m.ArchivePage })),
+)
+const AdminPage = lazy(() =>
+  import('@/features/admin/AdminPage').then((m) => ({ default: m.AdminPage })),
+)
+const EnterprisePollPage = lazy(() =>
+  import('@/features/enterprise-poll/EnterprisePollPage').then((m) => ({
+    default: m.EnterprisePollPage,
+  })),
+)
+const AccidentsPage = lazy(() =>
+  import('@/features/reports/AccidentsPage').then((m) => ({ default: m.AccidentsPage })),
+)
+const GrsTrendsPage = lazy(() =>
+  import('@/features/reports/GrsTrendsPage').then((m) => ({ default: m.GrsTrendsPage })),
+)
+const NightConsumptionPage = lazy(() =>
+  import('@/features/reports/NightConsumptionPage').then((m) => ({
+    default: m.NightConsumptionPage,
+  })),
+)
+const FhpComparisonPage = lazy(() =>
+  import('@/features/reports/FhpComparisonPage').then((m) => ({
+    default: m.FhpComparisonPage,
+  })),
+)
+const LineComparisonPage = lazy(() =>
+  import('@/features/reports/LineComparisonPage').then((m) => ({
+    default: m.LineComparisonPage,
+  })),
+)
+const FlowCalcPage = lazy(() =>
+  import('@/features/flow-calc/FlowCalcPage').then((m) => ({ default: m.FlowCalcPage })),
+)
 
 // Map old ?archiveType= deep links to the new routes (backward compatibility).
 const LEGACY_ROUTE: Record<string, string> = {

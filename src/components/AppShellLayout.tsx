@@ -16,11 +16,13 @@ import {
   IconMoon,
   IconCalculator,
 } from '@tabler/icons-react'
+import { Suspense } from 'react'
 import { NavLink as RouterNavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useRememberRoute } from '@/app/router'
 import { useLanguage } from '@/locales/LanguageContext'
 import { useUser } from '@/features/auth/UserContext'
 import { ColorSchemeToggle } from './ColorSchemeToggle'
+import { LoadingState } from './LoadingState'
 import { LanguagePicker } from './LanguagePicker'
 import { WhatsNewButton } from './WhatsNewButton'
 import { UserBadge } from '@/features/auth/UserBadge'
@@ -166,7 +168,12 @@ export function AppShellLayout() {
 
       <AppShell.Main>
         <Box>
-          <Outlet />
+          {/* Routes are code-split, so the first visit to a screen waits on
+              its chunk. The app's own loader keeps that wait looking like
+              every other wait in the app rather than a blank page. */}
+          <Suspense fallback={<LoadingState />}>
+            <Outlet />
+          </Suspense>
         </Box>
       </AppShell.Main>
     </AppShell>
