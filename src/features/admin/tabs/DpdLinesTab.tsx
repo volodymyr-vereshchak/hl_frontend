@@ -36,6 +36,7 @@ import { invalidateTopology } from '@/lib/invalidateTopology'
 import { numericStyle } from '@/theme/theme'
 import { useAdminTopology, toOptions } from '../useAdminTopology'
 import { LoadingState } from '@/components/LoadingState'
+import { AdminTabHeader } from '../AdminTableShell'
 
 const notifyErr = (e: Error) => notifications.show({ message: e.message, color: 'red' })
 const pad = (n: number) => String(n).padStart(2, '0')
@@ -343,15 +344,14 @@ export function DpdLinesTab() {
 
   return (
     <Stack gap="md">
-      <Box>
-        <Text fw={600} fz="lg" ff="'Space Grotesk Variable', sans-serif">
-          Лінії ДПД
-        </Text>
-        <Text size="xs" c="dimmed">
-          Дані читаються з API ДПД по серійних номерах приладів. Кожен прилад діє від своєї дати
-          встановлення до встановлення наступного
-        </Text>
-      </Box>
+      <AdminTabHeader
+        title="Лінії ДПД"
+        description={
+          <>
+            Дані читаються з API ДПД по серійних номерах приладів. Кожен прилад діє від своєї дати встановлення до встановлення наступного
+          </>
+        }
+      />
 
       <Paper withBorder radius="md" p="md">
         <Stack gap="sm">

@@ -18,6 +18,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { notifications } from '@mantine/notifications'
 import { updateApi, lumgAdminApi } from '@/api/admin'
 import { ApiError } from '@/lib/apiClient'
+import { AdminTabHeader } from '../AdminTableShell'
 
 const STATUS_COLOR: Record<string, string> = {
   done: 'teal',
@@ -91,16 +92,15 @@ export function UpdateTab() {
 
   return (
     <Stack gap="md">
-      <Group justify="space-between" wrap="wrap">
-        <Box>
-          <Text fw={600} fz="lg" ff="'Space Grotesk Variable', sans-serif">
-            Оновлення даних
-          </Text>
-          <Text size="xs" c="dimmed">
+      <AdminTabHeader
+        title="Оновлення даних"
+        description={
+          <>
             Завантаження архівів hostlib у базу
-          </Text>
-        </Box>
-        <Group gap="xs">
+          </>
+        }
+        actions={
+          <>
           <Badge
             size="lg"
             variant="light"
@@ -127,8 +127,9 @@ export function UpdateTab() {
           >
             Скинути
           </Button>
-        </Group>
-      </Group>
+          </>
+        }
+      />
 
       {status?.error && (
         <Alert color="red" variant="light" icon={<IconAlertTriangle size={16} />}>

@@ -35,6 +35,7 @@ import { LoadingState } from '@/components/LoadingState'
 import type { GasRoute, GasRouteMember } from '@/types'
 import { useAdminTopology, toOptions } from '../useAdminTopology'
 import { RouteLinePicker } from '../RouteLinePicker'
+import { AdminTabHeader } from '../AdminTableShell'
 
 const notifyErr = (e: Error) => notifications.show({ message: e.message, color: 'red' })
 
@@ -205,16 +206,14 @@ export function RoutesTab() {
 
   return (
     <Stack gap="md">
-      <Box>
-        <Text fw={600} fz="lg" ff="'Space Grotesk Variable', sans-serif">
-          Маршрути
-        </Text>
-        <Text size="xs" c="dimmed">
-          Маршрут — це лінії, якими рухається один і той самий газ, тож їхнє ФХП має збігатися.
-          Лінія може входити лише до одного маршруту. Позначені лінії — еталон: їхнє ФХП
-          у звіті «Звірка ФХП» вважається правильним, і решта звіряється з ним
-        </Text>
-      </Box>
+      <AdminTabHeader
+        title="Маршрути"
+        description={
+          <>
+            Маршрут — це лінії, якими рухається один і той самий газ, тож їхнє ФХП має збігатися. Лінія може входити лише до одного маршруту. Позначені лінії — еталон: їхнє ФХП у звіті «Звірка ФХП» вважається правильним, і решта звіряється з ним
+          </>
+        }
+      />
 
       {/* Editor */}
       <Paper withBorder radius="md" p="md">

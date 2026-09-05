@@ -54,6 +54,7 @@ import {
   toDevicePayload,
   type DeviceForm,
 } from '../deviceHistoryForm'
+import { AdminTabHeader } from '../AdminTableShell'
 
 const notifyErr = (e: Error) => notifications.show({ message: e.message, color: 'red' })
 
@@ -547,15 +548,14 @@ export function EnterprisesTab() {
         />
       </Modal.Stack>
 
-      <Box>
-        <Text fw={600} fz="lg" ff="'Space Grotesk Variable', sans-serif">
-          Підприємства
-        </Text>
-        <Text size="xs" c="dimmed">
-          Промислові споживачі за лініями. Їхні обсяги віднімаються від загальних, щоб отримати
-          побутове споживання
-        </Text>
-      </Box>
+      <AdminTabHeader
+        title="Підприємства"
+        description={
+          <>
+            Промислові споживачі за лініями. Їхні обсяги віднімаються від загальних, щоб отримати побутове споживання
+          </>
+        }
+      />
 
       {/* Excel */}
       <Paper withBorder radius="md" p="sm">

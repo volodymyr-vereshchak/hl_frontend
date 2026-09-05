@@ -36,6 +36,7 @@ import { sysTypeApi, editTypeApi, calcTypeAdminApi } from '@/api/admin'
 import { TablePagination } from '@/components/TablePagination'
 import { numericStyle } from '@/theme/theme'
 import { LoadingState } from '@/components/LoadingState'
+import { AdminTabHeader } from '../AdminTableShell'
 
 type Kind = 'sys' | 'edit'
 
@@ -239,23 +240,23 @@ export function EventTypesTab() {
 
   return (
     <Stack gap="sm" style={{ height: '100%' }}>
-      <Group justify="space-between" wrap="wrap" gap="sm" align="flex-start">
-        <Box>
-          <Text fw={600} fz="lg" ff="'Space Grotesk Variable', sans-serif">
-            Типи подій
-          </Text>
-          <Text size="xs" c="dimmed">
-            Довідники аварій та змін по типах обчислювачів. Після редагування натисніть
-            «Зберегти в JSON», інакше назви буде відновлено з файлів під час перезапуску
-          </Text>
-        </Box>
-        <Group gap="xs">
+      <AdminTabHeader
+        title="Типи подій"
+        description={
+          <>
+            Довідники аварій та змін по типах обчислювачів. Після редагування натисніть «Зберегти в JSON», інакше назви буде відновлено з файлів під час перезапуску
+          </>
+        }
+        actions={
+          <>
           <EventTypeTransferControls />
           <Button size="xs" leftSection={<IconPlus size={16} />} onClick={openCreate}>
             Додати
           </Button>
-        </Group>
-      </Group>
+          </>
+        }
+        align="flex-start"
+      />
 
       {/* Filters get their own row so nothing is squeezed against the panel edge. */}
       <Group gap="sm" wrap="wrap">

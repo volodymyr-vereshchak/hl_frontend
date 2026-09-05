@@ -28,6 +28,7 @@ import {
   type DpdCredential,
 } from '@/api/admin'
 import type { Branch } from '@/types'
+import { AdminTabHeader } from '../AdminTableShell'
 
 const notifyErr = (e: Error) => notifications.show({ message: e.message, color: 'red' })
 
@@ -400,14 +401,14 @@ export function DpdCredentialsTab() {
 
   return (
     <Stack gap="md">
-      <Box>
-        <Text fw={600} fz="lg" ff="'Space Grotesk Variable', sans-serif">
-          Доступ до ДПД
-        </Text>
-        <Text size="xs" c="dimmed">
-          Кожна філія має власні адреси API та власні облікові дані
-        </Text>
-      </Box>
+      <AdminTabHeader
+        title="Доступ до ДПД"
+        description={
+          <>
+            Кожна філія має власні адреси API та власні облікові дані
+          </>
+        }
+      />
 
       <ArchiveControls />
 

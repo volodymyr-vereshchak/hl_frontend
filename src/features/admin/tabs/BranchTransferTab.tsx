@@ -2,7 +2,6 @@ import { useRef, useState } from 'react'
 import {
   Alert,
   Badge,
-  Box,
   Button,
   Divider,
   Group,
@@ -24,6 +23,7 @@ import {
 import { useQueryClient } from '@tanstack/react-query'
 import { branchTransferApi, type BranchImportReport, type BranchImportTarget } from '@/api/admin'
 import { useAdminTopology, toOptions } from '../useAdminTopology'
+import { AdminTabHeader } from '../AdminTableShell'
 
 /** Table name → what an administrator calls it. */
 const TABLE_LABELS: Record<string, string> = {
@@ -149,14 +149,14 @@ export function BranchTransferTab() {
 
   return (
     <Stack gap="md">
-      <Box>
-        <Text fw={600} fz="lg" ff="'Space Grotesk Variable', sans-serif">
-          Перенесення філії
-        </Text>
-        <Text size="xs" c="dimmed">
-          Вивантаження налаштованої філії одним файлом і завантаження його на іншому сервері
-        </Text>
-      </Box>
+      <AdminTabHeader
+        title="Перенесення філії"
+        description={
+          <>
+            Вивантаження налаштованої філії одним файлом і завантаження його на іншому сервері
+          </>
+        }
+      />
 
       {/* ── Вивантаження ─────────────────────────────────────────────────── */}
       <Paper withBorder radius="md" p="md">

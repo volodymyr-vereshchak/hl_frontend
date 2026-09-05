@@ -3,7 +3,6 @@ import {
   ActionIcon,
   Alert,
   Badge,
-  Box,
   Button,
   Center,
   Code,
@@ -38,6 +37,7 @@ import { LoadingState } from '@/components/LoadingState'
 import { copyText } from '@/lib/clipboard'
 import type { UserRole } from '@/types'
 import { toOptions } from '../useAdminTopology'
+import { AdminTabHeader } from '../AdminTableShell'
 
 const notifyErr = (e: Error) => notifications.show({ message: e.message, color: 'red' })
 
@@ -179,16 +179,15 @@ export function UsersTab() {
 
   return (
     <Stack gap="sm" style={{ height: '100%' }}>
-      <Group justify="space-between" wrap="wrap" gap="sm">
-        <Box>
-          <Text fw={600} fz="lg" ff="'Space Grotesk Variable', sans-serif">
-            Користувачі
-          </Text>
-          <Text size="xs" c="dimmed">
+      <AdminTabHeader
+        title="Користувачі"
+        description={
+          <>
             Облікові записи, ролі та доступ до філій
-          </Text>
-        </Box>
-        <Group gap="xs">
+          </>
+        }
+        actions={
+          <>
           <TextInput
             placeholder="Пошук..."
             leftSection={<IconSearch size={15} />}
@@ -200,8 +199,9 @@ export function UsersTab() {
           <Button size="xs" leftSection={<IconPlus size={16} />} onClick={openCreate}>
             Додати
           </Button>
-        </Group>
-      </Group>
+          </>
+        }
+      />
 
       {domainStranded && (
         <Alert

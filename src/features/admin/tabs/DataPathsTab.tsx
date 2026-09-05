@@ -43,6 +43,7 @@ import {
 } from '@/api/admin'
 import type { Branch, Lumg } from '@/types'
 import { useAdminTopology, toOptions } from '../useAdminTopology'
+import { AdminTabHeader } from '../AdminTableShell'
 
 const notifyErr = (e: Error) => notifications.show({ message: e.message, color: 'red' })
 
@@ -656,15 +657,14 @@ export function DataPathsTab() {
 
   return (
     <Stack gap="md">
-      <Box>
-        <Text fw={600} fz="lg" ff="'Space Grotesk Variable', sans-serif">
-          Шляхи до даних
-        </Text>
-        <Text size="xs" c="dimmed">
-          Звідки читаються архіви (ЛУМГ, ЄІС коди) і звідки беруться назви ліній (ASK.CFG). Один ЄІС
-          код може належати лише одному ЛУМГ
-        </Text>
-      </Box>
+      <AdminTabHeader
+        title="Шляхи до даних"
+        description={
+          <>
+            Звідки читаються архіви (ЛУМГ, ЄІС коди) і звідки беруться назви ліній (ASK.CFG). Один ЄІС код може належати лише одному ЛУМГ
+          </>
+        }
+      />
 
       <Group gap="sm" align="flex-end">
         <Select

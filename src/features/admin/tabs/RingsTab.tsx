@@ -33,6 +33,7 @@ import { invalidateTopology } from '@/lib/invalidateTopology'
 import type { VirtualLine } from '@/types'
 import { useAdminTopology, toOptions } from '../useAdminTopology'
 import { LoadingState } from '@/components/LoadingState'
+import { AdminTabHeader } from '../AdminTableShell'
 
 const notifyErr = (e: Error) => notifications.show({ message: e.message, color: 'red' })
 
@@ -223,15 +224,14 @@ export function RingsTab() {
 
   return (
     <Stack gap="md">
-      <Box>
-        <Text fw={600} fz="lg" ff="'Space Grotesk Variable', sans-serif">
-          Кільця
-        </Text>
-        <Text size="xs" c="dimmed">
-          Кільце підсумовує обрані лінії й далі поводиться як звичайна лінія — видиме в архівах,
-          звітах, трендах і нічних витратах
-        </Text>
-      </Box>
+      <AdminTabHeader
+        title="Кільця"
+        description={
+          <>
+            Кільце підсумовує обрані лінії й далі поводиться як звичайна лінія — видиме в архівах, звітах, трендах і нічних витратах
+          </>
+        }
+      />
 
       {/* Editor */}
       <Paper withBorder radius="md" p="md">

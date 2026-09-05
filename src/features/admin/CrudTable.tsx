@@ -8,15 +8,12 @@ import {
   Stack,
   ActionIcon,
   Text,
-  Center,
   Alert,
   NumberInput,
   Checkbox,
   Select,
   Tooltip,
   Box,
-  Divider,
-  ScrollArea,
 } from '@mantine/core'
 import { useDisclosure } from '@mantine/hooks'
 import { modals } from '@mantine/modals'
@@ -32,8 +29,8 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { invalidateTopology } from '@/lib/invalidateTopology'
 import { numericStyle } from '@/theme/theme'
-import { TablePagination } from '@/components/TablePagination'
 import { LoadingState } from '@/components/LoadingState'
+import { AdminTabHeader, AdminTableShell } from './AdminTableShell'
 import { isFieldMissing, missingFieldLabels } from './crudValidation'
 
 export interface CrudField<T> {
@@ -258,42 +255,36 @@ export function CrudTable<T extends { id: number }>({
 
   return (
     <Stack gap="sm" style={{ height: '100%' }}>
-      <Group justify="space-between" wrap="wrap" gap="sm">
-        <Box>
-          <Text fw={600} fz="lg" ff="'Space Grotesk Variable', sans-serif">
-            {title}
-          </Text>
-          {description && (
-            <Text size="xs" c="dimmed">
-              {description}
-            </Text>
-          )}
-        </Box>
-        <Group gap="xs">
-          {toolbarExtra}
-          <TextInput
-            placeholder="Пошук..."
-            leftSection={<IconSearch size={15} />}
-            value={search}
-            onChange={(e) => {
-              setSearch(e.currentTarget.value)
-              setPage(1)
-            }}
-            size="xs"
-            w={220}
-          />
-          <Tooltip label="Оновити">
-            <ActionIcon variant="default" size="lg" onClick={() => refetch()} loading={isFetching}>
-              <IconRefresh size={16} />
-            </ActionIcon>
-          </Tooltip>
-          {create && (
-            <Button size="xs" leftSection={<IconPlus size={16} />} onClick={openCreate}>
-              Додати
-            </Button>
-          )}
-        </Group>
-      </Group>
+      <AdminTabHeader
+        title={title}
+        description={description}
+        actions={
+          <>
+            {toolbarExtra}
+            <TextInput
+              placeholder="Пошук..."
+              leftSection={<IconSearch size={15} />}
+              value={search}
+              onChange={(e) => {
+                setSearch(e.currentTarget.value)
+                setPage(1)
+              }}
+              size="xs"
+              w={220}
+            />
+            <Tooltip label="Оновити">
+              <ActionIcon variant="default" size="lg" onClick={() => refetch()} loading={isFetching}>
+                <IconRefresh size={16} />
+              </ActionIcon>
+            </Tooltip>
+            {create && (
+              <Button size="xs" leftSection={<IconPlus size={16} />} onClick={openCreate}>
+                Додати
+              </Button>
+            )}
+          </>
+        }
+      />
 
       {error && (
         <Alert color="red" variant="light" icon={<IconAlertTriangle size={16} />}>
@@ -304,8 +295,17 @@ export function CrudTable<T extends { id: number }>({
       {isLoading ? (
         <LoadingState />
       ) : (
-        <Box style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-          <ScrollArea className="hlv-table-scroll" style={{ flex: 1 }} type="auto">
+        <AdminTableShell
+          empty={pageRows.length === 0}
+          pagination={{
+            page,
+            pageSize,
+            total: rows.length,
+            onPageChange: setPage,
+            onPageSizeChange: setPageSize,
+            shownLabel: `Записів: ${rows.length}`,
+          }}
+        >
             <Table striped highlightOnHover stickyHeader verticalSpacing={6}>
               <Table.Thead>
                 <Table.Tr>
@@ -368,28 +368,7 @@ export function CrudTable<T extends { id: number }>({
                 ))}
               </Table.Tbody>
             </Table>
-            {pageRows.length === 0 && (
-              <Center py="xl">
-                <Text c="dimmed" size="sm">
-                  Немає записів
-                </Text>
-              </Center>
-            )}
-          </ScrollArea>
-          {rows.length > pageSize && (
-            <>
-              <Divider />
-              <TablePagination
-                page={page}
-                pageSize={pageSize}
-                total={rows.length}
-                onPageChange={setPage}
-                onPageSizeChange={setPageSize}
-                shownLabel={`Записів: ${rows.length}`}
-              />
-            </>
-          )}
-        </Box>
+        </AdminTableShell>
       )}
 
       <Modal opened={opened} onClose={close} title={editing ? 'Редагування' : 'Новий запис'} centered>
