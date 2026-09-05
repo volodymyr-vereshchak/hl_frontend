@@ -14,8 +14,8 @@ import {
   Stack,
 } from '@mantine/core'
 import { IconChevronRight, IconAlertTriangle, IconList, IconGauge } from '@tabler/icons-react'
-import * as XLSX from 'xlsx'
 import { sysArchiveApi, archiveDataApi } from '@/api/entities'
+import { writeSheets } from '@/lib/xlsx'
 import { useLanguage } from '@/locales/LanguageContext'
 import { numericStyle } from '@/theme/theme'
 import {
@@ -448,10 +448,10 @@ export function AccidentsPage() {
         }
       }
     }
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summary), 'Зведення')
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(perLine), 'По лініях')
-    XLSX.writeFile(wb, `accidents_${from}_${to}.xlsx`)
+    void writeSheets(`accidents_${from}_${to}`, [
+      { name: 'Зведення', aoa: summary },
+      { name: 'По лініях', aoa: perLine },
+    ])
   }
 
   const totals = useMemo(() => {

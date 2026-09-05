@@ -19,7 +19,6 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts'
-import * as XLSX from 'xlsx'
 import { archiveDataApi, type HourlyCompact } from '@/api/entities'
 import type { EnterpriseRecord } from '@/api/enterprise'
 import { addDays } from '@/domain/commercialDay'
@@ -35,6 +34,7 @@ import {
   type DayMode,
   type NightMode,
 } from '@/domain/nightConsumption'
+import { writeSheets } from '@/lib/xlsx'
 import { useLanguage } from '@/locales/LanguageContext'
 import { useSelectionStore } from '@/store/selectionStore'
 import { numericStyle } from '@/theme/theme'
@@ -196,26 +196,31 @@ export function NightConsumptionPage() {
 
   const exportExcel = () => {
     if (!netMap || !raw) return
-    const wb = XLSX.utils.book_new()
-    const header = ['Доба', ...usedLines.map((l) => l.name)]
-    const body = rows.map((r) => [r.date, ...usedLines.map((l) => r[`line_${l.id}`] ?? '')])
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([header, ...body]), 'Зведення')
+    const summary = [
+      ['Доба', ...usedLines.map((l) => l.name)],
+      ...rows.map((r) => [r.date, ...usedLines.map((l) => r[`line_${l.id}`] ?? '')]),
+    ]
 
-    // One sheet per line with the hourly NET flow across the night.
+    // One sheet per line with the hourly NET flow across the night. Sheet-name
+    // length, forbidden characters and collisions are writeSheets' problem.
     const sheets = buildHourlySheets(netMap, rows.map((r) => r.date), usedLines.map((l) => l.id))
-    for (const line of usedLines) {
-      const h = [['Доба', ...SHEET_HOURS.map((x) => `${pad(x)}:00`)]]
-      for (const row of sheets[line.id] ?? []) {
-        h.push([String(row.date), ...SHEET_HOURS.map((x) => String(row[x] ?? ''))])
-      }
-      // Sheet names are capped at 31 chars and may not contain []:*?/\
-      const safe = line.name.replace(/[[\]:*?/\\]/g, ' ').slice(0, 31)
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(h), safe || `line_${line.id}`)
-    }
+    const perLine = usedLines.map((line) => ({
+      name: line.name || `line_${line.id}`,
+      aoa: [
+        ['Доба', ...SHEET_HOURS.map((x) => `${pad(x)}:00`)],
+        ...(sheets[line.id] ?? []).map((row) => [
+          String(row.date), ...SHEET_HOURS.map((x) => String(row[x] ?? '')),
+        ]),
+      ],
+    }))
+
     // The day mode is in the name: two files for the same period mean different
     // nights, and nothing inside the workbook says which is which.
     const kind = dayMode === 'calendar' ? 'calendar' : 'gas'
-    XLSX.writeFile(wb, `night_consumption_${kind}_${raw.from}_${raw.to}.xlsx`)
+    void writeSheets(`night_consumption_${kind}_${raw.from}_${raw.to}`, [
+      { name: 'Зведення', aoa: summary },
+      ...perLine,
+    ])
   }
 
   const description = `${

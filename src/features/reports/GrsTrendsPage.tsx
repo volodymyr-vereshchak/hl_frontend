@@ -18,7 +18,6 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts'
-import * as XLSX from 'xlsx'
 import {
   archiveDataApi,
   archiveDataVirtualApi,
@@ -28,6 +27,7 @@ import {
 import { commercialHourlyRange } from '@/domain/commercialDay'
 import { getEnterpriseFetchFn, type PeriodType } from '@/domain/enterpriseVolumes'
 import { calculateTrendPercentages, trendColor, type TrendPoint } from '@/domain/grsTrends'
+import { writeSheet } from '@/lib/xlsx'
 import { useLanguage } from '@/locales/LanguageContext'
 import { useSelectionStore } from '@/store/selectionStore'
 import { PeriodPicker } from '@/features/archive/PeriodPicker'
@@ -165,9 +165,7 @@ export function GrsTrendsPage() {
       String(p.period),
       ...usedLines.map((l) => Number(p[`line_${l.id}`] ?? 0)),
     ])
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([header, ...body]), 'Тренди')
-    XLSX.writeFile(wb, `grs_trends_${from}_${to}.xlsx`)
+    void writeSheet(`grs_trends_${from}_${to}`, 'Тренди', [header, ...body])
   }
 
   /** Date on the first line, hour on the second — see TimeAxisTick. Daily gets

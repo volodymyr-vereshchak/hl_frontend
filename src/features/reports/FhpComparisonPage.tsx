@@ -28,7 +28,6 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import * as XLSX from 'xlsx'
 import { fhpReportApi, type FhpParamBlock, type RouteFhpReport } from '@/api/fhpReport'
 import {
   chartRows,
@@ -49,6 +48,7 @@ import {
 } from '@/domain/fhpParams'
 import { fold, type Aggregate } from '@/domain/aggregate'
 import { trendColor } from '@/domain/grsTrends'
+import { writeSheets } from '@/lib/xlsx'
 import { useLanguage } from '@/locales/LanguageContext'
 import { useSelectionStore } from '@/store/selectionStore'
 import { numericStyle } from '@/theme/theme'
@@ -303,7 +303,9 @@ export function FhpComparisonPage() {
 
   const exportExcel = () => {
     if (!report) return
-    const wb = XLSX.utils.book_new()
+    // Collected first, written once — the summary is only complete after
+    // every block has been walked.
+    const sheets: { name: string; aoa: (string | number | null | undefined)[][] }[] = []
     for (const b of report.params) {
       const head = ['Період']
       for (const line of b.lines) {
@@ -325,8 +327,7 @@ export function FhpComparisonPage() {
         row.push(b.spread_min[i], b.spread_max[i], b.spread[i])
         return row
       })
-      const sheet = XLSX.utils.aoa_to_sheet([head, ...body])
-      XLSX.utils.book_append_sheet(wb, sheet, sheetName(b.label))
+      sheets.push({ name: b.label, aoa: [head, ...body] })
     }
 
     if (report.volume) {
@@ -346,9 +347,7 @@ export function FhpComparisonPage() {
       for (const line of v.lines) {
         totals.push(line.total_volume ?? null, line.total_delta ?? null, line.total_delta_pct ?? null)
       }
-      XLSX.utils.book_append_sheet(
-        wb, XLSX.utils.aoa_to_sheet([head, ...body, totals]), "Об'єм",
-      )
+      sheets.push({ name: "Об'єм", aoa: [head, ...body, totals] })
     }
 
     const summaryHead = ['Параметр', 'Лінія', 'Сер. Δ', 'Сер. |Δ|', 'Макс. |Δ|', 'Коли', 'Поза допуском', '%']
@@ -366,10 +365,8 @@ export function FhpComparisonPage() {
         ])
       }
     }
-    XLSX.utils.book_append_sheet(
-      wb, XLSX.utils.aoa_to_sheet([summaryHead, ...summaryBody]), 'Зведення',
-    )
-    XLSX.writeFile(wb, `fhp_${report.route_number}_${from}_${to}.xlsx`)
+    sheets.push({ name: 'Зведення', aoa: [summaryHead, ...summaryBody] })
+    void writeSheets(`fhp_${report.route_number}_${from}_${to}`, sheets)
   }
 
   const grid = dark ? 'var(--mantine-color-dark-4)' : 'var(--mantine-color-gray-3)'
@@ -1032,6 +1029,3 @@ function FooterCell({ children, first }: { children: ReactNode; first?: boolean 
 }
 
 /** Excel sheet names cannot carry []:*?/\ and stop at 31 characters. */
-function sheetName(label: string): string {
-  return label.replace(/[[\]:*?/\\]/g, ' ').slice(0, 31)
-}

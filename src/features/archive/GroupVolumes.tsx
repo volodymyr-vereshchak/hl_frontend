@@ -24,7 +24,6 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import * as XLSX from 'xlsx'
 import { archiveDataApi } from '@/api/entities'
 import { AggregateCell } from '@/components/AggregateCell'
 import { TablePagination, type PageSizeOption } from '@/components/TablePagination'
@@ -32,6 +31,7 @@ import { useStickyRowHeights } from '@/components/useMeasuredHeight'
 import { fold, type Aggregate } from '@/domain/aggregate'
 import { trendColor } from '@/domain/grsTrends'
 import { formatGroupPeriod, lineTotals, pivotVolumes } from '@/domain/groupVolumes'
+import { writeSheet, today } from '@/lib/xlsx'
 import { useLanguage } from '@/locales/LanguageContext'
 import type { DateRange, GroupSelection } from '@/store/selectionStore'
 import { numericStyle } from '@/theme/theme'
@@ -148,19 +148,12 @@ export function GroupVolumes({
         r.total,
       ])
       const foot = ['Разом', ...shown.map((l) => totals[l.id] ?? 0), grandTotal]
-      const wb = XLSX.utils.book_new()
-      XLSX.utils.book_append_sheet(
-        wb,
-        XLSX.utils.aoa_to_sheet([head, ...body, foot]),
-        'Обсяги',
-      )
-      const stamp = new Date()
-      const pad = (n: number) => String(n).padStart(2, '0')
+      // Sheet-name sanitising and the date stamp live in writeSheets now.
       const name = sel.name.replace(/[\\/:*?"<>|[\]]/g, ' ').trim()
-      XLSX.writeFile(
-        wb,
-        `${t(type === 'daily' ? 'dailyArchive' : 'hourlyArchive')}_${name}_` +
-          `${stamp.getFullYear()}-${pad(stamp.getMonth() + 1)}-${pad(stamp.getDate())}.xlsx`,
+      void writeSheet(
+        `${t(type === 'daily' ? 'dailyArchive' : 'hourlyArchive')}_${name}_${today()}`,
+        'Обсяги',
+        [head, ...body, foot],
       )
     }
   }, [rows, shown, totals, grandTotal, type, sel.name, t])

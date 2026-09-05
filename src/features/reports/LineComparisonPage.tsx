@@ -28,7 +28,6 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import * as XLSX from 'xlsx'
 import { archiveDataApi, type ArchiveRow } from '@/api/entities'
 import { AggregateCell } from '@/components/AggregateCell'
 import { TablePagination } from '@/components/TablePagination'
@@ -60,6 +59,7 @@ import {
   type StoredSelection,
 } from '@/domain/lineComparisonSelection'
 import { UNIT_LABELS } from '@/domain/pressureUnits'
+import { writeSheets } from '@/lib/xlsx'
 import { useLanguage } from '@/locales/LanguageContext'
 import { useSelectionStore } from '@/store/selectionStore'
 import { numericStyle } from '@/theme/theme'
@@ -278,7 +278,9 @@ export function LineComparisonPage() {
 
   const exportExcel = () => {
     if (!run) return
-    const wb = XLSX.utils.book_new()
+    // Collected first, written once: the summary belongs at the end of the
+    // book but is only complete after every quantity has been folded.
+    const sheets: { name: string; aoa: (string | number | null | undefined)[][] }[] = []
     for (const q of QUANTITIES) {
       const qUnit = q === 'pressure' ? unit : quantityMeta(q, '').unit
       const block = buildComparison({
@@ -314,11 +316,10 @@ export function LineComparisonPage() {
           totalDeltaPct(block.rows, d.id),
         )
       }
-      XLSX.utils.book_append_sheet(
-        wb,
-        XLSX.utils.aoa_to_sheet([head, ...body, totals]),
-        sheetName(quantityMeta(q, qUnit).label),
-      )
+      sheets.push({
+        name: quantityMeta(q, qUnit).label,
+        aoa: [head, ...body, totals],
+      })
     }
 
     const sumHead = ['Величина', 'Лінія', 'Сер. Δ', 'Сер. |Δ|', 'Макс. |Δ|', 'Коли', 'Поза допуском', '%']
@@ -355,11 +356,8 @@ export function LineComparisonPage() {
         ])
       }
     }
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([sumHead, ...sumBody]), 'Зведення')
-    XLSX.writeFile(
-      wb,
-      `porivnyannya_liniy_${sanitize(run.main.name)}_${from}_${to}.xlsx`,
-    )
+    sheets.push({ name: 'Зведення', aoa: [sumHead, ...sumBody] })
+    void writeSheets(`porivnyannya_liniy_${sanitize(run.main.name)}_${from}_${to}`, sheets)
   }
 
   const paneRef = useRef<HTMLDivElement>(null)
@@ -859,7 +857,7 @@ function axisLabel(period: string, granularity: Granularity): [string, string] {
 }
 
 const sanitize = (s: string) => s.replace(/[\\/:*?"<>|[\]]/g, ' ').trim()
-const sheetName = (s: string) => s.replace(/[[\]:*?/\\]/g, ' ').slice(0, 31)
+// Sheet names are writeSheets' business now — it also de-duplicates them.
 
 function FootCell({ children, first }: { children: React.ReactNode; first?: boolean }) {
   return (

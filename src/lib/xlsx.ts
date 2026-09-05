@@ -36,6 +36,20 @@ export function today(): string {
 }
 
 /**
+ * `YYYY-MM-DD_HH_MM`, for exports taken more than once a day.
+ *
+ * Local time, not the UTC slice of toISOString(): two exports a minute apart
+ * must still sort by the clock the person was looking at.
+ */
+export function stamp(): string {
+  const d = new Date()
+  return (
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
+    `_${pad(d.getHours())}_${pad(d.getMinutes())}`
+  )
+}
+
+/**
  * Write `sheets` as one workbook named `<fileBase>.xlsx`.
  *
  * Sheets with no rows are skipped, because a workbook with an empty tab reads

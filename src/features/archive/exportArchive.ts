@@ -1,4 +1,3 @@
-import * as XLSX from 'xlsx'
 import type { ArchiveColumn } from '@/domain/archiveColumns'
 import { resolveEditName } from '@/domain/archiveColumns'
 import { formatEditValue } from '@/domain/valueConverter'
@@ -15,20 +14,8 @@ import { enterpriseDayWindow } from '@/domain/commercialDay'
 import type { ArchiveRow } from '@/api/entities'
 import type { ArchiveType } from '@/types'
 import type { DateRange } from '@/store/selectionStore'
+import { stamp, writeSheet } from '@/lib/xlsx'
 
-const pad = (n: number) => String(n).padStart(2, '0')
-
-/**
- * Save the workbook as `<base>_<local date_time>.xlsx`.
- *
- * Local, not the UTC slice of toISOString(): two exports a minute apart must
- * still sort by the clock the user was looking at.
- */
-function writeWorkbook(wb: XLSX.WorkBook, fileBase: string) {
-  const d = new Date()
-  const stamp = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_${pad(d.getHours())}_${pad(d.getMinutes())}`
-  XLSX.writeFile(wb, `${fileBase}_${stamp}.xlsx`)
-}
 
 /** Export the current archive rows to an .xlsx file (SheetJS). */
 export function exportArchiveToExcel(
@@ -53,10 +40,7 @@ export function exportArchiveToExcel(
       return isFinite(n) ? n : (raw ?? '')
     }),
   )
-  const ws = XLSX.utils.aoa_to_sheet([header, ...body])
-  const wb = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(wb, ws, 'Archive')
-  writeWorkbook(wb, fileBase)
+  void writeSheet(`${fileBase}_${stamp()}`, 'Archive', [header, ...body])
 }
 
 /**
@@ -103,8 +87,5 @@ export async function exportWithEnterpriseBreakdown(
     return breakdownRow(base as (string | number)[], row.volume, enterpriseCols, entry, insertAt)
   })
 
-  const ws = XLSX.utils.aoa_to_sheet([header, ...body])
-  const wb = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(wb, ws, 'Промисловість')
-  writeWorkbook(wb, fileBase)
+  void writeSheet(`${fileBase}_${stamp()}`, 'Промисловість', [header, ...body])
 }
