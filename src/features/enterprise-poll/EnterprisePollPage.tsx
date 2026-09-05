@@ -49,11 +49,15 @@ import {
   correctorLabel,
   currentDevice,
   enterpriseLabel,
+  streamEnterpriseEvents,
   streamEnterpriseVolumes,
   type EnterpriseMappingRow,
   type EnterpriseRecord,
+  type EventGroup,
+  type EventReport,
 } from '@/api/enterprise'
 import { PollProgress } from '@/components/PollProgress'
+import { AccidentsReport, formatDuration } from './AccidentsReport'
 import { UnpolledReport } from './UnpolledReport'
 import { EMPTY_UNPOLLED_FILTERS, type UnpolledFilters } from './unpolledFilters'
 import { useStickyRowHeights } from '@/components/useMeasuredHeight'
@@ -163,6 +167,19 @@ export function EnterprisePollPage() {
   const [progress, setProgress] = useState<{ done?: number; total?: number; phase?: string } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
+
+  // Alarms report. It shares the branch selector with the poll above but keeps
+  // its OWN range: it is opened to ask about a week the volume poll has
+  // nothing to do with. Nothing is cached server-side, so the last result
+  // lives here and closing the pane only hides it.
+  const [accOpen, setAccOpen] = useState(false)
+  const [accReport, setAccReport] = useState<EventReport | null>(null)
+  const [accLoading, setAccLoading] = useState(false)
+  const [accProgress, setAccProgress] = useState<{ done?: number; total?: number; phase?: string } | null>(null)
+  const [accError, setAccError] = useState<string | null>(null)
+  const [accFrom, setAccFrom] = useState(initialRange.from)
+  const [accTo, setAccTo] = useState(initialRange.to)
+  const accAbortRef = useRef<AbortController | null>(null)
 
   const { data: branches } = useQuery({ queryKey: ['admin', 'branches'], queryFn: branchAdminApi.getAll })
   const { data: mappings, isLoading: mappingsLoading } = useQuery({
@@ -446,6 +463,56 @@ export function EnterprisePollPage() {
     setLoading(false)
   }
 
+  const runAccidents = async () => {
+    if (branchFilter == null) {
+      setAccError('Оберіть філію: креденшали ДПД задані окремо для кожної')
+      return
+    }
+    accAbortRef.current?.abort()
+    const ctrl = new AbortController()
+    accAbortRef.current = ctrl
+    setAccLoading(true)
+    setAccError(null)
+    setAccProgress(null)
+    try {
+      const res = await streamEnterpriseEvents(
+        { branch_id: branchFilter, from_date: accFrom, to_date: accTo, kind: 'accidents' },
+        { onProgress: setAccProgress, signal: ctrl.signal },
+      )
+      setAccReport(res)
+    } catch (e) {
+      const err = e as Error
+      if (err.name !== 'AbortError') setAccError(err.message)
+    } finally {
+      setAccLoading(false)
+      setAccProgress(null)
+    }
+  }
+
+  const stopAccidents = () => {
+    accAbortRef.current?.abort()
+    setAccLoading(false)
+  }
+
+  /** One row per (event type, enterprise): the expanded view, flattened. */
+  const exportAccidents = (groups: EventGroup[]) => {
+    const rows = groups.flatMap((g) =>
+      g.objects.map((o) => ({
+        [t('entAccType')]: g.name,
+        'DPD key': g.type,
+        [t('enterprise')]: o.enterprise_name,
+        'serNum': o.serNum,
+        [t('entAccFirst')]: o.first,
+        [t('entAccLast')]: o.last ?? '',
+        [t('entAccDuration')]: formatDuration(o.duration, t),
+        [t('entAccCount')]: o.appearances,
+      })),
+    )
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'accidents')
+    XLSX.writeFile(wb, `accidents_${accFrom}_${accTo}.xlsx`)
+  }
+
   /**
    * Temperature, pressure and its unit live on the DEVICE, not on the record:
    * the record only carries the period and the rolled-up volume. Reading them
@@ -618,6 +685,30 @@ export function EnterprisePollPage() {
           disabled={loading}
         >
           {t('unpolledEnterprises')}
+        </Button>
+        {/* Alarms are a different question from volumes and need no
+            enterprise selected, so they sit beside the "no poll" report
+            rather than in a row action. */}
+        <Button
+          size="xs"
+          variant="light"
+          color="amber"
+          leftSection={<IconAlertTriangle size={15} />}
+          rightSection={
+            accReport && !accOpen ? (
+              <Badge size="xs" circle variant="filled" color={accReport.groups.length ? 'amber' : 'teal'}>
+                {accReport.groups.length}
+              </Badge>
+            ) : undefined
+          }
+          onClick={() => {
+            setAccOpen(true)
+            if (!accReport && !accLoading) void runAccidents()
+          }}
+          loading={accLoading}
+          disabled={loading}
+        >
+          {t('accidents')}
         </Button>
         <Select
           placeholder="Всі філії"
@@ -834,7 +925,22 @@ export function EnterprisePollPage() {
         >
           {/* The "no poll" result takes the whole pane: it is a report in its
               own right, and as a modal it covered the tree its rows link into. */}
-          {unpolled !== null && reportOpen ? (
+          {accOpen ? (
+            <AccidentsReport
+              report={accReport}
+              loading={accLoading}
+              progress={accProgress}
+              error={accError}
+              from={accFrom}
+              to={accTo}
+              onFromChange={setAccFrom}
+              onToChange={setAccTo}
+              onRun={() => void runAccidents()}
+              onStop={stopAccidents}
+              onClose={() => setAccOpen(false)}
+              onExport={exportAccidents}
+            />
+          ) : unpolled !== null && reportOpen ? (
             <UnpolledReport
               rows={unpolled}
               filters={reportFilters}

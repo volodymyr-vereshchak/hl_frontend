@@ -175,18 +175,20 @@ interface StreamOpts {
  * `fallback = true`, telling the caller to retry over the plain GET; in-band
  * `error` events throw without it (the GET would fail the same way).
  */
-export async function streamEnterpriseVolumes(
-  params: VolumesParams,
-  { onProgress, signal }: StreamOpts = {},
-): Promise<EnterpriseRecord[]> {
-  const query = new URLSearchParams()
-  for (const [key, value] of Object.entries(params)) {
-    if (value === null || value === undefined) continue
-    if (Array.isArray(value)) value.forEach((v) => query.append(key, String(v)))
-    else query.append(key, String(value))
-  }
-  const url = `${api.resolveBaseUrl()}/enterprise/volumes/stream?${query}`
-
+/**
+ * Drive one NDJSON stream, handing each complete line to `handleLine`.
+ *
+ * Both enterprise streams share this: the framing, the fallback contract and
+ * the O(n) line assembly are transport concerns, and the huge result line of
+ * the volumes stream made the naive `buffer += chunk` version quadratic.
+ * A transport failure throws with `fallback = true`, telling the caller to
+ * retry over a plain GET where one exists.
+ */
+async function consumeNdjson(
+  url: string,
+  signal: AbortSignal | undefined,
+  handleLine: (line: string) => void,
+): Promise<void> {
   let response: Response
   try {
     response = await fetch(url, {
@@ -212,22 +214,6 @@ export async function streamEnterpriseVolumes(
   // Fragments of the current (possibly multi-chunk) line — joined once per
   // newline; repeated concatenation would be O(n²) on the huge result line.
   let parts: string[] = []
-  let result: EnterpriseRecord[] | null = null
-
-  const handleLine = (line: string) => {
-    if (!line) return
-    let event: { type?: string; done?: number; total?: number; phase?: string; data?: EnterpriseRecord[]; detail?: string }
-    try {
-      event = JSON.parse(line)
-    } catch {
-      return
-    }
-    if (event.type === 'progress') onProgress?.({ done: event.done, total: event.total, phase: 'polling' })
-    else if (event.type === 'status') onProgress?.({ phase: event.phase })
-    else if (event.type === 'result') result = event.data ?? []
-    else if (event.type === 'error') throw new Error(event.detail || 'Enterprise poll failed')
-    // ping events only keep the connection alive
-  }
 
   const processChunk = (text: string) => {
     let start = 0
@@ -237,7 +223,7 @@ export async function streamEnterpriseVolumes(
       parts.push(text.slice(start, nl))
       const line = parts.join('').trim()
       parts = []
-      handleLine(line)
+      if (line) handleLine(line)
       start = nl + 1
     }
     if (start < text.length) parts.push(start === 0 ? text : text.slice(start))
@@ -249,12 +235,145 @@ export async function streamEnterpriseVolumes(
     processChunk(decoder.decode(value, { stream: true }))
   }
   processChunk(decoder.decode())
-  if (parts.length) handleLine(parts.join('').trim())
+  if (parts.length) {
+    const line = parts.join('').trim()
+    if (line) handleLine(line)
+  }
+}
+
+function buildQuery(params: Record<string, unknown>): string {
+  const query = new URLSearchParams()
+  for (const [key, value] of Object.entries(params)) {
+    if (value === null || value === undefined) continue
+    if (Array.isArray(value)) value.forEach((v) => query.append(key, String(v)))
+    else query.append(key, String(value))
+  }
+  return query.toString()
+}
+
+/**
+ * Enterprise volumes over the NDJSON progress stream — same data as the plain
+ * GET, but the backend emits progress events while the DPD poll runs so long
+ * polls can show a real progress bar. A transport failure throws with
+ * `fallback = true`, telling the caller to retry over the plain GET; in-band
+ * `error` events throw without it (the GET would fail the same way).
+ */
+export async function streamEnterpriseVolumes(
+  params: VolumesParams,
+  { onProgress, signal }: StreamOpts = {},
+): Promise<EnterpriseRecord[]> {
+  const url = `${api.resolveBaseUrl()}/enterprise/volumes/stream?${buildQuery(params as Record<string, unknown>)}`
+  let result: EnterpriseRecord[] | null = null
+
+  await consumeNdjson(url, signal, (line) => {
+    let event: { type?: string; done?: number; total?: number; phase?: string; data?: EnterpriseRecord[]; detail?: string }
+    try {
+      event = JSON.parse(line)
+    } catch {
+      return
+    }
+    if (event.type === 'progress') onProgress?.({ done: event.done, total: event.total, phase: 'polling' })
+    else if (event.type === 'status') onProgress?.({ phase: event.phase })
+    else if (event.type === 'result') result = event.data ?? []
+    else if (event.type === 'error') throw new Error(event.detail || 'Enterprise poll failed')
+    // ping events only keep the connection alive
+  })
 
   if (result === null) {
     const e = new Error('Stream ended without a result') as Error & { fallback?: boolean }
     e.fallback = true
     throw e
   }
+  return result
+}
+
+/** One enterprise's share of an event type, shown when a summary row expands. */
+export interface EventObject {
+  enterprise_id: number
+  enterprise_name: string
+  line_id?: number | null
+  serNum: number
+  chNum: number
+  /** First and last time DPD saw it, as 'YYYY-MM-DD HH:mm:ss' strings. */
+  first: string
+  last: string | null
+  /** Seconds the alarm was actually up, summed over DPD's hour/day buckets. */
+  duration: number
+  appearances: number
+}
+
+/**
+ * One event type across every enterprise that had it.
+ *
+ * `duration` and `appearances` are SUMS over the objects, so `duration` is not
+ * `last - first`: five enterprises down ten minutes each on different days is
+ * fifty minutes inside a six-hour window. `first`/`last` bound the window.
+ */
+export interface EventGroup {
+  type: string
+  code?: number | null
+  name: string
+  /** false when DPD sent a key our dictionary has no wording for. */
+  translated: boolean
+  first: string
+  last: string | null
+  duration: number
+  appearances: number
+  devices: number
+  objects: EventObject[]
+}
+
+export interface EventReport {
+  kind: string
+  groups: EventGroup[]
+  stats: {
+    /** Enterprise devices of the branch that the report covered. */
+    ours: number
+    /** Devices DPD reported events for, before intersecting with ours. */
+    candidates: number
+    /** The intersection — the only devices actually polled for details. */
+    matched: number
+    with_events: number
+    dropped_rows: number
+    untranslated: string[]
+  }
+}
+
+/**
+ * Alarms (or interventions) of a branch's enterprise devices, live from DPD.
+ *
+ * There is no plain-GET twin: the poll takes minutes and nothing is stored, so
+ * the stream is the only way in and a transport failure is simply an error.
+ */
+export async function streamEnterpriseEvents(
+  params: { branch_id: number; from_date: string; to_date: string; kind?: 'accidents' | 'interventions' },
+  { onProgress, signal }: StreamOpts = {},
+): Promise<EventReport> {
+  const url = `${api.resolveBaseUrl()}/enterprise/events/stream?${buildQuery(params)}`
+  let result: EventReport | null = null
+
+  await consumeNdjson(url, signal, (line) => {
+    let event: {
+      type?: string; done?: number; total?: number; phase?: string
+      matched?: number; candidates?: number; data?: EventReport; detail?: string
+    }
+    try {
+      event = JSON.parse(line)
+    } catch {
+      return
+    }
+    if (event.type === 'progress') {
+      onProgress?.({ done: event.done, total: event.total, phase: event.phase })
+    } else if (event.type === 'status') {
+      onProgress?.({ phase: event.phase, total: event.matched })
+    } else if (event.type === 'result') {
+      result = event.data ?? null
+    } else if (event.type === 'error') {
+      throw new Error(event.detail || 'Не вдалося отримати аварії')
+    }
+    // device_error events are per-device and already reflected in the result
+  })
+
+  if (result === null) throw new Error('Stream ended without a result')
   return result
 }
