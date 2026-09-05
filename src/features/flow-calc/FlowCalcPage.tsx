@@ -41,6 +41,7 @@ import { FlowCalcResultsPanel } from './FlowCalcResults'
 import { OrificeDiagram } from './OrificeDiagram'
 import { RichLabel } from './RichLabel'
 import { formatPeriodShort, pullFromLine } from './lineAutofill'
+import { TOPOLOGY_KEYS } from '@/lib/topologyKeys'
 
 const stripColon = (s: string) => s.replace(/\s*:\s*$/, '')
 
@@ -165,7 +166,7 @@ export function FlowCalcPage() {
   const wantMeter = device === 'meter'
 
   const { data: topology } = useQuery({
-    queryKey: ['flow-calc-topology'],
+    queryKey: TOPOLOGY_KEYS.flowCalcTopology,
     staleTime: 5 * 60_000,
     queryFn: async () => {
       const [branches, lumgs, calcs, lines] = await Promise.all([

@@ -10,6 +10,7 @@ import {
 } from '@/api/entities'
 import type { LineKind } from '@/types'
 import type { GroupSelection, LineMeta } from '@/store/selectionStore'
+import { TOPOLOGY_KEYS } from '@/lib/topologyKeys'
 
 /** Context shown in the tree's selection panel. */
 export interface LineInfo {
@@ -54,7 +55,7 @@ export interface TreeBranch {
 
 export function useTreeData() {
   return useQuery({
-    queryKey: ['tree'],
+    queryKey: TOPOLOGY_KEYS.tree,
     staleTime: 5 * 60_000,
     queryFn: async (): Promise<TreeBranch[]> => {
       const [branches, lumgs, calcs, calcTypes, lines, virtuals, dpds] = await Promise.all([

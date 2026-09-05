@@ -18,6 +18,7 @@ import {
   type LineVolumeComparison,
 } from '@/domain/overviewCalculator'
 import type { Line } from '@/types'
+import { TOPOLOGY_KEYS } from '@/lib/topologyKeys'
 
 export interface LumgGroup {
   lumgId: number
@@ -47,7 +48,7 @@ const maxTs = (rows: HourlyRecord[]): number | null => {
 /** Branches + lumgs, loaded once (topology is stable). */
 export function useTopology() {
   return useQuery({
-    queryKey: ['topology'],
+    queryKey: TOPOLOGY_KEYS.overview,
     staleTime: 5 * 60_000,
     queryFn: async () => {
       const [branches, lumgs] = await Promise.all([branchApi.getAll(), lumgApi.getAll()])

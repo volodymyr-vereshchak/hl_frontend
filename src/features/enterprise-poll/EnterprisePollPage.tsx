@@ -68,6 +68,7 @@ import { useSelectionStore } from '@/store/selectionStore'
 import { numericStyle } from '@/theme/theme'
 import { ArchiveChart } from '@/features/archive/ArchiveChart'
 import type { ArchiveRow } from '@/api/entities'
+import { TOPOLOGY_KEYS } from '@/lib/topologyKeys'
 
 type PeriodType = 'daily' | 'hourly'
 
@@ -196,7 +197,7 @@ export function EnterprisePollPage() {
 
   const { data: branches } = useQuery({ queryKey: ['admin', 'branches'], queryFn: branchAdminApi.getAll })
   const { data: mappings, isLoading: mappingsLoading } = useQuery({
-    queryKey: ['enterprise', 'mappings'],
+    queryKey: TOPOLOGY_KEYS.enterpriseMappings,
     queryFn: enterpriseApi.getMappings,
     staleTime: 5 * 60_000,
   })

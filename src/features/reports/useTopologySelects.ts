@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { branchApi, lumgApi, lineApi, gasVolumeApi } from '@/api/entities'
+import { TOPOLOGY_KEYS } from '@/lib/topologyKeys'
 
 /**
  * Flat topology for the cascading report selectors (branch → calc → line).
@@ -9,7 +10,7 @@ import { branchApi, lumgApi, lineApi, gasVolumeApi } from '@/api/entities'
  */
 export function useTopologySelects(branchId: string, calcId: string) {
   const query = useQuery({
-    queryKey: ['report-topology'],
+    queryKey: TOPOLOGY_KEYS.reportTopology,
     staleTime: 5 * 60_000,
     queryFn: async () => {
       const [branches, lumgs, calcs, lines] = await Promise.all([

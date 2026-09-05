@@ -4,6 +4,7 @@ import { branchApi, lumgApi, lineApi, virtualLineApi, dpdLineApi } from '@/api/e
 import { resolveBranchId } from '@/domain/branchSelection'
 import { useSelectionStore } from '@/store/selectionStore'
 import type { Line, VirtualLine, DpdLine } from '@/types'
+import { TOPOLOGY_KEYS, reportLinesKey } from '@/lib/topologyKeys'
 
 export interface ReportLine {
   id: number
@@ -18,7 +19,7 @@ export interface ReportLine {
  * branch — the shared selection source for all report screens.
  */
 export function useBranches() {
-  return useQuery({ queryKey: ['branches'], queryFn: branchApi.getAll, staleTime: 5 * 60_000 })
+  return useQuery({ queryKey: TOPOLOGY_KEYS.branches, queryFn: branchApi.getAll, staleTime: 5 * 60_000 })
 }
 
 /**
@@ -40,7 +41,7 @@ export function useEnsureValidBranch<T extends { id: number }>(branches: T[] | u
 
 export function useBranchLines(branchId: number | null) {
   return useQuery({
-    queryKey: ['report-lines', branchId],
+    queryKey: reportLinesKey(branchId),
     enabled: branchId != null,
     staleTime: 60_000,
     queryFn: async (): Promise<ReportLine[]> => {
