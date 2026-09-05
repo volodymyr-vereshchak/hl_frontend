@@ -38,7 +38,6 @@ import {
 } from '@tabler/icons-react'
 import { useLocalStorage } from '@mantine/hooks'
 import { useQuery } from '@tanstack/react-query'
-import * as XLSX from 'xlsx'
 import { AggregateCell } from '@/components/AggregateCell'
 import { TablePagination, type PageSizeOption } from '@/components/TablePagination'
 import { columnAggregate, fold, type Aggregate } from '@/domain/aggregate'
@@ -49,15 +48,16 @@ import {
   correctorLabel,
   currentDevice,
   enterpriseLabel,
-  streamEnterpriseEvents,
   streamEnterpriseVolumes,
   type EnterpriseMappingRow,
   type EnterpriseRecord,
   type EventGroup,
-  type EventReport,
 } from '@/api/enterprise'
 import { PollProgress } from '@/components/PollProgress'
+import { writeSheet, writeSheets, today } from '@/lib/xlsx'
 import { AccidentsReport, formatDuration } from './AccidentsReport'
+import { useEnterpriseEvents } from './useEnterpriseEvents'
+import { useUnpolledCheck } from './useUnpolledCheck'
 import { UnpolledReport } from './UnpolledReport'
 import { EMPTY_UNPOLLED_FILTERS, type UnpolledFilters } from './unpolledFilters'
 import { useStickyRowHeights } from '@/components/useMeasuredHeight'
@@ -142,23 +142,9 @@ export function EnterprisePollPage() {
     defaultValue: {},
   })
   const toggleGroup = (key: string) => setCollapsed((p) => ({ ...p, [key]: !p[key] }))
-  const [unpolled, setUnpolled] = useState<EnterpriseMappingRow[] | null>(null)
-  /**
-   * Whether the report is on screen — kept apart from the data behind it.
-   * Picking an enterprise off the report switches the pane to the poll, and
-   * dropping the rows at that moment meant the only way back was to re-run the
-   * whole check.
-   */
   const [reportOpen, setReportOpen] = useState(false)
-  /** Filters, view and page of the report, held here for the same reason the
-   *  rows are: hiding the report unmounts it. */
+  const [accOpen, setAccOpen] = useState(false)
   const [reportFilters, setReportFilters] = useState<UnpolledFilters>(EMPTY_UNPOLLED_FILTERS)
-  /** What the last check covered — shown above the report so the number means
-   *  something ("3 of 340" reads differently from a bare "3"). */
-  const [checkedRange, setCheckedRange] = useState({ from: '', to: '', count: 0 })
-  const [checking, setChecking] = useState(false)
-  const [checkProgress, setCheckProgress] = useState<{ done?: number; total?: number; phase?: string } | null>(null)
-  const checkAbortRef = useRef<AbortController | null>(null)
   const [periodType, setPeriodType] = useState<PeriodType>('daily')
   const initialRange = defaultRange()
   const [from, setFrom] = useState(initialRange.from)
@@ -169,31 +155,9 @@ export function EnterprisePollPage() {
   const [error, setError] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
-  // Alarms report. It shares the branch selector with the poll above but keeps
-  // its OWN range: it is opened to ask about a week the volume poll has
-  // nothing to do with. Nothing is cached server-side, so the last result
-  // lives here and closing the pane only hides it.
-  const [accOpen, setAccOpen] = useState(false)
-  const [accReport, setAccReport] = useState<EventReport | null>(null)
-  const [accLoading, setAccLoading] = useState(false)
-  const [accProgress, setAccProgress] = useState<{ done?: number; total?: number; phase?: string } | null>(null)
-  const [accError, setAccError] = useState<string | null>(null)
-  const [accFrom, setAccFrom] = useState(initialRange.from)
-  const [accTo, setAccTo] = useState(initialRange.to)
-  const accAbortRef = useRef<AbortController | null>(null)
 
-  // Leaving the page must hang up on the DPD polls this screen started. Each
-  // stream holds a backend generator and its branch advisory lock for as long
-  // as it runs — up to the 610s client timeout — and the server only learns
-  // the client is gone when the connection drops.
-  useEffect(
-    () => () => {
-      abortRef.current?.abort()
-      checkAbortRef.current?.abort()
-      accAbortRef.current?.abort()
-    },
-    [],
-  )
+  // The poll's own stream. The two hooks abort theirs on unmount themselves.
+  useEffect(() => () => abortRef.current?.abort(), [])
 
   const { data: branches } = useQuery({ queryKey: ['admin', 'branches'], queryFn: branchAdminApi.getAll })
   const { data: mappings, isLoading: mappingsLoading } = useQuery({
@@ -201,6 +165,12 @@ export function EnterprisePollPage() {
     queryFn: enterpriseApi.getMappings,
     staleTime: 5 * 60_000,
   })
+
+  // «Немає опитування» and «Аварії» are separate features that happen to share
+  // this screen's branch selector. While they lived here they also shared its
+  // `error` state, so a failed check surfaced in the poll's panel.
+  const unp = useUnpolledCheck(mappings, branchFilter)
+  const acc = useEnterpriseEvents(branchFilter)
 
   // Line names for the list: an enterprise points at either a physical line or
   // a DPD line, and knowing which one it feeds is the whole point of the list.
@@ -306,80 +276,7 @@ export function EnterprisePollPage() {
    * can only come back empty and pushed the whole window a day short of what it
    * claimed to check. On the 25th the check covers the 21st through the 24th.
    */
-  const checkUnpolled = async () => {
-    const active = (mappings ?? []).filter(
-      (m) => m.active !== false && (!branchFilter || m.branch_id === branchFilter),
-    )
-    // setDate, not millisecond arithmetic: subtracting 24h across a DST switch
-    // lands on the wrong calendar day.
-    const end = new Date()
-    end.setDate(end.getDate() - 1)
-    const start = new Date(end)
-    start.setDate(start.getDate() - 3)
-    const day = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
-    setCheckedRange({ from: day(start), to: day(end), count: active.length })
-    const lineIds = [...new Set(active.map((m) => m.line_id ?? m.dpd_line_id).filter((id): id is number => id != null))]
-    if (lineIds.length === 0) {
-      setUnpolled([])
-      setReportOpen(true)
-      return
-    }
-    checkAbortRef.current?.abort()
-    const ctrl = new AbortController()
-    checkAbortRef.current = ctrl
-    // Drop the previous report so the pane shows this check's progress.
-    setUnpolled(null)
-    setReportOpen(false)
-    setChecking(true)
-    setError(null)
-    setCheckProgress(null)
-    try {
-      const records = await streamEnterpriseVolumes(
-        {
-          line_id: lineIds,
-          from_date: day(start),
-          to_date: day(end),
-          period_type: 'daily',
-          live: true,
-        },
-        { onProgress: setCheckProgress, signal: ctrl.signal },
-      )
-      const polled = new Set<string>()
-      for (const record of records) {
-        for (const d of record.devices ?? []) {
-          if (d.volume != null) polled.add(`${d.serNum}_${d.chNum}`)
-        }
-      }
-      setUnpolled(
-        active.filter((m) => {
-          const device = currentDevice(m)
-          // A point with no corrector fitted has nothing to poll — reporting
-          // it as unpolled would make an empty slot look like a failure.
-          if (!device) return false
-          return !polled.has(`${device.ser_num}_${device.ch_num}`)
-        }),
-      )
-      setReportOpen(true)
-    } catch (e) {
-      const err = e as Error
-      if (err.name !== 'AbortError') setError(err.message)
-    } finally {
-      setChecking(false)
-      setCheckProgress(null)
-    }
-  }
-
   const exportUnpolled = (rowsToExport: EnterpriseMappingRow[]) => {
-    if (!rowsToExport.length) return
-    const header = [
-      t('branch'),
-      t('enterprise'),
-      t('correctorType'),
-      t('correctorNumber'),
-      t('channelNumber'),
-      t('lineName'),
-      t('status'),
-    ]
     const body = rowsToExport.map((m) => [
       (branches ?? []).find((b) => b.id === m.branch_id)?.name ?? '',
       enterpriseLabel(m),
@@ -389,9 +286,6 @@ export function EnterprisePollPage() {
       lineLabel(m) ?? t('withoutLine'),
       m.enabled === false ? t('statusDisabled') : t('statusEnabled'),
     ])
-    const ws = XLSX.utils.aoa_to_sheet([header, ...body])
-    ws['!cols'] = [{ wch: 20 }, { wch: 30 }, { wch: 20 }, { wch: 18 }, { wch: 14 }, { wch: 20 }, { wch: 12 }]
-    const wb = XLSX.utils.book_new()
 
     // Both views go into the file regardless of which one is on screen: whoever
     // opens it later wants the totals, and re-exporting to get them is busywork.
@@ -405,7 +299,7 @@ export function EnterprisePollPage() {
       byCorrector.set(name, e)
     }
     const summary: (string | number)[][] = [
-      [t('unpolledChecked'), checkedRange.count],
+      [t('unpolledChecked'), unp.checkedRange.count],
       [t('unpolledTotal'), rowsToExport.length],
       [t('unpolledOn'), on],
       [t('unpolledOff'), rowsToExport.length - on],
@@ -415,12 +309,18 @@ export function EnterprisePollPage() {
         .sort((a, b) => b[1].on + b[1].off - (a[1].on + a[1].off))
         .map(([name, c]) => [name, c.on, c.off, c.on + c.off]),
     ]
-    const wsSummary = XLSX.utils.aoa_to_sheet(summary)
-    wsSummary['!cols'] = [{ wch: 34 }, { wch: 14 }, { wch: 14 }, { wch: 12 }]
-    XLSX.utils.book_append_sheet(wb, wsSummary, t('unpolledSummary'))
-    XLSX.utils.book_append_sheet(wb, ws, t('unpolledByName'))
-    const d = new Date()
-    XLSX.writeFile(wb, `unpolled_enterprises_${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}.xlsx`)
+
+    void writeSheets(`unpolled_enterprises_${today()}`, [
+      { name: t('unpolledSummary'), aoa: summary, cols: [34, 14, 14, 12] },
+      {
+        name: t('unpolledByName'),
+        aoa: [[
+          t('branch'), t('enterprise'), t('correctorType'), t('correctorNumber'),
+          t('channelNumber'), t('lineName'), t('status'),
+        ], ...body],
+        cols: [20, 30, 20, 18, 14, 20, 12],
+      },
+    ])
   }
 
   const run = async () => {
@@ -477,54 +377,19 @@ export function EnterprisePollPage() {
     setLoading(false)
   }
 
-  const runAccidents = async () => {
-    if (branchFilter == null) {
-      setAccError('Оберіть філію: креденшали ДПД задані окремо для кожної')
-      return
-    }
-    accAbortRef.current?.abort()
-    const ctrl = new AbortController()
-    accAbortRef.current = ctrl
-    setAccLoading(true)
-    setAccError(null)
-    setAccProgress(null)
-    try {
-      const res = await streamEnterpriseEvents(
-        { branch_id: branchFilter, from_date: accFrom, to_date: accTo, kind: 'accidents' },
-        { onProgress: setAccProgress, signal: ctrl.signal },
-      )
-      setAccReport(res)
-    } catch (e) {
-      const err = e as Error
-      if (err.name !== 'AbortError') setAccError(err.message)
-    } finally {
-      setAccLoading(false)
-      setAccProgress(null)
-    }
-  }
-
-  const stopAccidents = () => {
-    accAbortRef.current?.abort()
-    setAccLoading(false)
-  }
-
   /** One row per (event type, enterprise): the expanded view, flattened. */
   const exportAccidents = (groups: EventGroup[]) => {
-    const rows = groups.flatMap((g) =>
-      g.objects.map((o) => ({
-        [t('entAccType')]: g.name,
-        'DPD key': g.type,
-        [t('enterprise')]: o.enterprise_name,
-        'serNum': o.serNum,
-        [t('entAccFirst')]: o.first,
-        [t('entAccLast')]: o.last ?? '',
-        [t('entAccDuration')]: formatDuration(o.duration, t),
-        [t('entAccCount')]: o.appearances,
-      })),
+    const header = [
+      t('entAccType'), 'DPD key', t('enterprise'), 'serNum',
+      t('entAccFirst'), t('entAccLast'), t('entAccDuration'), t('entAccCount'),
+    ]
+    const body = groups.flatMap((g) =>
+      g.objects.map((o) => [
+        g.name, g.type, o.enterprise_name, o.serNum,
+        o.first, o.last ?? '', formatDuration(o.duration, t), o.appearances,
+      ]),
     )
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'accidents')
-    XLSX.writeFile(wb, `accidents_${accFrom}_${accTo}.xlsx`)
+    void writeSheet(`accidents_${acc.from}_${acc.to}`, t('accidents'), [header, ...body])
   }
 
   /**
@@ -611,14 +476,16 @@ export function EnterprisePollPage() {
   }, [rows, aggregates])
 
   const exportExcel = () => {
-    if (!rows.length) return
-    const header = ['Період', 'Обʼєм, м³', 'Температура, °C', `Тиск, ${pressureUnit}`]
-    const body = rows.map((r) => [r.period, r.volume, r.temperature ?? '', r.pressure ?? ''])
-    body.push(['Разом', totals.volume.text, totals.temperature.text, totals.pressure.text])
-    const ws = XLSX.utils.aoa_to_sheet([header, ...body])
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, 'Підприємство')
-    XLSX.writeFile(wb, `enterprise_${(selectedMapping && currentDevice(selectedMapping)?.ser_num) ?? 'poll'}_${from}_${to}.xlsx`)
+    const serial = (selectedMapping && currentDevice(selectedMapping)?.ser_num) ?? 'poll'
+    void writeSheet(
+      `enterprise_${serial}_${from}_${to}`,
+      t('enterprise'),
+      [
+        ['Період', 'Обʼєм, м³', 'Температура, °C', `Тиск, ${pressureUnit}`],
+        ...rows.map((r) => [r.period, r.volume, r.temperature ?? '', r.pressure ?? '']),
+        ['Разом', totals.volume.text, totals.temperature.text, totals.pressure.text],
+      ],
+    )
   }
 
   return (
@@ -688,14 +555,14 @@ export function EnterprisePollPage() {
           color="amber"
           leftSection={<IconPlugConnectedX size={15} />}
           rightSection={
-            unpolled !== null && !reportOpen ? (
-              <Badge size="xs" circle variant="filled" color={unpolled.length ? 'amber' : 'teal'}>
-                {unpolled.length}
+            unp.rows !== null && !reportOpen ? (
+              <Badge size="xs" circle variant="filled" color={unp.rows.length ? 'amber' : 'teal'}>
+                {unp.rows.length}
               </Badge>
             ) : undefined
           }
-          onClick={() => (unpolled !== null ? setReportOpen(true) : void checkUnpolled())}
-          loading={checking}
+          onClick={() => (unp.rows !== null ? setReportOpen(true) : void unp.run().then((ok: boolean) => ok && setReportOpen(true)))}
+          loading={unp.checking}
           disabled={loading}
         >
           {t('unpolledEnterprises')}
@@ -709,17 +576,17 @@ export function EnterprisePollPage() {
           color="amber"
           leftSection={<IconAlertTriangle size={15} />}
           rightSection={
-            accReport && !accOpen ? (
-              <Badge size="xs" circle variant="filled" color={accReport.groups.length ? 'amber' : 'teal'}>
-                {accReport.groups.length}
+            acc.report && !accOpen ? (
+              <Badge size="xs" circle variant="filled" color={acc.report.groups.length ? 'amber' : 'teal'}>
+                {acc.report.groups.length}
               </Badge>
             ) : undefined
           }
           onClick={() => {
             setAccOpen(true)
-            if (!accReport && !accLoading) void runAccidents()
+            if (!acc.report && !acc.loading) void acc.run()
           }}
-          loading={accLoading}
+          loading={acc.loading}
           disabled={loading}
         >
           {t('accidents')}
@@ -941,27 +808,27 @@ export function EnterprisePollPage() {
               own right, and as a modal it covered the tree its rows link into. */}
           {accOpen ? (
             <AccidentsReport
-              report={accReport}
-              loading={accLoading}
-              progress={accProgress}
-              error={accError}
-              from={accFrom}
-              to={accTo}
-              onFromChange={setAccFrom}
-              onToChange={setAccTo}
-              onRun={() => void runAccidents()}
-              onStop={stopAccidents}
+              report={acc.report}
+              loading={acc.loading}
+              progress={acc.progress}
+              error={acc.error}
+              from={acc.from}
+              to={acc.to}
+              onFromChange={acc.setFrom}
+              onToChange={acc.setTo}
+              onRun={() => void acc.run()}
+              onStop={acc.stop}
               onClose={() => setAccOpen(false)}
               onExport={exportAccidents}
             />
-          ) : unpolled !== null && reportOpen ? (
+          ) : unp.rows !== null && reportOpen ? (
             <UnpolledReport
-              rows={unpolled}
+              rows={unp.rows}
               filters={reportFilters}
               onFiltersChange={setReportFilters}
-              checked={checkedRange.count}
-              from={checkedRange.from}
-              to={checkedRange.to}
+              checked={unp.checkedRange.count}
+              from={unp.checkedRange.from}
+              to={unp.checkedRange.to}
               branchName={(id) => (branches ?? []).find((b) => b.id === id)?.name ?? '—'}
               lineLabel={lineLabel}
               correctorName={correctorLabel}
@@ -972,7 +839,7 @@ export function EnterprisePollPage() {
               }}
               onClose={() => setReportOpen(false)}
               onExport={exportUnpolled}
-              onRefresh={() => void checkUnpolled()}
+              onRefresh={() => void unp.run()}
             />
           ) : (
           <>
@@ -1032,17 +899,17 @@ export function EnterprisePollPage() {
             )}
           </Group>
 
-          {checking ? (
+          {unp.checking ? (
             // The check polls every device of the branch — minutes, not seconds.
             <Box p="md">
-              <PollProgress progress={checkProgress ?? { phase: 'polling' }} />
+              <PollProgress progress={unp.progress ?? { phase: 'polling' }} />
               <Group justify="flex-end" mt="md">
                 <Button
                   size="xs"
                   variant="light"
                   color="red"
                   leftSection={<IconPlayerStop size={15} />}
-                  onClick={() => checkAbortRef.current?.abort()}
+                  onClick={unp.stop}
                 >
                   {t('stop')}
                 </Button>
@@ -1052,9 +919,12 @@ export function EnterprisePollPage() {
             <Box p="md">
               <PollProgress progress={progress ?? { phase: 'polling' }} />
             </Box>
-          ) : error ? (
+          ) : error || unp.error ? (
+            /* The check has its own error state now that it is its own hook,
+               but it still has no pane of its own to fail in — it fails before
+               one exists — so it reports here, where it always did. */
             <Alert color="red" variant="light" icon={<IconAlertTriangle size={16} />} m="sm">
-              {error}
+              {error ?? unp.error}
             </Alert>
           ) : !selectedMapping ? (
             <Center style={{ flex: 1 }}>
