@@ -48,6 +48,7 @@ import {
 } from '@/domain/fhpParams'
 import { fold, type Aggregate } from '@/domain/aggregate'
 import { trendColor } from '@/domain/grsTrends'
+import { fhpLayout } from '@/domain/fhpColumns'
 import { writeSheets } from '@/lib/xlsx'
 import { useLanguage } from '@/locales/LanguageContext'
 import { useSelectionStore } from '@/store/selectionStore'
@@ -187,6 +188,16 @@ export function FhpComparisonPage() {
   const rows = useMemo(
     () => (block ? tableRows(block, tolerance, toleranceMode) : []),
     [block, tolerance, toleranceMode],
+  )
+
+  // One statement of the table's shape. The header, the body, the footer and
+  // the filler row all read it instead of splitting `lines` again each.
+  const layout = useMemo(
+    () =>
+      block
+        ? fhpLayout(block)
+        : { reference: [], comparison: [], perComparison: 1, total: 1 },
+    [block],
   )
 
   // The table is paginated for the same reason the archive is: a month of
@@ -600,8 +611,7 @@ export function FhpComparisonPage() {
                       <Table.Th rowSpan={2} style={{ textAlign: 'center' }}>
                         Період
                       </Table.Th>
-                      {block.lines
-                        .filter((l) => l.is_reference)
+                      {layout.reference
                         .map((l) => (
                           <Table.Th key={l.line_id} rowSpan={2} style={{ textAlign: 'center' }}>
                             <Group gap={4} justify="center" wrap="nowrap">
@@ -615,12 +625,11 @@ export function FhpComparisonPage() {
                           Еталон
                         </Table.Th>
                       )}
-                      {block.lines
-                        .filter((l) => !l.is_reference)
+                      {layout.comparison
                         .map((l) => (
                           <Table.Th
                             key={l.line_id}
-                            colSpan={block.has_reference ? 3 : 1}
+                            colSpan={layout.perComparison}
                             style={{ textAlign: 'center' }}
                           >
                             {l.line_name}
@@ -647,8 +656,7 @@ export function FhpComparisonPage() {
                     </Table.Tr>
                     <Table.Tr>
                       {block.has_reference &&
-                        block.lines
-                          .filter((l) => !l.is_reference)
+                        layout.comparison
                           .flatMap((l) => [
                             <Table.Th key={`${l.line_id}-v`} style={{ textAlign: 'center' }}>
                               Знач.
@@ -679,8 +687,7 @@ export function FhpComparisonPage() {
                               </Tooltip>
                             )}
                           </Table.Td>
-                          {block.lines
-                            .filter((l) => l.is_reference)
+                          {layout.reference
                             .map((l) => (
                               <Table.Td
                                 key={l.line_id}
@@ -702,8 +709,7 @@ export function FhpComparisonPage() {
                               )}
                             </Table.Td>
                           )}
-                          {block.lines
-                            .filter((l) => !l.is_reference)
+                          {layout.comparison
                             .flatMap((l) => {
                               const cell = byLine.get(l.line_id)
                               const dim = cell?.stale
@@ -773,14 +779,7 @@ export function FhpComparisonPage() {
                         reference. */}
                     <Table.Tr className="hlv-table-filler" aria-hidden>
                       <td
-                        colSpan={
-                          1 +
-                          block.lines.filter((l) => l.is_reference).length +
-                          (block.has_reference ? 1 : 0) +
-                          block.lines.filter((l) => !l.is_reference).length *
-                            (block.has_reference ? 3 : 1) +
-                          (block.has_reference ? 0 : 3)
-                        }
+                        colSpan={layout.total}
                       />
                     </Table.Tr>
                   </Table.Tbody>
