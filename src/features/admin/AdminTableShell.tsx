@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { Box, Center, Divider, Group, ScrollArea, Stack, Text } from '@mantine/core'
+import { Box, Center, Divider, Group, Paper, ScrollArea, Stack, Text } from '@mantine/core'
 import { TablePagination, type PageSizeOption } from '@/components/TablePagination'
 
 /**
@@ -57,6 +57,12 @@ export interface AdminTableShellProps {
   empty?: boolean
   /** Overrides the default wording, for a tab where "not found" is the truth. */
   emptyLabel?: string
+  /**
+   * Draw the table on a bordered card. The tabs with an inline editor above
+   * the table use one to separate the two; the tabs whose whole page IS the
+   * table do not.
+   */
+  bordered?: boolean
   /** Omit to hide pagination entirely (a tab that always fits on one page). */
   pagination?: {
     page: number
@@ -73,10 +79,15 @@ export function AdminTableShell({
   children,
   empty,
   emptyLabel = 'Немає записів',
+  bordered,
   pagination,
 }: AdminTableShellProps) {
+  const Frame = bordered ? Paper : Box
   return (
-    <Box style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+    <Frame
+      {...(bordered ? { withBorder: true, radius: 'md' as const } : {})}
+      style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}
+    >
       <ScrollArea className="hlv-table-scroll" style={{ flex: 1 }} type="auto">
         {children}
         {/* Below the table, not instead of it: the header stays visible, so an
@@ -95,7 +106,7 @@ export function AdminTableShell({
           <TablePagination {...pagination} />
         </>
       )}
-    </Box>
+    </Frame>
   )
 }
 

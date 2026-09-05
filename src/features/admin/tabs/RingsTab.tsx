@@ -4,7 +4,6 @@ import {
   Badge,
   Box,
   Button,
-  Center,
   Group,
   Modal,
   Paper,
@@ -33,7 +32,7 @@ import { invalidateTopology } from '@/lib/invalidateTopology'
 import type { VirtualLine } from '@/types'
 import { useAdminTopology, toOptions } from '../useAdminTopology'
 import { LoadingState } from '@/components/LoadingState'
-import { AdminTabHeader } from '../AdminTableShell'
+import { AdminTabHeader, AdminTableShell } from '../AdminTableShell'
 
 const notifyErr = (e: Error) => notifications.show({ message: e.message, color: 'red' })
 
@@ -374,8 +373,11 @@ export function RingsTab() {
       {isLoading ? (
         <LoadingState py={40} />
       ) : (
-        <Paper withBorder radius="md">
-          <ScrollArea className="hlv-table-scroll" type="auto">
+        <AdminTableShell
+          bordered
+          empty={visibleRings.length === 0}
+          emptyLabel="Немає кілець — створіть перше вище"
+        >
             <Table striped highlightOnHover verticalSpacing={6}>
               <Table.Thead>
                 <Table.Tr>
@@ -445,15 +447,7 @@ export function RingsTab() {
                 ))}
               </Table.Tbody>
             </Table>
-            {visibleRings.length === 0 && (
-              <Center py="xl">
-                <Text c="dimmed" size="sm">
-                  Немає кілець — створіть перше вище
-                </Text>
-              </Center>
-            )}
-          </ScrollArea>
-        </Paper>
+        </AdminTableShell>
       )}
 
       <Modal opened={pickerOpened} onClose={picker.close} title="Додати лінію до кільця" centered>

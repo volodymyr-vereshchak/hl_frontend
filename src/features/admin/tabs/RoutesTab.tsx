@@ -5,11 +5,9 @@ import {
   Badge,
   Box,
   Button,
-  Center,
   Checkbox,
   Group,
   Paper,
-  ScrollArea,
   Select,
   Stack,
   Switch,
@@ -35,7 +33,7 @@ import { LoadingState } from '@/components/LoadingState'
 import type { GasRoute, GasRouteMember } from '@/types'
 import { useAdminTopology, toOptions } from '../useAdminTopology'
 import { RouteLinePicker } from '../RouteLinePicker'
-import { AdminTabHeader } from '../AdminTableShell'
+import { AdminTabHeader, AdminTableShell } from '../AdminTableShell'
 
 const notifyErr = (e: Error) => notifications.show({ message: e.message, color: 'red' })
 
@@ -389,8 +387,11 @@ export function RoutesTab() {
         />
       </Group>
 
-      <Paper withBorder radius="md">
-        <ScrollArea className="hlv-table-scroll">
+      <AdminTableShell
+        bordered
+        empty={visibleRoutes.length === 0}
+        emptyLabel="Немає маршрутів — створіть перший вище"
+      >
           <Table striped highlightOnHover verticalSpacing={6}>
             <Table.Thead>
               <Table.Tr>
@@ -488,15 +489,7 @@ export function RoutesTab() {
               })}
             </Table.Tbody>
           </Table>
-          {visibleRoutes.length === 0 && (
-            <Center py="xl">
-              <Text c="dimmed" size="sm">
-                Немає маршрутів — створіть перший вище
-              </Text>
-            </Center>
-          )}
-        </ScrollArea>
-      </Paper>
+      </AdminTableShell>
 
       <RouteLinePicker
         opened={pickerOpened}
