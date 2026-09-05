@@ -43,6 +43,13 @@ export interface CrudField<T> {
   hideInTable?: boolean
   /** Hide from the create/edit form (e.g. computed columns). */
   hideInForm?: boolean
+  /**
+   * Show this field in only one of the two modes. A login is chosen once and
+   * never edited; a password is set at creation and afterwards only reset,
+   * through its own action. Without this, a tab with either had to build its
+   * own form.
+   */
+  onlyOn?: 'create' | 'edit'
   numeric?: boolean
   /** Select whose value must be sent as a number (foreign keys). */
   numericValue?: boolean
@@ -65,12 +72,12 @@ export interface CrudField<T> {
   ) => ReactNode
 }
 
-export interface CrudTableProps<T extends { id: number }> {
+export interface CrudTableProps<T extends { id: number }, C = unknown> {
   title: string
   description?: string
   queryKey: unknown[]
   fetchAll: () => Promise<T[]>
-  create?: (data: Record<string, unknown>) => Promise<unknown>
+  create?: (data: Record<string, unknown>) => Promise<C>
   update?: (id: number, data: Record<string, unknown>) => Promise<unknown>
   remove?: (id: number) => Promise<unknown>
   fields: CrudField<T>[]
@@ -80,6 +87,11 @@ export interface CrudTableProps<T extends { id: number }> {
   extraRowActions?: (row: T) => ReactNode
   /** Controls rendered in the toolbar, e.g. branch/calc filters. */
   toolbarExtra?: ReactNode
+  /**
+   * Rendered between the header and the table — an alert this tab has to show
+   * about the data as a whole rather than about one row.
+   */
+  notice?: ReactNode
   /** Row predicate applied before the search box, for those toolbar filters. */
   filter?: (row: T) => boolean
   /** Values merged into the payload of every create (e.g. a pre-selected branch). */
@@ -101,6 +113,12 @@ export interface CrudTableProps<T extends { id: number }> {
    * and WRITES `branch_ids`, so a symmetric table could never save it.
    */
   toPayload?: (values: Record<string, unknown>) => Record<string, unknown>
+  /**
+   * What the server answered when a row was created. Needed when the answer
+   * carries something that cannot be fetched again — a generated password is
+   * shown once and never stored in a readable form.
+   */
+  onCreated?: (result: C) => void
 }
 
 const PAGE_SIZE_DEFAULT = 50
@@ -109,7 +127,7 @@ const PAGE_SIZE_DEFAULT = 50
  * Generic admin CRUD table: search, pagination, create/edit modal built from a
  * field spec, and delete confirmation. Powers most reference/entity tabs.
  */
-export function CrudTable<T extends { id: number }>({
+export function CrudTable<T extends { id: number }, C = unknown>({
   title,
   description,
   queryKey,
@@ -122,12 +140,14 @@ export function CrudTable<T extends { id: number }>({
   rowLabel,
   extraRowActions,
   toolbarExtra,
+  notice,
   filter,
   createDefaults,
   sortBy = (row) => row.id,
   toForm,
   toPayload,
-}: CrudTableProps<T>) {
+  onCreated,
+}: CrudTableProps<T, C>) {
   const qc = useQueryClient()
   const { data, isLoading, error, refetch, isFetching } = useQuery({ queryKey, queryFn: fetchAll })
   const [search, setSearch] = useState('')
@@ -151,7 +171,11 @@ export function CrudTable<T extends { id: number }>({
   const saveMutation = useMutation({
     mutationFn: async (values: Record<string, unknown>) => {
       if (editing && update) return update(editing.id, values)
-      if (!editing && create) return create(values)
+      if (!editing && create) {
+        const created = await create(values)
+        onCreated?.(created)
+        return created
+      }
       throw new Error('Операція недоступна')
     },
     onSuccess: () => {
@@ -220,11 +244,16 @@ export function CrudTable<T extends { id: number }>({
     open()
   }
 
+  // `onlyOn` is resolved against the mode the modal is open in, so a create-only
+  // field cannot be required of someone editing an existing row.
+  const mode = editing ? 'edit' : 'create'
+  const formFields = fields.filter((f) => !f.hideInForm && (!f.onlyOn || f.onlyOn === mode))
+
   // A required field left empty is not sent at all, and the API answers with a
   // validation error naming a column the person never saw. Caught here, on the
   // field itself; the rule and its exceptions live in crudValidation.
   const isMissing = (f: CrudField<T>) => isFieldMissing(f, form)
-  const missingLabels = missingFieldLabels(fields, form)
+  const missingLabels = missingFieldLabels(formFields, form)
 
   const submit = () => {
     setAttempted(true)
@@ -248,7 +277,6 @@ export function CrudTable<T extends { id: number }>({
     })
 
   const tableFields = fields.filter((f) => !f.hideInTable)
-  const formFields = fields.filter((f) => !f.hideInForm)
   const canEdit = !!update
   const canDelete = !!remove
   const hasActions = canEdit || canDelete || !!extraRowActions
@@ -285,6 +313,8 @@ export function CrudTable<T extends { id: number }>({
           </>
         }
       />
+
+      {notice}
 
       {error && (
         <Alert color="red" variant="light" icon={<IconAlertTriangle size={16} />}>
