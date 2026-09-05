@@ -276,7 +276,7 @@ export function AccidentsReport({
               {t('entAccNone')}
             </Text>
             <Text size="xs" c="dimmed">
-              {t('entAccPolled')}: {report.stats.matched}
+              {t('entAccChecked')}: {report.stats.ours}
             </Text>
           </Stack>
         </Center>
