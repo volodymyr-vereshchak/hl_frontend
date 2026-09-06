@@ -142,8 +142,15 @@ export function EnterprisePollPage() {
     defaultValue: {},
   })
   const toggleGroup = (key: string) => setCollapsed((p) => ({ ...p, [key]: !p[key] }))
-  const [reportOpen, setReportOpen] = useState(false)
-  const [accOpen, setAccOpen] = useState(false)
+  /**
+   * Which report owns the right pane.
+   *
+   * Was two independent booleans, and the pane's ternary checked accidents
+   * first: once «Аварії» had been opened, pressing «Не опитуються» set its own
+   * flag but the pane went on drawing accidents, so the button looked broken.
+   * One value cannot be in two states at once.
+   */
+  const [pane, setPane] = useState<'poll' | 'unpolled' | 'accidents'>('poll')
   const [reportFilters, setReportFilters] = useState<UnpolledFilters>(EMPTY_UNPOLLED_FILTERS)
   const [periodType, setPeriodType] = useState<PeriodType>('daily')
   const initialRange = defaultRange()
@@ -555,13 +562,17 @@ export function EnterprisePollPage() {
           color="amber"
           leftSection={<IconPlugConnectedX size={15} />}
           rightSection={
-            unp.rows !== null && !reportOpen ? (
+            unp.rows !== null && pane !== 'unpolled' ? (
               <Badge size="xs" circle variant="filled" color={unp.rows.length ? 'amber' : 'teal'}>
                 {unp.rows.length}
               </Badge>
             ) : undefined
           }
-          onClick={() => (unp.rows !== null ? setReportOpen(true) : void unp.run().then((ok: boolean) => ok && setReportOpen(true)))}
+          onClick={() =>
+            unp.rows !== null
+              ? setPane('unpolled')
+              : void unp.run().then((ok: boolean) => ok && setPane('unpolled'))
+          }
           loading={unp.checking}
           disabled={loading}
         >
@@ -576,14 +587,14 @@ export function EnterprisePollPage() {
           color="amber"
           leftSection={<IconAlertTriangle size={15} />}
           rightSection={
-            acc.report && !accOpen ? (
+            acc.report && pane !== 'accidents' ? (
               <Badge size="xs" circle variant="filled" color={acc.report.groups.length ? 'amber' : 'teal'}>
                 {acc.report.groups.length}
               </Badge>
             ) : undefined
           }
           onClick={() => {
-            setAccOpen(true)
+            setPane('accidents')
             if (!acc.report && !acc.loading) void acc.run()
           }}
           loading={acc.loading}
@@ -806,7 +817,7 @@ export function EnterprisePollPage() {
         >
           {/* The "no poll" result takes the whole pane: it is a report in its
               own right, and as a modal it covered the tree its rows link into. */}
-          {accOpen ? (
+          {pane === 'accidents' ? (
             <AccidentsReport
               report={acc.report}
               loading={acc.loading}
@@ -818,10 +829,10 @@ export function EnterprisePollPage() {
               onToChange={acc.setTo}
               onRun={() => void acc.run()}
               onStop={acc.stop}
-              onClose={() => setAccOpen(false)}
+              onClose={() => setPane('poll')}
               onExport={exportAccidents}
             />
-          ) : unp.rows !== null && reportOpen ? (
+          ) : pane === 'unpolled' && unp.rows !== null ? (
             <UnpolledReport
               rows={unp.rows}
               filters={reportFilters}
@@ -835,9 +846,9 @@ export function EnterprisePollPage() {
               onSelect={(id) => {
                 setSelected(id)
                 // Hide, don't discard: the toolbar button brings it straight back.
-                setReportOpen(false)
+                setPane('poll')
               }}
-              onClose={() => setReportOpen(false)}
+              onClose={() => setPane('poll')}
               onExport={exportUnpolled}
               onRefresh={() => void unp.run()}
             />
