@@ -5,6 +5,7 @@ import {
   Box,
   Button,
   Center,
+  Collapse,
   Divider,
   Group,
   Modal,
@@ -17,11 +18,14 @@ import {
   Text,
   TextInput,
   Tooltip,
+  UnstyledButton,
 } from '@mantine/core'
 import { modals } from '@mantine/modals'
 import { notifications } from '@mantine/notifications'
 import {
   IconCheck,
+  IconChevronDown,
+  IconChevronRight,
   IconDownload,
   IconFileSpreadsheet,
   IconHistory,
@@ -127,6 +131,7 @@ export function EnterprisesTab() {
   // Excel
   const [uploadBranch, setUploadBranch] = useState<string | null>(null)
   const [uploadResult, setUploadResult] = useState<UploadResult | null>(null)
+  const [warningsOpen, setWarningsOpen] = useState(false)
   const [uploading, setUploading] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
 
@@ -373,9 +378,13 @@ export function EnterprisesTab() {
         uploadBranch ? Number(uploadBranch) : undefined,
       )
       setUploadResult(res)
+      // Opened, not merely available: a row that was skipped, or a point a row
+      // renamed, is the whole reason to look at the result at all.
+      setWarningsOpen(!!res.errors?.length)
       if (res.imported > 0) invalidate()
     } catch (e) {
       setUploadResult({ imported: 0, errors: [(e as Error).message] })
+      setWarningsOpen(true)
     } finally {
       setUploading(false)
       if (fileInput.current) fileInput.current.value = ''
@@ -616,16 +625,30 @@ export function EnterprisesTab() {
                   <Text size="xs">Імпортовано: {uploadResult.imported}</Text>
                 </Group>
               )}
+              {/* A hover tooltip was where these went to die: the import now
+                  reports things that have to be read — a point renamed by a
+                  row, an install date it refused to erase — and a warning
+                  nobody hovers over is not a warning. */}
               {!!uploadResult.errors?.length && (
-                <Tooltip label={uploadResult.errors.join('\n')} multiline w={340} withArrow>
-                  <Text size="xs" c="red.5" style={{ cursor: 'help' }}>
-                    {uploadResult.errors.length} попереджень
-                  </Text>
-                </Tooltip>
+                <UnstyledButton onClick={() => setWarningsOpen((v) => !v)}>
+                  <Group gap={4} c="red.5">
+                    {warningsOpen ? <IconChevronDown size={13} /> : <IconChevronRight size={13} />}
+                    <Text size="xs">{uploadResult.errors.length} попереджень</Text>
+                  </Group>
+                </UnstyledButton>
               )}
             </Group>
           )}
         </Group>
+        <Collapse expanded={warningsOpen && !!uploadResult?.errors?.length}>
+          <Stack gap={4} mt="xs" pl={4}>
+            {uploadResult?.errors?.map((message, i) => (
+              <Text key={i} size="xs" c="dimmed">
+                {message}
+              </Text>
+            ))}
+          </Stack>
+        </Collapse>
       </Paper>
 
       {/* Filters */}
