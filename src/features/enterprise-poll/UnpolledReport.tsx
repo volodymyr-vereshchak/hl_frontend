@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import {
+  Alert,
   Badge,
   Box,
   Button,
@@ -17,13 +18,17 @@ import {
   TextInput,
 } from '@mantine/core'
 import {
+  IconAlertTriangle,
   IconArrowLeft,
   IconChevronRight,
   IconCircleCheck,
   IconFileSpreadsheet,
+  IconPlayerStop,
+  IconPlugConnectedX,
   IconRefresh,
   IconSearch,
 } from '@tabler/icons-react'
+import { PollProgress, type PollProgressValue } from '@/components/PollProgress'
 import { CheckboxFilter } from '@/components/CheckboxFilter'
 import { TablePagination } from '@/components/TablePagination'
 import { useStickyRowHeights } from '@/components/useMeasuredHeight'
@@ -31,9 +36,20 @@ import { currentDevice, enterpriseLabel, type EnterpriseMappingRow } from '@/api
 import { useLanguage } from '@/locales/LanguageContext'
 import { numericStyle } from '@/theme/theme'
 import type { UnpolledFilters } from './unpolledFilters'
+import { PolledAt } from './PolledAt'
 
 export interface UnpolledReportProps {
-  rows: EnterpriseMappingRow[]
+  /** null = no result yet. The pane opens BEFORE the check finishes, so that
+   *  its several minutes are spent in front of a progress bar rather than on
+   *  a screen that looks like the button did nothing. */
+  rows: EnterpriseMappingRow[] | null
+  /** ms epoch of the check behind `rows` — it can now outlive the visit. */
+  polledAt: number | null
+  checking: boolean
+  progress: PollProgressValue | null
+  error: string | null
+  /** Hang up the stream — it holds a backend generator until it does. */
+  onStop: () => void
   /** Held by the page: hiding the report unmounts this component. */
   filters: UnpolledFilters
   onFiltersChange: (next: UnpolledFilters) => void
@@ -91,6 +107,9 @@ function Stat({
   )
 }
 
+/** Stable identity: a fresh [] on every render would re-run every memo below. */
+const NO_ROWS: EnterpriseMappingRow[] = []
+
 /**
  * Result of the "no poll" check, rendered in the pane the poll results use.
  *
@@ -101,7 +120,12 @@ function Stat({
  * pagination — so it reads as part of the app rather than an interruption.
  */
 export function UnpolledReport({
-  rows,
+  rows: result,
+  polledAt,
+  checking,
+  progress,
+  error,
+  onStop,
   filters,
   onFiltersChange,
   checked,
@@ -116,6 +140,10 @@ export function UnpolledReport({
   onRefresh,
 }: UnpolledReportProps) {
   const { t, getLocale } = useLanguage()
+  // Everything below counts, filters and sorts rows; with no result yet there
+  // is nothing to count, and an empty list says that without a second branch
+  // through each of the eight memos.
+  const rows = result ?? NO_ROWS
   // The window is built from ISO days; show it the way the pickers do.
   const day = (v: string) => {
     const d = new Date(v)
@@ -252,21 +280,41 @@ export function UnpolledReport({
             something is silent, teal when the whole branch answered. Under a
             filter it counts what is on screen, with the full result after the
             slash — otherwise the number would contradict the rows below it. */}
-        <Badge size="sm" variant="light" color={allClear ? 'teal' : 'amber'}>
-          {isFiltered ? `${filtered.length} / ${rows.length}` : rows.length}
-        </Badge>
-        <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
-          {day(from)} — {day(to)} · {t('unpolledChecked')}: {checked}
-        </Text>
-        <Button
-          size="xs"
-          variant="default"
-          leftSection={<IconRefresh size={15} />}
-          onClick={onRefresh}
-          ml="auto"
-        >
-          {t('refresh')}
-        </Button>
+        {result && (
+          <Badge size="sm" variant="light" color={allClear ? 'teal' : 'amber'}>
+            {isFiltered ? `${filtered.length} / ${rows.length}` : rows.length}
+          </Badge>
+        )}
+        {/* The window is set when the check starts, so it is already there to
+            show while it runs — but not before the first one. */}
+        {from && (
+          <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
+            {day(from)} — {day(to)} · {t('unpolledChecked')}: {checked}
+          </Text>
+        )}
+        {!checking && <PolledAt at={polledAt} />}
+        {checking ? (
+          <Button
+            size="xs"
+            variant="light"
+            color="red"
+            leftSection={<IconPlayerStop size={15} />}
+            onClick={onStop}
+            ml="auto"
+          >
+            {t('stop')}
+          </Button>
+        ) : (
+          <Button
+            size="xs"
+            variant="default"
+            leftSection={<IconRefresh size={15} />}
+            onClick={onRefresh}
+            ml="auto"
+          >
+            {t('refresh')}
+          </Button>
+        )}
         <Button
           size="xs"
           variant="light"
@@ -339,7 +387,23 @@ export function UnpolledReport({
         </Group>
       )}
 
-      {rows.length === 0 ? (
+      {checking ? (
+        // Every device of the branch gets asked — minutes, not seconds.
+        <Box p="md">
+          <PollProgress progress={progress ?? { phase: 'polling' }} />
+        </Box>
+      ) : error ? (
+        <Alert color="red" variant="light" icon={<IconAlertTriangle size={16} />} m="sm">
+          {error}
+        </Alert>
+      ) : !result ? (
+        <Center style={{ flex: 1 }}>
+          <Stack align="center" gap={8} c="dimmed">
+            <IconPlugConnectedX size={40} stroke={1.2} />
+            <Text size="sm">{t('unpolledStart')}</Text>
+          </Stack>
+        </Center>
+      ) : rows.length === 0 ? (
         <Center style={{ flex: 1 }}>
           <Stack align="center" gap={8} c="teal">
             <IconCircleCheck size={44} stroke={1.2} />

@@ -5,6 +5,7 @@ import {
   type EnterpriseMappingRow,
   type StreamProgress,
 } from '@/api/enterprise'
+import { useEnterpriseReportsStore } from '@/store/enterpriseReportsStore'
 
 const pad = (n: number) => String(n).padStart(2, '0')
 const day = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
@@ -19,14 +20,16 @@ export interface CheckedRange {
 export interface UnpolledCheck {
   /** null = never run. [] = run and everything answered. */
   rows: EnterpriseMappingRow[] | null
+  /** ms epoch the check finished, for the "polled at" line. */
+  polledAt: number | null
   checkedRange: CheckedRange
   checking: boolean
   progress: StreamProgress | null
   error: string | null
-  /** Resolves true when the check produced a result worth showing. Whether
-   *  the pane is open is the page's business — it hides the report without
-   *  discarding it, and the toolbar button brings the same one back. */
-  run: () => Promise<boolean>
+  /** The pane opens before this is called and stays open through it, so the
+   *  check reports its own progress, its own emptiness and its own failures
+   *  rather than handing the page a verdict to route. */
+  run: () => Promise<void>
   stop: () => void
 }
 
@@ -38,13 +41,18 @@ export interface UnpolledCheck {
  * including it polled a day that can only come back empty and pushed the whole
  * window a day short of what it claimed to check. On the 25th the check covers
  * the 21st through the 24th.
+ *
+ * The result lives in a tab-scoped store so that leaving the screen does not
+ * throw away a check that takes minutes; progress and errors stay local to
+ * this mount.
  */
 export function useUnpolledCheck(
   mappings: EnterpriseMappingRow[] | undefined,
   branchFilter: number | null,
 ): UnpolledCheck {
-  const [rows, setRows] = useState<EnterpriseMappingRow[] | null>(null)
-  const [checkedRange, setCheckedRange] = useState<CheckedRange>({ from: '', to: '', count: 0 })
+  const snapshot = useEnterpriseReportsStore((s) => s.unpolled)
+  const startUnpolled = useEnterpriseReportsStore((s) => s.startUnpolled)
+  const setUnpolledRows = useEnterpriseReportsStore((s) => s.setUnpolledRows)
   const [checking, setChecking] = useState(false)
   const [progress, setProgress] = useState<StreamProgress | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -52,7 +60,7 @@ export function useUnpolledCheck(
 
   useEffect(() => () => abortRef.current?.abort(), [])
 
-  const run = useCallback(async (): Promise<boolean> => {
+  const run = useCallback(async (): Promise<void> => {
     const active = (mappings ?? []).filter(
       (m) => m.active !== false && (!branchFilter || m.branch_id === branchFilter),
     )
@@ -62,7 +70,13 @@ export function useUnpolledCheck(
     end.setDate(end.getDate() - 1)
     const start = new Date(end)
     start.setDate(start.getDate() - 3)
-    setCheckedRange({ from: day(start), to: day(end), count: active.length })
+    // Also drops the previous result, so the pane shows this check's progress.
+    startUnpolled({
+      from: day(start),
+      to: day(end),
+      count: active.length,
+      branchId: branchFilter,
+    })
 
     const lineIds = [
       ...new Set(
@@ -72,15 +86,13 @@ export function useUnpolledCheck(
       ),
     ]
     if (lineIds.length === 0) {
-      setRows([])
-      return true
+      setUnpolledRows([])
+      return
     }
 
     abortRef.current?.abort()
     const ctrl = new AbortController()
     abortRef.current = ctrl
-    // Drop the previous report so the pane shows this check's progress.
-    setRows(null)
     setChecking(true)
     setError(null)
     setProgress(null)
@@ -108,22 +120,35 @@ export function useUnpolledCheck(
         if (!device) return false
         return !polled.has(`${device.ser_num}_${device.ch_num}`)
       })
-      setRows(quiet)
-      return true
+      setUnpolledRows(quiet)
     } catch (e) {
       const err = e as Error
       if (err.name !== 'AbortError') setError(err.message)
-      return false
     } finally {
       setChecking(false)
       setProgress(null)
     }
-  }, [mappings, branchFilter])
+  }, [mappings, branchFilter, startUnpolled, setUnpolledRows])
 
   const stop = useCallback(() => {
     abortRef.current?.abort()
     setChecking(false)
   }, [])
 
-  return { rows, checkedRange, checking, progress, error, run, stop }
+  // Same rule as the alarms report: a result answers for the filter it ran
+  // under. Kept rather than cleared, so switching back costs nothing.
+  const mine = snapshot.branchId === branchFilter
+
+  return {
+    rows: mine ? snapshot.rows : null,
+    polledAt: mine ? snapshot.at : null,
+    checkedRange: mine
+      ? { from: snapshot.from, to: snapshot.to, count: snapshot.count }
+      : { from: '', to: '', count: 0 },
+    checking,
+    progress,
+    error,
+    run,
+    stop,
+  }
 }

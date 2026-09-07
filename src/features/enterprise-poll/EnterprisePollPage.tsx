@@ -332,6 +332,9 @@ export function EnterprisePollPage() {
 
   const run = async () => {
     if (!selectedMapping) return
+    // Whichever report was open, this button's results are what the operator
+    // is now waiting for — leaving a report on top ran the poll invisibly.
+    setPane('poll')
     abortRef.current?.abort()
     const ctrl = new AbortController()
     abortRef.current = ctrl
@@ -562,18 +565,21 @@ export function EnterprisePollPage() {
           color="amber"
           leftSection={<IconPlugConnectedX size={15} />}
           rightSection={
-            unp.rows !== null && pane !== 'unpolled' ? (
+            pane === 'unpolled' ? undefined : unp.checking ? (
+              <Loader size={12} color="amber" />
+            ) : unp.rows !== null ? (
               <Badge size="xs" circle variant="filled" color={unp.rows.length ? 'amber' : 'teal'}>
                 {unp.rows.length}
               </Badge>
             ) : undefined
           }
-          onClick={() =>
-            unp.rows !== null
-              ? setPane('unpolled')
-              : void unp.run().then((ok: boolean) => ok && setPane('unpolled'))
-          }
-          loading={unp.checking}
+          onClick={() => {
+            // Open FIRST, then poll: the check runs for minutes, and starting
+            // it before the pane existed meant those minutes passed with no
+            // progress bar anywhere on screen.
+            setPane('unpolled')
+            if (unp.rows === null && !unp.checking) void unp.run()
+          }}
           disabled={loading}
         >
           {t('unpolledEnterprises')}
@@ -587,17 +593,15 @@ export function EnterprisePollPage() {
           color="amber"
           leftSection={<IconAlertTriangle size={15} />}
           rightSection={
-            acc.report && pane !== 'accidents' ? (
+            pane === 'accidents' ? undefined : acc.loading ? (
+              <Loader size={12} color="amber" />
+            ) : acc.report ? (
               <Badge size="xs" circle variant="filled" color={acc.report.groups.length ? 'amber' : 'teal'}>
                 {acc.report.groups.length}
               </Badge>
             ) : undefined
           }
-          onClick={() => {
-            setPane('accidents')
-            if (!acc.report && !acc.loading) void acc.run()
-          }}
-          loading={acc.loading}
+          onClick={() => setPane('accidents')}
           disabled={loading}
         >
           {t('accidents')}
@@ -820,6 +824,7 @@ export function EnterprisePollPage() {
           {pane === 'accidents' ? (
             <AccidentsReport
               report={acc.report}
+              polledAt={acc.polledAt}
               loading={acc.loading}
               progress={acc.progress}
               error={acc.error}
@@ -832,9 +837,14 @@ export function EnterprisePollPage() {
               onClose={() => setPane('poll')}
               onExport={exportAccidents}
             />
-          ) : pane === 'unpolled' && unp.rows !== null ? (
+          ) : pane === 'unpolled' ? (
             <UnpolledReport
               rows={unp.rows}
+              polledAt={unp.polledAt}
+              checking={unp.checking}
+              progress={unp.progress}
+              error={unp.error}
+              onStop={unp.stop}
               filters={reportFilters}
               onFiltersChange={setReportFilters}
               checked={unp.checkedRange.count}
@@ -910,32 +920,13 @@ export function EnterprisePollPage() {
             )}
           </Group>
 
-          {unp.checking ? (
-            // The check polls every device of the branch — minutes, not seconds.
-            <Box p="md">
-              <PollProgress progress={unp.progress ?? { phase: 'polling' }} />
-              <Group justify="flex-end" mt="md">
-                <Button
-                  size="xs"
-                  variant="light"
-                  color="red"
-                  leftSection={<IconPlayerStop size={15} />}
-                  onClick={unp.stop}
-                >
-                  {t('stop')}
-                </Button>
-              </Group>
-            </Box>
-          ) : loading ? (
+          {loading ? (
             <Box p="md">
               <PollProgress progress={progress ?? { phase: 'polling' }} />
             </Box>
-          ) : error || unp.error ? (
-            /* The check has its own error state now that it is its own hook,
-               but it still has no pane of its own to fail in — it fails before
-               one exists — so it reports here, where it always did. */
+          ) : error ? (
             <Alert color="red" variant="light" icon={<IconAlertTriangle size={16} />} m="sm">
-              {error ?? unp.error}
+              {error}
             </Alert>
           ) : !selectedMapping ? (
             <Center style={{ flex: 1 }}>

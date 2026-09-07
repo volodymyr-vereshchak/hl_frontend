@@ -1,16 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { streamEnterpriseEvents, type EventReport, type StreamProgress } from '@/api/enterprise'
-
-function defaultRange() {
-  const pad = (n: number) => String(n).padStart(2, '0')
-  const now = new Date()
-  const y = now.getFullYear()
-  const m = pad(now.getMonth() + 1)
-  return { from: `${y}-${m}-01`, to: `${y}-${m}-${pad(now.getDate())}` }
-}
+import { useEnterpriseReportsStore, type EventKind } from '@/store/enterpriseReportsStore'
 
 export interface EnterpriseEvents {
   report: EventReport | null
+  /** ms epoch the report came back, for the "polled at" line. */
+  polledAt: number | null
   loading: boolean
   progress: StreamProgress | null
   error: string | null
@@ -32,25 +27,34 @@ export interface EnterpriseEvents {
  * EnterprisePollPage the two shared an `error` state — so a failure here
  * surfaced in the poll's panel.
  *
- * The result survives closing the pane: nothing is stored server-side, so
- * re-opening would otherwise mean re-polling DPD from scratch.
+ * The result lives in a tab-scoped store, not in this hook: nothing is stored
+ * server-side, so leaving the screen and coming back would otherwise mean
+ * re-polling DPD from scratch. Everything transient — the stream's progress,
+ * its errors — stays here, because it belongs to THIS mount and restoring it
+ * would be meaningless.
  */
 export function useEnterpriseEvents(
   branchId: number | null,
-  kind: 'accidents' | 'interventions' = 'accidents',
+  kind: EventKind = 'accidents',
 ): EnterpriseEvents {
-  const initial = defaultRange()
-  const [report, setReport] = useState<EventReport | null>(null)
+  const snapshot = useEnterpriseReportsStore((s) => s.events[kind])
+  const setEventRange = useEnterpriseReportsStore((s) => s.setEventRange)
+  const setEventReport = useEnterpriseReportsStore((s) => s.setEventReport)
   const [loading, setLoading] = useState(false)
   const [progress, setProgress] = useState<StreamProgress | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [from, setFrom] = useState(initial.from)
-  const [to, setTo] = useState(initial.to)
   const abortRef = useRef<AbortController | null>(null)
 
   // Leaving the screen must hang up: the stream holds a backend generator and
   // its branch advisory lock until the client timeout otherwise.
   useEffect(() => () => abortRef.current?.abort(), [])
+
+  const { from, to } = snapshot
+  const setFrom = useCallback(
+    (d: string) => setEventRange(kind, { from: d }),
+    [setEventRange, kind],
+  )
+  const setTo = useCallback((d: string) => setEventRange(kind, { to: d }), [setEventRange, kind])
 
   const run = useCallback(async () => {
     if (branchId == null) {
@@ -68,7 +72,7 @@ export function useEnterpriseEvents(
         { branch_id: branchId, from_date: from, to_date: to, kind },
         { onProgress: setProgress, signal: ctrl.signal },
       )
-      setReport(res)
+      setEventReport(kind, res, branchId)
     } catch (e) {
       const err = e as Error
       if (err.name !== 'AbortError') setError(err.message)
@@ -76,12 +80,29 @@ export function useEnterpriseEvents(
       setLoading(false)
       setProgress(null)
     }
-  }, [branchId, from, to, kind])
+  }, [branchId, from, to, kind, setEventReport])
 
   const stop = useCallback(() => {
     abortRef.current?.abort()
     setLoading(false)
   }, [])
 
-  return { report, loading, progress, error, from, to, setFrom, setTo, run, stop }
+  // A report answers for the branch it was polled for. Switching the filter
+  // must not leave another branch's alarms on screen under the new name; the
+  // snapshot is kept, so switching back shows it again instead of re-polling.
+  const mine = snapshot.branchId === branchId
+
+  return {
+    report: mine ? snapshot.report : null,
+    polledAt: mine ? snapshot.at : null,
+    loading,
+    progress,
+    error,
+    from,
+    to,
+    setFrom,
+    setTo,
+    run,
+    stop,
+  }
 }

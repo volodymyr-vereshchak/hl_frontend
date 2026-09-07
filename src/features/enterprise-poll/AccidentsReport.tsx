@@ -32,6 +32,7 @@ import {
   IconX,
 } from '@tabler/icons-react'
 import type { EventGroup, EventReport, StreamProgress } from '@/api/enterprise'
+import { PolledAt } from './PolledAt'
 import { useLanguage } from '@/locales/LanguageContext'
 import { numericStyle } from '@/theme/theme'
 
@@ -81,6 +82,8 @@ function Stat({ label, value, of, color }: { label: string; value: string | numb
 
 export interface AccidentsReportProps {
   report: EventReport | null
+  /** ms epoch of the poll behind `report` — it can now outlive the visit. */
+  polledAt: number | null
   loading: boolean
   progress: StreamProgress | null
   error: string | null
@@ -107,6 +110,7 @@ export interface AccidentsReportProps {
  */
 export function AccidentsReport({
   report,
+  polledAt,
   loading,
   progress,
   error,
@@ -173,6 +177,7 @@ export function AccidentsReport({
             {search ? `${groups.length} / ${report.groups.length}` : report.groups.length}
           </Badge>
         )}
+        {!loading && <PolledAt at={polledAt} />}
 
         {/* The report's own range: it is opened to ask about a week that the
             volume poll above may have nothing to do with. */}
