@@ -45,7 +45,6 @@ describe('pollDevicePayload', () => {
       phone: ' 0501234567 ',
       protocol_id: 1070,
       device_address: 1,
-      baud: 2400,
       priority: 5,
       depth_days: 30,
       note: 'через адаптер',
@@ -54,14 +53,14 @@ describe('pollDevicePayload', () => {
       phone: '0501234567',
       protocol_id: 1070,
       device_address: 1,
-      baud: 2400,
       priority: 5,
       depth_days: 30,
       note: 'через адаптер',
     })
   })
 
-  it('falls back to the standard baud when the field was cleared', () => {
-    expect(pollDevicePayload({ baud: null }).baud).toBe(9600)
+  it('does not carry a connection speed', () => {
+    // It moved to the agent: one speed per machine, beside the COM port.
+    expect(pollDevicePayload({})).not.toHaveProperty('baud')
   })
 })

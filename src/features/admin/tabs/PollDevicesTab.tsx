@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { Alert, Badge, Button, Group, Text, Tooltip } from '@mantine/core'
+import { Alert, Badge, Button, Group, Switch, Text, Tooltip } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import { IconAlertTriangle, IconPlayerPlay } from '@tabler/icons-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -128,12 +128,20 @@ export function PollDevicesTab() {
         return pollingApi.createDevice({
           [TARGET_FIELD[kind]]: Number(v.target_id),
           ...pollDevicePayload(v),
+          // Belongs to the corrector, not to the card, and only an enterprise
+          // corrector can be absent from DPD at all.
+          ...(kind === 'dpd_device' ? { in_dpd: v.in_dpd !== false } : {}),
         })
       }}
       // The target is not editable: moving a card to another corrector would
       // silently re-point everything the poll has already written. Delete and
       // create instead, which at least says what is happening.
-      update={(id, v) => pollingApi.updateDevice(id, pollDevicePayload(v))}
+      update={(id, v) =>
+        pollingApi.updateDevice(id, {
+          ...pollDevicePayload(v),
+          ...(v.target_kind === 'dpd_device' ? { in_dpd: v.in_dpd !== false } : {}),
+        })
+      }
       remove={(id) => pollingApi.removeDevice(id)}
       toForm={(d) => ({
         target_kind: d.target_kind,
@@ -142,11 +150,11 @@ export function PollDevicesTab() {
         ),
         enabled: d.enabled,
         auto_poll: d.auto_poll,
+        in_dpd: d.in_dpd ?? true,
         poll_times: (d.poll_times ?? []).join(', '),
         phone: d.phone ?? '',
         protocol_id: d.protocol_id,
         device_address: d.device_address,
-        baud: d.baud,
         priority: d.priority,
         depth_days: d.depth_days,
         note: d.note ?? '',
@@ -199,9 +207,23 @@ export function PollDevicesTab() {
           ),
         },
         { key: 'phone', label: 'Телефон' },
-        { key: 'protocol_id', label: 'Протокол', type: 'number', numeric: true },
-        { key: 'device_address', label: 'Адреса', type: 'number', numeric: true },
-        { key: 'baud', label: 'Швидкість', type: 'number', numeric: true },
+        {
+          // Which Ask2 driver speaks to this device: 1070 Флоутек ВР-2,
+          // 1052 КПЛГ, 1054 ВЕГА…
+          key: 'protocol_id',
+          label: 'Протокол (ID драйвера)',
+          type: 'number',
+          numeric: true,
+        },
+        {
+          // Goes into the request frame and is checked in the answer — every
+          // driver does this, not only Флоутек. For a ЛУМГ corrector it is the
+          // number in the hostlib file name, which is our gas_volume_calc.address.
+          key: 'device_address',
+          label: 'Мережева адреса',
+          type: 'number',
+          numeric: true,
+        },
         {
           key: 'poll_times',
           label: 'Години опитування',
@@ -218,6 +240,42 @@ export function PollDevicesTab() {
         },
         { key: 'enabled', label: 'Увімкнено', type: 'checkbox' },
         { key: 'auto_poll', label: 'За розкладом', type: 'checkbox' },
+        {
+          // A corrector the modem reads and DPD does not serve still needs a
+          // row in the register, so without this the DPD refresh would go on
+          // asking about it twice a day and getting nothing back.
+          key: 'in_dpd',
+          label: 'Є в ДПД',
+          hideInTable: true,
+          renderField: (value, onChange, form) =>
+            form.target_kind === 'dpd_device' ? (
+              <Switch
+                checked={value !== false}
+                onChange={(e) => onChange(e.currentTarget.checked)}
+                label="Прилад є в системі ДПД"
+                description="Знято — опитується лише модемом, ДПД про нього не питають"
+              />
+            ) : (
+              <Text size="xs" c="dimmed">
+                Стосується лише коректорів промисловості
+              </Text>
+            ),
+        },
+        {
+          key: 'dpd_state',
+          label: 'ДПД',
+          hideInForm: true,
+          render: (d) =>
+            d.in_dpd === false ? (
+              <Badge size="xs" variant="light" color="grape">
+                лише GSM
+              </Badge>
+            ) : (
+              <Text size="xs" c="dimmed">
+                —
+              </Text>
+            ),
+        },
         { key: 'priority', label: 'Пріоритет', type: 'number', numeric: true, hideInTable: true },
         {
           key: 'depth_days',

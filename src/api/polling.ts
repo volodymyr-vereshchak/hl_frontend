@@ -18,6 +18,8 @@ export interface PollDevice {
   dpd_device_id: number | null
   target_kind: PollTargetKind
   target_label: string | null
+  /** Whether the DPD system knows this corrector. null = not one of theirs. */
+  in_dpd: boolean | null
   /** Agents that took this device. Empty means nobody polls it at all. */
   agent_ids: number[]
 
@@ -31,7 +33,6 @@ export interface PollDevice {
   phone: string | null
   init_str: string
   dial_prefix: string
-  baud: number
   tcp_host: string | null
   tcp_port: number | null
 

@@ -1,6 +1,10 @@
 /**
  * Form values of the polling card → the request body.
  *
+ * No connection speed here: it is one setting for every poll on a machine, so
+ * it lives in the agent beside the COM port. Ask2 kept it per device
+ * (COMChannel.bitRate belongs to Calc) and this fleet does not need that.
+ *
  * Split out of the tab because one field is not a straight copy and gets it
  * wrong in a way nobody would notice: the poll hours are typed as free text
  * ("06:00, 18:00" is how they are written down), and an EMPTY box does not
@@ -15,7 +19,6 @@ export interface PollDeviceFormValues {
   phone?: unknown
   protocol_id?: unknown
   device_address?: unknown
-  baud?: unknown
   priority?: unknown
   depth_days?: unknown
   note?: unknown
@@ -42,7 +45,6 @@ export function pollDevicePayload(v: PollDeviceFormValues): Record<string, unkno
     phone: text(v.phone),
     protocol_id: v.protocol_id ?? null,
     device_address: v.device_address ?? null,
-    baud: v.baud ?? 9600,
     priority: v.priority ?? 0,
     depth_days: v.depth_days ?? null,
     note: text(v.note),
