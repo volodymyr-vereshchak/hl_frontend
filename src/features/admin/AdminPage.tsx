@@ -18,6 +18,8 @@ import {
   IconAlertTriangle,
   IconCategory,
   IconPackageExport,
+  IconAntennaBars5,
+  IconDeviceLaptop,
 } from '@tabler/icons-react'
 import { useUser } from '@/features/auth/UserContext'
 import {
@@ -39,6 +41,8 @@ import { RoutesTab } from './tabs/RoutesTab'
 import { EnterprisesTab } from './tabs/EnterprisesTab'
 import { UsersTab } from './tabs/UsersTab'
 import { BranchTransferTab } from './tabs/BranchTransferTab'
+import { PollAgentsTab } from './tabs/PollAgentsTab'
+import { PollDevicesTab } from './tabs/PollDevicesTab'
 
 interface TabDef {
   id: string
@@ -81,6 +85,28 @@ const GROUPS: GroupDef[] = [
       { id: 'virtual', label: 'Кільця', icon: <IconCircles size={16} />, element: <RingsTab /> },
       { id: 'dpd-lines', label: 'Лінії ДПД', icon: <IconApi size={16} />, element: <DpdLinesTab /> },
       { id: 'routes', label: 'Маршрути', icon: <IconRoute size={16} />, element: <RoutesTab /> },
+    ],
+  },
+  {
+    // Nothing polls anything yet: these two screens configure a feature whose
+    // agent does not exist. They are here because setting the fleet up is
+    // useful on its own — the connection settings stop living only inside
+    // ask2cfg.xml — and because a screen nobody can open is a screen nobody
+    // reviews. See docs/plans/gsm-polling.md.
+    label: 'Опитування',
+    tabs: [
+      {
+        id: 'poll-devices',
+        label: 'Прилади опитування',
+        icon: <IconAntennaBars5 size={16} />,
+        element: <PollDevicesTab />,
+      },
+      {
+        id: 'poll-agents',
+        label: 'Агенти',
+        icon: <IconDeviceLaptop size={16} />,
+        element: <PollAgentsTab />,
+      },
     ],
   },
   {
