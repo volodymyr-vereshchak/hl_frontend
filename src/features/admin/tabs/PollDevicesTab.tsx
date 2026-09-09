@@ -1,10 +1,10 @@
 import { useMemo } from 'react'
-import { Alert, Badge, Button, Group, Switch, Text, Tooltip } from '@mantine/core'
+import { Alert, Badge, Button, Group, Text, Tooltip } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import { IconAlertTriangle, IconPlayerPlay } from '@tabler/icons-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { dpdLineAdminApi } from '@/api/admin'
-import { enterpriseApi } from '@/api/enterprise'
+import { currentDevice, enterpriseApi } from '@/api/enterprise'
 import { pollingApi, type PollDevice, type PollTargetKind } from '@/api/polling'
 import { CrudTable } from '../CrudTable'
 import { pollDevicePayload } from './pollDeviceForm'
@@ -14,42 +14,37 @@ const notifyErr = (e: Error) => notifications.show({ message: e.message, color: 
 const DEVICES_KEY = ['admin', 'poll-devices']
 
 const KIND_OPTIONS = [
-  { value: 'enterprise', label: 'Підприємство' },
+  { value: 'dpd_device', label: 'Коректор підприємства' },
   { value: 'dpd_line', label: 'Лінія ДПД' },
 ]
 
 const KIND_LABEL: Record<PollTargetKind, string> = {
-  enterprise: 'Промисловість',
+  dpd_device: 'Промисловість',
   dpd_line: 'Лінія ДПД',
 }
 
 /** The column the target id lands in, per kind. */
 const TARGET_FIELD: Record<PollTargetKind, string> = {
-  enterprise: 'enterprise_id',
+  dpd_device: 'dpd_device_id',
   dpd_line: 'dpd_line_id',
 }
 
 /**
- * Опитування модемом — what to dial, and what happened last time.
+ * Опитування модемом — a phone number bound to the corrector it reaches.
  *
- * The card names a SITE, not a corrector, because the modem is at the site and
- * the correctors behind it get replaced. Which device gets read is decided
- * when the agent asks for its plan: whichever is fitted at that moment. The
- * reply is checked against it — a poll that reaches a different serial writes
- * nothing and is raised as an error, because that is either a replacement
- * nobody entered or a call that reached the wrong site.
+ * The serial is the whole point of a card: it is what the modem expects to
+ * hear back, and a reply from any other device is refused rather than written.
+ * So a replacement is recorded here by repointing the card — same phone, new
+ * serial, and the poll follows the new device from that moment. The metering
+ * point's own history stays continuous in Підприємства; this screen has no
+ * opinion about it.
+ *
+ * Which is why the list says whether the corrector a card names is still
+ * fitted. A replacement entered at the point and not here leaves the modem
+ * dialling a device that is gone — and nothing else on any screen would say so.
  *
  * ЛУМГ correctors are not here: Ask2 keeps polling those and writing its
  * hostlib files.
- *
- * Three states on this screen are not settings and are easy to miss by
- * scrolling, so all three are counted in the notice: a site nobody has taken
- * is never polled, a point with no fitted corrector has nothing to dial for,
- * and a site that has never answered has never answered.
- *
- * The adapter and radio fields exist in the API — carried over from
- * ask2cfg.xml so the settings migration is mechanical — but no form shows
- * them: nothing uses that channel yet.
  */
 export function PollDevicesTab() {
   const qc = useQueryClient()
@@ -83,67 +78,69 @@ export function PollDevicesTab() {
     onError: notifyErr,
   })
 
-  const points = useMemo(
-    () =>
-      (mappings ?? [])
-        .map((m) => ({ value: String(m.id), label: m.enterprise_name ?? `#${m.id}` }))
-        .sort((a, b) => a.label.localeCompare(b.label)),
-    [mappings],
-  )
+  /**
+   * The correctors fitted at metering points right now, by serial. Searching
+   * by serial is how this list is used: the operator is holding a device with
+   * a number on it, not a point name.
+   */
+  const correctors = useMemo(() => {
+    const out: { value: string; label: string }[] = []
+    for (const m of mappings ?? []) {
+      const device = currentDevice(m)
+      if (!device) continue
+      out.push({
+        value: String(device.device_id),
+        label: `№${device.ser_num} — ${m.enterprise_name ?? ''}`.trim(),
+      })
+    }
+    return out.sort((a, b) => a.label.localeCompare(b.label))
+  }, [mappings])
 
   const agentName = (id: number) =>
     (agents ?? []).find((a) => a.id === id)?.name ?? `#${id}`
 
   const unassigned = (devices ?? []).filter((d) => d.enabled && d.agent_ids.length === 0)
-  const noCorrector = (devices ?? []).filter(
-    (d) => d.enabled && d.target_kind === 'enterprise' && d.device_id === null,
-  )
+  const stale = (devices ?? []).filter((d) => d.enabled && !d.still_installed)
   const neverPolled = (devices ?? []).filter((d) => d.enabled && !d.last_poll_at)
 
   const targetOptions = (form: Record<string, unknown>) => {
-    const kind = (form.target_kind as PollTargetKind) ?? 'enterprise'
+    const kind = (form.target_kind as PollTargetKind) ?? 'dpd_device'
     if (kind === 'dpd_line') {
       return (dpdLines ?? []).map((l) => ({ value: String(l.id), label: l.name || `#${l.id}` }))
     }
-    return points
+    return correctors
   }
 
   return (
     <CrudTable<PollDevice>
       title="Опитування модемом"
-      description="Куди дзвонити. Опитує агент на машині оператора — сервер лише зберігає налаштування"
+      description="Номер телефону і коректор, який має відповісти. Опитує агент на машині оператора"
       queryKey={DEVICES_KEY}
       fetchAll={pollingApi.getDevices}
       searchKeys={['target_label', 'phone', 'note']}
-      rowLabel={(d) => d.target_label ?? `#${d.id}`}
+      rowLabel={(d) => (d.ser_num ? `№${d.ser_num}` : `#${d.id}`)}
       create={(v) => {
-        const kind = (v.target_kind as PollTargetKind) ?? 'enterprise'
+        const kind = (v.target_kind as PollTargetKind) ?? 'dpd_device'
         return pollingApi.createDevice({
           [TARGET_FIELD[kind]]: Number(v.target_id),
           ...pollDevicePayload(v),
-          // Belongs to the site, not to the card, but decided here.
-          poll_dpd: v.poll_dpd !== false,
-          poll_gsm: true,
         })
       }}
-      // The target is not editable: repointing a card would silently reassign
-      // everything the poll has already written. Delete and create instead,
-      // which at least says what is happening.
       update={(id, v) =>
         pollingApi.updateDevice(id, {
           ...pollDevicePayload(v),
-          poll_dpd: v.poll_dpd !== false,
-          poll_gsm: v.poll_gsm !== false,
+          // Repointing at another serial is how a replacement is recorded —
+          // the one foreign key on this screen that is meant to be edited.
+          ...(v.target_kind === 'dpd_device' && v.target_id
+            ? { dpd_device_id: Number(v.target_id) }
+            : {}),
         })
       }
-      remove={(id) => pollingApi.removeDevice(id)}
       toForm={(d) => ({
         target_kind: d.target_kind,
-        target_id: String(d.enterprise_id ?? d.dpd_line_id ?? ''),
+        target_id: String(d.dpd_device_id ?? d.dpd_line_id ?? ''),
         enabled: d.enabled,
         auto_poll: d.auto_poll,
-        poll_dpd: d.poll_dpd,
-        poll_gsm: d.poll_gsm,
         poll_times: (d.poll_times ?? []).join(', '),
         phone: d.phone ?? '',
         protocol_id: d.protocol_id,
@@ -153,18 +150,19 @@ export function PollDevicesTab() {
         note: d.note ?? '',
       })}
       notice={
-        unassigned.length + noCorrector.length + neverPolled.length > 0 ? (
+        unassigned.length + stale.length + neverPolled.length > 0 ? (
           <Alert color="amber" variant="light" icon={<IconAlertTriangle size={16} />}>
+            {stale.length > 0 && (
+              <Text size="sm">
+                Коректор знято, а номер не перенесено: {stale.length}. Модем
+                дзвонить приладу, якого вже немає — оберіть у картці новий
+                серійний номер.
+              </Text>
+            )}
             {unassigned.length > 0 && (
               <Text size="sm">
                 Без агента: {unassigned.length}. Їх не опитує ніхто — прилади
                 обираються в налаштуваннях самого агента.
-              </Text>
-            )}
-            {noCorrector.length > 0 && (
-              <Text size="sm">
-                Без встановленого коректора: {noCorrector.length}. Дзвонити нема
-                до чого, поки в історії точки не з’явиться прилад.
               </Text>
             )}
             {neverPolled.length > 0 && (
@@ -176,7 +174,7 @@ export function PollDevicesTab() {
       fields={[
         {
           key: 'target_kind',
-          label: 'Тип об’єкта',
+          label: 'Тип',
           type: 'select',
           options: KIND_OPTIONS,
           required: true,
@@ -184,46 +182,47 @@ export function PollDevicesTab() {
           hideInTable: true,
         },
         {
+          // Editable on purpose: choosing another serial here IS how a
+          // replacement is recorded, and the phone stays with the card.
           key: 'target_id',
-          label: 'Об’єкт',
+          label: 'Коректор (за серійним номером)',
           type: 'select',
           optionsFor: targetOptions,
           required: true,
-          onlyOn: 'create',
           hideInTable: true,
         },
         {
-          key: 'target_label',
-          label: 'Об’єкт',
+          key: 'ser_num',
+          label: 'Коректор',
           hideInForm: true,
           render: (d) => (
             <Group gap={6} wrap="nowrap">
-              <Text size="sm">{d.target_label ?? `#${d.id}`}</Text>
+              <Text size="sm">{d.ser_num ? `№${d.ser_num}` : '—'}</Text>
+              {!d.still_installed && (
+                <Tooltip
+                  label="Цей коректор уже знято з точки — перенесіть номер на новий"
+                  withArrow
+                >
+                  <Badge size="xs" variant="light" color="red">
+                    знято
+                  </Badge>
+                </Tooltip>
+              )}
+            </Group>
+          ),
+        },
+        {
+          key: 'target_label',
+          label: 'Де стоїть',
+          hideInForm: true,
+          render: (d) => (
+            <Group gap={6} wrap="nowrap">
+              <Text size="sm">{d.target_label ?? '—'}</Text>
               <Badge size="xs" variant="light" color="gray">
                 {KIND_LABEL[d.target_kind]}
               </Badge>
             </Group>
           ),
-        },
-        {
-          // What the modem expects to find on the other end. A point between
-          // correctors has nothing to dial for, and the poll has to say so
-          // rather than call and fail.
-          key: 'device_ser_num',
-          label: 'Коректор зараз',
-          hideInForm: true,
-          render: (d) =>
-            d.target_kind !== 'enterprise' ? (
-              <Text size="xs" c="dimmed">
-                —
-              </Text>
-            ) : d.device_ser_num ? (
-              <Text size="xs">№{d.device_ser_num}</Text>
-            ) : (
-              <Badge size="xs" variant="light" color="amber">
-                не встановлено
-              </Badge>
-            ),
         },
         { key: 'phone', label: 'Телефон' },
         {
@@ -245,38 +244,6 @@ export function PollDevicesTab() {
           type: 'number',
           numeric: true,
           hideInTable: true,
-        },
-        {
-          key: 'poll_dpd',
-          label: 'Читати також через ДПД API',
-          hideInTable: true,
-          renderField: (value, onChange) => (
-            <Switch
-              checked={value !== false}
-              onChange={(e) => onChange(e.currentTarget.checked)}
-              label="Об’єкт є в системі ДПД"
-              description="Знято — читається лише модемом, ДПД про нього не питають"
-            />
-          ),
-        },
-        {
-          key: 'poll_paths',
-          label: 'Джерело',
-          hideInForm: true,
-          render: (d) => (
-            <Group gap={4} wrap="nowrap">
-              {d.poll_dpd && (
-                <Badge size="xs" variant="light" color="gray">
-                  ДПД
-                </Badge>
-              )}
-              {d.poll_gsm && (
-                <Badge size="xs" variant="light" color="grape">
-                  GSM
-                </Badge>
-              )}
-            </Group>
-          ),
         },
         {
           key: 'poll_times',

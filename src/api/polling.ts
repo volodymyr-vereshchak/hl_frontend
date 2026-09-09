@@ -9,25 +9,27 @@ import { api } from '@/lib/apiClient'
  */
 
 /**
- * A card names a SITE, not a corrector: the modem is at the site and the
- * correctors behind it get replaced. ЛУМГ correctors are not polled over GSM
- * at all — Ask2 keeps doing that.
+ * A card binds a phone number to the CORRECTOR it reaches. When the device is
+ * replaced, the operator repoints the card at the new serial and the poll
+ * follows it from that moment; the point's own history stays continuous in
+ * Підприємства. ЛУМГ correctors are not polled over GSM at all — Ask2 keeps
+ * doing that.
  */
-export type PollTargetKind = 'enterprise' | 'dpd_line'
+export type PollTargetKind = 'dpd_device' | 'dpd_line'
 
 export interface PollDevice {
   id: number
-  enterprise_id: number | null
+  dpd_device_id: number | null
   dpd_line_id: number | null
   target_kind: PollTargetKind
+  /** Where the corrector stands: the metering point, or the DPD line. */
   target_label: string | null
-  /** How the site is read. Both may be on; at least one always is. */
-  poll_dpd: boolean
-  poll_gsm: boolean
-  /** The corrector fitted at the point right now — what the modem expects to
-   *  find, and what the reply is checked against. */
-  device_id: number | null
-  device_ser_num: number | null
+  /** What the modem expects to hear back. A reply from another serial is
+   *  refused, so this is the whole point of the card. */
+  ser_num: number | null
+  /** False when the corrector this card names is no longer fitted — a
+   *  replacement entered in Підприємства and not here. */
+  still_installed: boolean
   /** Agents that took this card. Empty means nobody polls it at all. */
   agent_ids: number[]
 
