@@ -8,19 +8,27 @@ import { api } from '@/lib/apiClient'
  * its own routes and reports back there.
  */
 
-/** A corrector is one of three things in this database, never two. */
-export type PollTargetKind = 'calc' | 'dpd_line' | 'dpd_device'
+/**
+ * A card names a SITE, not a corrector: the modem is at the site and the
+ * correctors behind it get replaced. ЛУМГ correctors are not polled over GSM
+ * at all — Ask2 keeps doing that.
+ */
+export type PollTargetKind = 'enterprise' | 'dpd_line'
 
 export interface PollDevice {
   id: number
-  gas_volume_calc_id: number | null
+  enterprise_id: number | null
   dpd_line_id: number | null
-  dpd_device_id: number | null
   target_kind: PollTargetKind
   target_label: string | null
-  /** Whether the DPD system knows this corrector. null = not one of theirs. */
-  in_dpd: boolean | null
-  /** Agents that took this device. Empty means nobody polls it at all. */
+  /** How the site is read. Both may be on; at least one always is. */
+  poll_dpd: boolean
+  poll_gsm: boolean
+  /** The corrector fitted at the point right now — what the modem expects to
+   *  find, and what the reply is checked against. */
+  device_id: number | null
+  device_ser_num: number | null
+  /** Agents that took this card. Empty means nobody polls it at all. */
   agent_ids: number[]
 
   enabled: boolean

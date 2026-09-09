@@ -97,7 +97,7 @@ const GROUPS: GroupDef[] = [
     tabs: [
       {
         id: 'poll-devices',
-        label: 'Прилади опитування',
+        label: 'Опитування модемом',
         icon: <IconAntennaBars5 size={16} />,
         element: <PollDevicesTab />,
       },
