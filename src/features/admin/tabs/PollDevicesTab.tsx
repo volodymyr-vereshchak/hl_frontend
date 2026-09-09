@@ -118,7 +118,11 @@ export function PollDevicesTab() {
       queryKey={DEVICES_KEY}
       fetchAll={pollingApi.getDevices}
       searchKeys={['target_label', 'phone', 'note']}
-      rowLabel={(d) => (d.ser_num ? `№${d.ser_num}` : `#${d.id}`)}
+      rowLabel={(d) =>
+        [d.ser_num ? `№${d.ser_num}` : `#${d.id}`, d.target_label]
+          .filter(Boolean)
+          .join(' — ')
+      }
       create={(v) => {
         const kind = (v.target_kind as PollTargetKind) ?? 'dpd_device'
         return pollingApi.createDevice({
@@ -136,6 +140,9 @@ export function PollDevicesTab() {
             : {}),
         })
       }
+      // Deleting a card stops the modem polling that corrector; it touches
+      // neither the point's history nor anything already in the archive.
+      remove={(id) => pollingApi.removeDevice(id)}
       toForm={(d) => ({
         target_kind: d.target_kind,
         target_id: String(d.dpd_device_id ?? d.dpd_line_id ?? ''),
