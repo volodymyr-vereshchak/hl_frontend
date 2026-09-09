@@ -21,8 +21,9 @@ describe('parsePollTimes', () => {
 
 describe('pollDevicePayload', () => {
   it('leaves an untouched card switched on', () => {
-    // Both checkboxes arrive as undefined until somebody clicks them, and a
-    // card nobody touched has to poll.
+    // The tab seeds these through createDefaults, because CrudTable starts
+    // every checkbox unticked — without that a card added without touching
+    // them was created switched off, and nothing on screen said so.
     const body = pollDevicePayload({})
     expect(body.enabled).toBe(true)
     expect(body.auto_poll).toBe(true)
@@ -43,7 +44,6 @@ describe('pollDevicePayload', () => {
   it('keeps the values that were filled in', () => {
     const body = pollDevicePayload({
       phone: ' 0501234567 ',
-      protocol_id: 1070,
       device_address: 1,
       priority: 5,
       depth_days: 30,
@@ -51,7 +51,6 @@ describe('pollDevicePayload', () => {
     })
     expect(body).toMatchObject({
       phone: '0501234567',
-      protocol_id: 1070,
       device_address: 1,
       priority: 5,
       depth_days: 30,
@@ -62,5 +61,12 @@ describe('pollDevicePayload', () => {
   it('does not carry a connection speed', () => {
     // It moved to the agent: one speed per machine, beside the COM port.
     expect(pollDevicePayload({})).not.toHaveProperty('baud')
+  })
+
+  it('does not carry a driver id', () => {
+    // The driver comes from the corrector's model, set once in Типи
+    // коректорів. Sending one from here would let a card and its model
+    // disagree, and the poll would fail in a way that looks like a dead meter.
+    expect(pollDevicePayload({})).not.toHaveProperty('protocol_id')
   })
 })

@@ -298,6 +298,9 @@ export interface Manufacturer {
 }
 
 export interface CorectorType {
+  /** Ask2 driver that can speak to this model: 7 Універсал, 33 Флоутек ВР-1,
+   *  52 КПЛГ, 54 ВЕГА, 70 Флоутек ВР-2, 77 ПК-В. null = none covers it. */
+  protocol_id?: number | null
   id: number
   manufacturer_id: number
   model_name: string

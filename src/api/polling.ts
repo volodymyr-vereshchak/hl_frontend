@@ -46,6 +46,8 @@ export interface PollDevice {
   tcp_host: string | null
   tcp_port: number | null
 
+  /** From the corrector's model, never typed on the card. null = no Ask2
+   *  driver covers that model, so it cannot be polled by modem. */
   protocol_id: number | null
   device_address: number | null
   answer_timeout_sec: number

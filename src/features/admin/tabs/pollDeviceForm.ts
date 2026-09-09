@@ -17,7 +17,6 @@ export interface PollDeviceFormValues {
   auto_poll?: unknown
   poll_times?: unknown
   phone?: unknown
-  protocol_id?: unknown
   device_address?: unknown
   priority?: unknown
   depth_days?: unknown
@@ -37,13 +36,14 @@ const text = (v: unknown): string | null => String(v ?? '').trim() || null
 
 export function pollDevicePayload(v: PollDeviceFormValues): Record<string, unknown> {
   return {
-    // Checkboxes arrive as undefined until touched, and both of these default
-    // to on: a card created with the box untouched has to be enabled.
+    // CrudTable seeds every checkbox to false, so these read whatever the box
+    // says; the tab passes createDefaults to make a new card start switched
+    // on. Two different questions: `enabled` is whether the card acts at all,
+    // `auto_poll` is whether it is polled without being asked.
     enabled: v.enabled !== false,
     auto_poll: v.auto_poll !== false,
     poll_times: parsePollTimes(v.poll_times),
     phone: text(v.phone),
-    protocol_id: v.protocol_id ?? null,
     device_address: v.device_address ?? null,
     priority: v.priority ?? 0,
     depth_days: v.depth_days ?? null,

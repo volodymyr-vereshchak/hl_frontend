@@ -143,6 +143,10 @@ export function PollDevicesTab() {
       // Deleting a card stops the modem polling that corrector; it touches
       // neither the point's history nor anything already in the archive.
       remove={(id) => pollingApi.removeDevice(id)}
+      // CrudTable starts every checkbox unticked, so without these a card
+      // added without touching them was created switched off — and nothing
+      // on screen said so.
+      createDefaults={{ enabled: true, auto_poll: true }}
       toForm={(d) => ({
         target_kind: d.target_kind,
         target_id: String(d.dpd_device_id ?? d.dpd_line_id ?? ''),
@@ -233,13 +237,25 @@ export function PollDevicesTab() {
         },
         { key: 'phone', label: 'Телефон' },
         {
-          // Which Ask2 driver speaks to this device: 1070 Флоутек ВР-2,
-          // 1052 КПЛГ, 1054 ВЕГА… To be filled in from the corrector type
-          // once the corector_type → gas_vol_calc_type bridge exists.
+          // Not asked for: it comes from the corrector's model, set once in
+          // Типи коректорів. Shown because an empty one means this model has
+          // no Ask2 driver at all and the card can never be polled.
           key: 'protocol_id',
-          label: 'Протокол (ID драйвера)',
-          type: 'number',
-          numeric: true,
+          label: 'Драйвер',
+          hideInForm: true,
+          render: (d) =>
+            d.protocol_id == null ? (
+              <Tooltip
+                label="Для цієї моделі немає драйвера Ask2 — модемом її не опитати"
+                withArrow
+              >
+                <Badge size="xs" variant="light" color="red">
+                  немає
+                </Badge>
+              </Tooltip>
+            ) : (
+              <Text size="xs">{d.protocol_id}</Text>
+            ),
         },
         {
           // Goes into the request frame and is checked in the reply — every
@@ -254,7 +270,7 @@ export function PollDevicesTab() {
         },
         {
           key: 'poll_times',
-          label: 'Години опитування',
+          label: 'О котрій опитувати',
           // Free text rather than a list editor: "06:00, 18:00" is how these
           // are written down, and an empty box means the global hours.
           render: (d) =>
@@ -266,8 +282,31 @@ export function PollDevicesTab() {
               </Text>
             ),
         },
-        { key: 'enabled', label: 'Увімкнено', type: 'checkbox' },
-        { key: 'auto_poll', label: 'За розкладом', type: 'checkbox' },
+        {
+          key: 'enabled',
+          label: 'Картка діє',
+          type: 'checkbox',
+          render: (d) =>
+            d.enabled ? (
+              <Text size="xs">так</Text>
+            ) : (
+              <Badge size="xs" variant="light" color="gray">
+                вимкнена
+              </Badge>
+            ),
+        },
+        {
+          // Two different questions, which is why they are two boxes: a card
+          // can be off entirely, or on but polled only when somebody asks.
+          key: 'auto_poll',
+          label: 'Опитувати автоматично',
+          type: 'checkbox',
+          render: (d) => (
+            <Text size="xs" c={d.auto_poll ? undefined : 'dimmed'}>
+              {d.auto_poll ? 'за розкладом' : 'лише вручну'}
+            </Text>
+          ),
+        },
         { key: 'priority', label: 'Пріоритет', type: 'number', numeric: true, hideInTable: true },
         {
           // Blank on purpose: a GSM poll has no backfill, so the first call
@@ -287,9 +326,14 @@ export function PollDevicesTab() {
             d.agent_ids.length ? (
               <Text size="xs">{d.agent_ids.map(agentName).join(', ')}</Text>
             ) : (
-              <Badge size="xs" variant="light" color="amber">
-                нічий
-              </Badge>
+              <Tooltip
+                label="Жоден агент не взяв цей прилад — його ніхто не опитує"
+                withArrow
+              >
+                <Badge size="xs" variant="light" color="amber">
+                  не призначено
+                </Badge>
+              </Tooltip>
             ),
         },
         {
