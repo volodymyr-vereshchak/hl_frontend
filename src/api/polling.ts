@@ -27,6 +27,10 @@ export interface PollDevice {
   /** What the modem expects to hear back. A reply from another serial is
    *  refused, so this is the whole point of the card. */
   ser_num: number | null
+  /** What answers the call. The model decides the driver, whether the network
+   *  address is a question, and how the alarm codes are read. */
+  model_name: string | null
+  manufacturer: string | null
   /** False when the corrector this card names is no longer fitted — a
    *  replacement entered in Підприємства and not here. */
   still_installed: boolean

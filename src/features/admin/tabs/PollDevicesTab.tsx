@@ -102,9 +102,12 @@ export function PollDevicesTab() {
     for (const m of mappings ?? []) {
       const device = currentDevice(m)
       if (!device) continue
+      // Serial first: the operator is holding a device with a number on it.
+      // The model comes next, because two points can look alike by name.
+      const model = device.model_name ? ` · ${device.model_name}` : ''
       out.push({
         value: String(device.device_id),
-        label: `№${device.ser_num} — ${m.enterprise_name ?? ''}`.trim(),
+        label: `№${device.ser_num} — ${m.enterprise_name ?? ''}${model}`.trim(),
       })
     }
     return out.sort((a, b) => a.label.localeCompare(b.label))
@@ -131,7 +134,7 @@ export function PollDevicesTab() {
       description="Номер телефону і коректор, який має відповісти. Опитує агент на машині оператора"
       queryKey={DEVICES_KEY}
       fetchAll={pollingApi.getDevices}
-      searchKeys={['target_label', 'phone', 'note']}
+      searchKeys={['target_label', 'phone', 'note', 'model_name']}
       rowLabel={(d) =>
         [d.ser_num ? `№${d.ser_num}` : `#${d.id}`, d.target_label]
           .filter(Boolean)
@@ -236,6 +239,33 @@ export function PollDevicesTab() {
               )}
             </Group>
           ),
+        },
+        {
+          // A serial says which device, the model says what it is — and the
+          // model is what decides the driver and the alarm dictionary.
+          key: 'model_name',
+          label: 'Тип коректора',
+          hideInForm: true,
+          render: (d) =>
+            d.model_name ? (
+              <Group gap={4} wrap="nowrap">
+                <Text size="sm">{d.model_name}</Text>
+                {d.manufacturer && (
+                  <Text size="xs" c="dimmed">
+                    {d.manufacturer}
+                  </Text>
+                )}
+              </Group>
+            ) : (
+              <Tooltip
+                label="У приладу не вказано тип коректора — драйвер підібрати нема з чого"
+                withArrow
+              >
+                <Badge size="xs" variant="light" color="amber">
+                  не вказано
+                </Badge>
+              </Tooltip>
+            ),
         },
         {
           key: 'target_label',
