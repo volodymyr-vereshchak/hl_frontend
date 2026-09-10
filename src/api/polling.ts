@@ -50,11 +50,13 @@ export interface PollDevice {
    *  driver covers that model, so it cannot be polled by modem. */
   protocol_id: number | null
   device_address: number | null
+  /** Whether the address is a real choice for this driver — only Floutek,
+   *  where several correctors share a line. */
+  address_matters: boolean
   answer_timeout_sec: number
   pause_between_ms: number
   repeat_count: number
   preamble_count: number
-  depth_days: number | null
   priority: number
   note: string | null
 

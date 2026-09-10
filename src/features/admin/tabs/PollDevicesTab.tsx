@@ -1,5 +1,14 @@
 import { useMemo } from 'react'
-import { Alert, Badge, Button, Group, Text, Tooltip } from '@mantine/core'
+import {
+  Alert,
+  Badge,
+  Button,
+  Group,
+  NumberInput,
+  Text,
+  TextInput,
+  Tooltip,
+} from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import { IconAlertTriangle, IconPlayerPlay } from '@tabler/icons-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -7,7 +16,12 @@ import { dpdLineAdminApi } from '@/api/admin'
 import { currentDevice, enterpriseApi } from '@/api/enterprise'
 import { pollingApi, type PollDevice, type PollTargetKind } from '@/api/polling'
 import { CrudTable } from '../CrudTable'
-import { pollDevicePayload } from './pollDeviceForm'
+import { PollTimesField } from '../PollTimesField'
+import {
+  PRIORITY_OPTIONS,
+  phoneError,
+  pollDevicePayload,
+} from './pollDeviceForm'
 
 const notifyErr = (e: Error) => notifications.show({ message: e.message, color: 'red' })
 
@@ -146,18 +160,19 @@ export function PollDevicesTab() {
       // CrudTable starts every checkbox unticked, so without these a card
       // added without touching them was created switched off — and nothing
       // on screen said so.
-      createDefaults={{ enabled: true, auto_poll: true }}
+      createDefaults={{ enabled: true, auto_poll: true, priority: '0' }}
       toForm={(d) => ({
         target_kind: d.target_kind,
         target_id: String(d.dpd_device_id ?? d.dpd_line_id ?? ''),
+        // Read-only, but the form needs it to decide whether the address is a
+        // question worth asking.
+        address_matters: d.address_matters,
         enabled: d.enabled,
         auto_poll: d.auto_poll,
-        poll_times: (d.poll_times ?? []).join(', '),
+        poll_times: d.poll_times ?? [],
         phone: d.phone ?? '',
-        protocol_id: d.protocol_id,
         device_address: d.device_address,
-        priority: d.priority,
-        depth_days: d.depth_days,
+        priority: String(d.priority),
         note: d.note ?? '',
       })}
       notice={
@@ -235,7 +250,20 @@ export function PollDevicesTab() {
             </Group>
           ),
         },
-        { key: 'phone', label: 'Телефон' },
+        {
+          key: 'phone',
+          label: 'Телефон',
+          required: true,
+          renderField: (value, onChange) => (
+            <TextInput
+              value={String(value ?? '')}
+              onChange={(e) => onChange(e.currentTarget.value)}
+              placeholder="+380XXXXXXXXX"
+              error={phoneError(value)}
+              description="Український номер; вводиться як завгодно, зберігається як +380…"
+            />
+          ),
+        },
         {
           // Not asked for: it comes from the corrector's model, set once in
           // Типи коректорів. Shown because an empty one means this model has
@@ -258,27 +286,29 @@ export function PollDevicesTab() {
             ),
         },
         {
-          // Goes into the request frame and is checked in the reply — every
-          // driver does this, not only Флоутек. With one device on a line it
-          // stays at its default, which is why it looks nominal, but sending
-          // the wrong one looks exactly like a dead meter.
+          // Asked for only where it is a real choice: several Floutek
+          // correctors share one line and answer on their own addresses.
+          // Every other driver sends the address and checks it in the reply
+          // too, but it is always 1 there — so the server fills it in, and a
+          // box nobody needed to touch cannot collect a typo that reads as a
+          // dead meter.
           key: 'device_address',
           label: 'Мережева адреса',
           type: 'number',
           numeric: true,
           hideInTable: true,
-        },
-        {
-          key: 'poll_times',
-          label: 'О котрій опитувати',
-          // Free text rather than a list editor: "06:00, 18:00" is how these
-          // are written down, and an empty box means the global hours.
-          render: (d) =>
-            d.poll_times?.length ? (
-              d.poll_times.join(', ')
+          renderField: (value, onChange, form) =>
+            form.address_matters ? (
+              <NumberInput
+                value={typeof value === 'number' ? value : undefined}
+                onChange={(next) => onChange(next === '' ? null : Number(next))}
+                min={0}
+                max={255}
+                description="Кілька Флоутеків на одній лінії відповідають за своїми адресами"
+              />
             ) : (
               <Text size="xs" c="dimmed">
-                загальні
+                Для цього драйвера адреса завжди 1 — задається автоматично
               </Text>
             ),
         },
@@ -298,6 +328,8 @@ export function PollDevicesTab() {
         {
           // Two different questions, which is why they are two boxes: a card
           // can be off entirely, or on but polled only when somebody asks.
+          // This one comes BEFORE the hours it governs — with it off, the
+          // hours mean nothing, and the field below says so by being disabled.
           key: 'auto_poll',
           label: 'Опитувати автоматично',
           type: 'checkbox',
@@ -307,14 +339,36 @@ export function PollDevicesTab() {
             </Text>
           ),
         },
-        { key: 'priority', label: 'Пріоритет', type: 'number', numeric: true, hideInTable: true },
         {
-          // Blank on purpose: a GSM poll has no backfill, so the first call
-          // takes everything the corrector still holds.
-          key: 'depth_days',
-          label: 'Глибина, діб',
-          type: 'number',
-          numeric: true,
+          key: 'poll_times',
+          label: 'О котрій опитувати',
+          renderField: (value, onChange, form) => (
+            <PollTimesField
+              value={Array.isArray(value) ? (value as string[]) : []}
+              onChange={onChange}
+              disabled={form.auto_poll === false}
+            />
+          ),
+          render: (d) =>
+            !d.auto_poll ? (
+              <Text size="xs" c="dimmed">
+                —
+              </Text>
+            ) : d.poll_times?.length ? (
+              d.poll_times.join(', ')
+            ) : (
+              <Text size="xs" c="dimmed">
+                загальні
+              </Text>
+            ),
+        },
+        {
+          // A queue order compared by eye, so a short list rather than a free
+          // number: "priority 900" says nothing about where it sits.
+          key: 'priority',
+          label: 'Пріоритет',
+          type: 'select',
+          options: PRIORITY_OPTIONS,
           hideInTable: true,
         },
         { key: 'note', label: 'Примітка', hideInTable: true },
