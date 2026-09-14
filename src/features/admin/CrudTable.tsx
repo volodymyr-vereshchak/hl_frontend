@@ -151,7 +151,18 @@ export function CrudTable<T extends { id: number }, C = unknown>({
   onCreated,
 }: CrudTableProps<T, C>) {
   const qc = useQueryClient()
-  const { data, isLoading, error, refetch, isFetching } = useQuery({ queryKey, queryFn: fetchAll })
+  const { data, isLoading, error, refetch } = useQuery({ queryKey, queryFn: fetchAll })
+  /**
+   * Whether the REFRESH BUTTON should spin — which is not the same as whether
+   * a request is in flight.
+   *
+   * `isFetching` is true for background refetches too, and a screen whose
+   * query has a `refetchInterval` shares that flag: the agents tab refreshes
+   * itself to keep the "on the line" badge current, and the button here
+   * twitched on every tick of that timer. A control that animates without
+   * being touched reads as something going wrong.
+   */
+  const [refreshing, setRefreshing] = useState(false)
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(PAGE_SIZE_DEFAULT)
@@ -303,7 +314,15 @@ export function CrudTable<T extends { id: number }, C = unknown>({
               w={220}
             />
             <Tooltip label="Оновити">
-              <ActionIcon variant="default" size="lg" onClick={() => refetch()} loading={isFetching}>
+              <ActionIcon
+                variant="default"
+                size="lg"
+                onClick={() => {
+                  setRefreshing(true)
+                  void refetch().finally(() => setRefreshing(false))
+                }}
+                loading={refreshing}
+              >
                 <IconRefresh size={16} />
               </ActionIcon>
             </Tooltip>

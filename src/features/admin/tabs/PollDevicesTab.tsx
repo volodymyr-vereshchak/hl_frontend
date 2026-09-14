@@ -59,8 +59,9 @@ export function PollDevicesTab() {
     queryKey: AGENTS_KEY,
     queryFn: pollingApi.getAgents,
     // Whether a machine is on the line changes by itself, and this screen is
-    // where somebody decides which machine to give a site to.
-    refetchInterval: 5000,
+    // where somebody decides which machine to give a site to. Unlike the poll
+    // state above, this one has a minute of resolution — see the agents tab.
+    refetchInterval: 20000,
   })
 
   const agentOptions = useMemo(

@@ -43,7 +43,13 @@ export function PollAgentsTab() {
     // Two things on this screen move without anybody touching it: whether a
     // machine is on the line, and how many sites it was given in the monitor.
     // The table shares this query, so refreshing here refreshes it too.
-    refetchInterval: 5000,
+    //
+    // Twenty seconds, not five. An agent counts as on the line if it was heard
+    // from in the last minute, so asking twelve times inside that minute
+    // cannot make the answer any fresher — it only makes the browser talk. The
+    // count of sites does not wait for this either: assigning one invalidates
+    // this query outright.
+    refetchInterval: 20000,
   })
   const { data: installer } = useQuery({
     queryKey: ['admin', 'poll-agent-installer'],
