@@ -1,6 +1,6 @@
 /**
- * Form values of the polling card → the request body, plus the rules the form
- * checks while somebody types.
+ * What the modem settings on the enterprise card accept, and what they show
+ * while somebody types.
  *
  * The backend refuses the same things (services/poll_validation.py) — this is
  * not the guard, it is the feedback. Each rule is a failure that would
@@ -8,34 +8,22 @@
  * equipment: an undialable number reads as "no dialtone", an hour that is not
  * an hour is a slot the agent never reaches.
  *
- * No connection speed here: it is one setting for every poll on a machine, so
- * it lives in the agent beside the COM port. No driver either — that comes
- * from the corrector's model, set once in Типи коректорів.
+ * Only these two live here now. Everything else a poll card used to ask for is
+ * either derived (the driver comes from the corrector's model) or belongs to
+ * the machine rather than the site (the COM port and the speed live in the
+ * agent), and the card itself is no longer edited by hand — Опитування
+ * модемом is a monitor.
  */
-export interface PollDeviceFormValues {
-  enabled?: unknown
-  auto_poll?: unknown
-  poll_times?: unknown
-  phone?: unknown
-  device_address?: unknown
-  priority?: unknown
-  note?: unknown
-}
-
-/** 0 first. A short range, because it is a queue order compared by eye. */
-export const PRIORITY_OPTIONS = [0, 1, 2, 3, 4, 5].map((n) => ({
-  value: String(n),
-  label: n === 0 ? '0 — найвищий' : String(n),
-}))
-
 /** Ukrainian numbers only, and always one shape: the agent dials it as-is. */
 const PHONE_RE = /^\+380\d{9}$/
 
 /**
  * Bring a typed number to +380XXXXXXXXX, or return null if it cannot be.
  *
- * Punctuation is dropped and the local shapes are accepted, because that is
- * how numbers get written down: 050…, 380…, 8050… all mean the same line.
+ * People write the same number four ways — 050…, 8050…, +38 (050) … — and
+ * all four reach the same modem, so all four are accepted and stored
+ * identically. Anything else is refused here rather than at 3 a.m. by a
+ * modem that has no idea what it was asked to dial.
  */
 export function normalisePhone(raw: unknown): string | null {
   const trimmed = String(raw ?? '').trim()
@@ -83,25 +71,3 @@ export function normalisePollTimes(raw: unknown): string[] | null {
   return out.size ? [...out].sort() : null
 }
 
-const text = (v: unknown): string | null => String(v ?? '').trim() || null
-
-export function pollDevicePayload(v: PollDeviceFormValues): Record<string, unknown> {
-  const autoPoll = v.auto_poll !== false
-  return {
-    // CrudTable seeds every checkbox to false, so these read whatever the box
-    // says; the tab passes createDefaults to make a new card start switched
-    // on. Two different questions: `enabled` is whether the card acts at all,
-    // `auto_poll` is whether it is polled without being asked.
-    enabled: v.enabled !== false,
-    auto_poll: autoPoll,
-    // Hours only mean something for an automatic poll. Keeping them while the
-    // schedule is off would leave a card that looks scheduled and is not.
-    poll_times: autoPoll ? normalisePollTimes(v.poll_times) : null,
-    phone: normalisePhone(v.phone),
-    // Sent for every card; the server keeps it only where it is a real choice
-    // (Floutek shares a line) and stores the default everywhere else.
-    device_address: v.device_address ?? null,
-    priority: Number(v.priority ?? 0),
-    note: text(v.note),
-  }
-}

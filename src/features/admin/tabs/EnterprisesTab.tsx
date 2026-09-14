@@ -41,6 +41,7 @@ import {
   deviceCatalogApi,
   dpdLineAdminApi,
   enterpriseMappingApi,
+  type EnterpriseGsm,
   type EnterpriseMapping,
   type UploadResult,
 } from '@/api/admin'
@@ -50,6 +51,8 @@ import { numericStyle } from '@/theme/theme'
 import { useAdminTopology, toOptions } from '../useAdminTopology'
 import { LoadingState } from '@/components/LoadingState'
 import { DeviceHistoryEditor, DeviceHistoryModal } from '../DeviceHistoryModal'
+import { PollTimesField } from '../PollTimesField'
+import { phoneError } from './pollDeviceForm'
 import {
   EMPTY_DEVICE,
   EPOCH_YEAR,
@@ -71,6 +74,13 @@ type FormState = {
   devices: DeviceForm[]
   active: boolean
   enabled: boolean
+  /** The modem at this site. It belongs here rather than to the corrector
+   *  because that is where it is bolted: correctors get replaced, the number
+   *  stays. Empty means there is none and the site is not dialled. */
+  gsm_phone: string
+  gsm_auto_poll: boolean
+  /** "HH:MM" slots. Empty means the hours set globally. */
+  gsm_poll_times: string[]
 }
 
 const EMPTY: FormState = {
@@ -81,6 +91,9 @@ const EMPTY: FormState = {
   devices: [{ ...EMPTY_DEVICE }],
   active: true,
   enabled: true,
+  gsm_phone: '',
+  gsm_auto_poll: false,
+  gsm_poll_times: [],
 }
 
 /**
@@ -118,6 +131,11 @@ export function EnterprisesTab() {
   const [fLine, setFLine] = useState<string | null>(null)
   const [fActive, setFActive] = useState<string | null>(null)
   const [fEnabled, setFEnabled] = useState<string | null>(null)
+  /** Type of the corrector standing there now, and whether the site has a
+   *  modem — the two questions asked when a poll has to be set up or a fault
+   *  chased across a model. */
+  const [fCorector, setFCorector] = useState<string | null>(null)
+  const [fGsm, setFGsm] = useState<string | null>(null)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(50)
 
@@ -251,10 +269,21 @@ export function EnterprisesTab() {
       if (fLine && fLine !== 'null' && String(lineId) !== fLine) return false
       if (fLumg && String(effLumg(e)) !== fLumg) return false
       if (fBranch && String(effBranch(e)) !== fBranch) return false
+      if (fCorector) {
+        // The corrector standing there now, not every one it ever had: the
+        // question behind this filter is "which sites are ВЕГИ today", and
+        // a replaced device would answer it with a site that no longer is.
+        const current = currentEnterpriseDevice(e)
+        if (String(current?.corector_type_id ?? '') !== fCorector) return false
+      }
+      if (fGsm === 'yes' && !e.gsm?.phone) return false
+      if (fGsm === 'no' && e.gsm?.phone) return false
+      if (fGsm === 'auto' && !(e.gsm?.phone && e.gsm.auto_poll)) return false
       return true
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enterprises, search, fActive, fEnabled, fLine, fLumg, fBranch, dpdById, lineById])
+  }, [enterprises, search, fActive, fEnabled, fLine, fLumg, fBranch, fCorector, fGsm,
+      dpdById, lineById])
 
   const pageRows = useMemo(
     () => rows.slice((page - 1) * pageSize, page * pageSize),
@@ -290,6 +319,13 @@ export function EnterprisesTab() {
     active: f.active,
     enabled: f.enabled,
     ...(withDevices ? { devices: toDevicePayload(f.devices) } : {}),
+    // Always sent: an empty number is how a modem taken off site is recorded,
+    // and omitting the key would leave the old one dialling nothing.
+    gsm: {
+      phone: f.gsm_phone.trim() || null,
+      auto_poll: f.gsm_auto_poll,
+      poll_times: f.gsm_poll_times,
+    },
   })
 
   const save = useMutation({
@@ -342,6 +378,9 @@ export function EnterprisesTab() {
       devices: toDeviceForms(e.devices, corectorTypes),
       active: e.active,
       enabled: e.enabled,
+      gsm_phone: e.gsm?.phone ?? '',
+      gsm_auto_poll: e.gsm?.auto_poll ?? false,
+      gsm_poll_times: e.gsm?.poll_times ?? [],
     })
   }
 
@@ -520,6 +559,42 @@ export function EnterprisesTab() {
           checked={form.enabled}
           onChange={(e) => setForm({ ...form, enabled: e.currentTarget.checked })}
           mb={6}
+        />
+      </Group>
+
+      {/* The modem, and only what an operator sets. Timeouts and retry counts
+          keep their defaults on the poll card: nobody has needed to change
+          them, and a box nobody needs collects the typo that reads later as a
+          dead meter. */}
+      <Divider my="xs" label="Опитування модемом" labelPosition="left" />
+      <Group gap="sm" align="flex-start" wrap="wrap">
+        <TextInput
+          label="Телефон модема"
+          size="xs"
+          w={220}
+          value={form.gsm_phone}
+          onChange={(e) => setForm({ ...form, gsm_phone: e.currentTarget.value })}
+          placeholder="+380XXXXXXXXX"
+          // Caught here as well as on the server: a number saved as "050…"
+          // looks right on the screen and fails every night with "no
+          // dialtone", which reads exactly like a dead line.
+          error={phoneError(form.gsm_phone)}
+          description="Порожньо — модема немає, підприємство не дзвонимо"
+        />
+        <Switch
+          size="xs"
+          label="Опитувати за графіком"
+          checked={form.gsm_auto_poll}
+          onChange={(e) => setForm({ ...form, gsm_auto_poll: e.currentTarget.checked })}
+          disabled={!form.gsm_phone.trim()}
+          mt={22}
+        />
+        <PollTimesField
+          value={form.gsm_poll_times}
+          onChange={(times) => setForm({ ...form, gsm_poll_times: times as string[] })}
+          // Off means "only by hand", and hours that cannot fire read as a
+          // schedule that is simply not working.
+          disabled={!form.gsm_auto_poll || !form.gsm_phone.trim()}
         />
       </Group>
 
@@ -736,6 +811,37 @@ export function EnterprisesTab() {
           onChange={setFEnabled}
           clearable
         />
+        <Select
+          size="xs"
+          w={210}
+          label="Тип коректора"
+          placeholder="Всі"
+          data={corectorOptions}
+          value={fCorector}
+          onChange={(v) => {
+            setFCorector(v)
+            setPage(1)
+          }}
+          clearable
+          searchable
+        />
+        <Select
+          size="xs"
+          w={160}
+          label="GSM-модем"
+          placeholder="Всі"
+          data={[
+            { value: 'yes', label: 'Є номер' },
+            { value: 'auto', label: 'Опитується за графіком' },
+            { value: 'no', label: 'Немає' },
+          ]}
+          value={fGsm}
+          onChange={(v) => {
+            setFGsm(v)
+            setPage(1)
+          }}
+          clearable
+        />
         <Button
           size="xs"
           leftSection={<IconPlus size={14} />}
@@ -765,6 +871,7 @@ export function EnterprisesTab() {
                   <Table.Th>Поточний прилад</Table.Th>
                   <Table.Th ta="center">Приладів</Table.Th>
                   <Table.Th ta="center">Канал</Table.Th>
+                  <Table.Th>GSM</Table.Th>
                   <Table.Th ta="center">Активний</Table.Th>
                   <Table.Th ta="center">Увімкнений</Table.Th>
                   <Table.Th w={80} />
@@ -830,6 +937,9 @@ export function EnterprisesTab() {
                     <Table.Td ta="center" style={numericStyle}>
                       {currentEnterpriseDevice(e)?.ch_num ?? '—'}
                     </Table.Td>
+                    <Table.Td>
+                      <Gsm gsm={e.gsm} />
+                    </Table.Td>
                     {(['active', 'enabled'] as const).map((f) => (
                       <Table.Td key={f} ta="center">
                         <Switch
@@ -890,5 +1000,41 @@ export function EnterprisesTab() {
         </Paper>
       )}
     </Stack>
+  )
+}
+
+
+/**
+ * The modem at a site, in one column.
+ *
+ * Worth a column of its own rather than a tick: when the list is filtered to
+ * the sites that have one, the next question is always the number — and the
+ * number is what a wrong entry looks like, since a modem that is never dialled
+ * and a number typed with a digit missing look identical everywhere else.
+ */
+function Gsm({ gsm }: { gsm?: EnterpriseGsm | null }) {
+  if (!gsm?.phone) {
+    return (
+      <Text size="xs" c="dimmed">
+        —
+      </Text>
+    )
+  }
+  return (
+    <Group gap={6} wrap="nowrap">
+      <Text size="xs" style={numericStyle}>
+        {gsm.phone}
+      </Text>
+      {gsm.auto_poll && (
+        <Tooltip
+          label={gsm.poll_times?.length ? gsm.poll_times.join(', ') : 'загальні години'}
+          withArrow
+        >
+          <Badge size="xs" variant="light" color="teal" tt="none">
+            за графіком
+          </Badge>
+        </Tooltip>
+      )}
+    </Group>
   )
 }

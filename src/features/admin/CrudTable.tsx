@@ -39,6 +39,8 @@ export interface CrudField<T> {
   type?: 'text' | 'number' | 'checkbox' | 'select'
   options?: { value: string; label: string }[]
   required?: boolean
+  /** Grey hint inside the empty box — an example, not an instruction. */
+  placeholder?: string
   /** Hide from the table body (still editable in the form). */
   hideInTable?: boolean
   /** Hide from the create/edit form (e.g. computed columns). */
@@ -464,6 +466,7 @@ export function CrudTable<T extends { id: number }, C = unknown>({
               <TextInput
                 key={f.key}
                 label={f.label}
+                placeholder={f.placeholder}
                 value={value == null ? '' : String(value)}
                 onChange={(e) => setForm({ ...form, [f.key]: e.currentTarget.value })}
                 required={f.required}

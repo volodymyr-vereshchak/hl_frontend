@@ -1,470 +1,402 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import {
   Alert,
   Badge,
   Button,
+  Code,
   Group,
-  NumberInput,
+  Loader,
+  Modal,
+  MultiSelect,
+  Progress,
+  ScrollArea,
+  Table,
   Text,
   TextInput,
   Tooltip,
 } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
-import { IconAlertTriangle, IconPlayerPlay } from '@tabler/icons-react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { dpdLineAdminApi } from '@/api/admin'
-import { currentDevice, enterpriseApi } from '@/api/enterprise'
-import { pollingApi, type PollDevice, type PollTargetKind } from '@/api/polling'
-import { CrudTable } from '../CrudTable'
-import { PollTimesField } from '../PollTimesField'
 import {
-  PRIORITY_OPTIONS,
-  phoneError,
-  pollDevicePayload,
-} from './pollDeviceForm'
+  IconAlertTriangle,
+  IconFileText,
+  IconInfoCircle,
+  IconSearch,
+} from '@tabler/icons-react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { pollingApi, type PollAgent, type PollDevice } from '@/api/polling'
+
+/**
+ * Монітор GSM — a monitor, not an editor.
+ *
+ * The settings moved to the enterprise card, where the modem actually
+ * belongs: it is bolted to the wall at the site, and the correctors under it
+ * get replaced. Editing them here as well would be two places to change one
+ * number, which is two places to disagree.
+ *
+ * What is left is the thing the enterprise card cannot show — the state of
+ * the whole fleet on one screen — plus the one setting that is genuinely
+ * about machines rather than about a site: which agent dials it.
+ */
 
 const notifyErr = (e: Error) => notifications.show({ message: e.message, color: 'red' })
 
 const DEVICES_KEY = ['admin', 'poll-devices']
+const AGENTS_KEY = ['admin', 'poll-agents']
 
-const KIND_OPTIONS = [
-  { value: 'dpd_device', label: 'Коректор підприємства' },
-  { value: 'dpd_line', label: 'Лінія ДПД' },
-]
-
-const KIND_LABEL: Record<PollTargetKind, string> = {
-  dpd_device: 'Промисловість',
-  dpd_line: 'Лінія ДПД',
-}
-
-/** The column the target id lands in, per kind. */
-const TARGET_FIELD: Record<PollTargetKind, string> = {
-  dpd_device: 'dpd_device_id',
-  dpd_line: 'dpd_line_id',
-}
-
-/**
- * Опитування модемом — a phone number bound to the corrector it reaches.
- *
- * The serial is the whole point of a card: it is what the modem expects to
- * hear back, and a reply from any other device is refused rather than written.
- * So a replacement is recorded here by repointing the card — same phone, new
- * serial, and the poll follows the new device from that moment. The metering
- * point's own history stays continuous in Підприємства; this screen has no
- * opinion about it.
- *
- * Which is why the list says whether the corrector a card names is still
- * fitted. A replacement entered at the point and not here leaves the modem
- * dialling a device that is gone — and nothing else on any screen would say so.
- *
- * ЛУМГ correctors are not here: Ask2 keeps polling those and writing its
- * hostlib files.
- */
 export function PollDevicesTab() {
-  const qc = useQueryClient()
+  const queryClient = useQueryClient()
+  const [search, setSearch] = useState('')
+  /** The site whose last poll is open in its own window. */
+  const [logOf, setLogOf] = useState<PollDevice | null>(null)
 
-  const { data: devices } = useQuery({ queryKey: DEVICES_KEY, queryFn: pollingApi.getDevices })
-  const { data: dpdLines } = useQuery({
-    queryKey: ['admin', 'dpd-lines'],
-    queryFn: dpdLineAdminApi.getAll,
-  })
-  const { data: mappings } = useQuery({
-    queryKey: ['admin', 'enterprise-mappings'],
-    queryFn: enterpriseApi.getMappings,
+  const { data: devices, isLoading } = useQuery({
+    queryKey: DEVICES_KEY,
+    queryFn: pollingApi.getDevices,
+    // A poll runs for minutes and the screen is watched while it does.
+    refetchInterval: 5000,
   })
   const { data: agents } = useQuery({
-    queryKey: ['admin', 'poll-agents'],
+    queryKey: AGENTS_KEY,
     queryFn: pollingApi.getAgents,
+    // Whether a machine is on the line changes by itself, and this screen is
+    // where somebody decides which machine to give a site to.
+    refetchInterval: 5000,
   })
 
-  const requestPoll = useMutation({
-    mutationFn: (d: PollDevice) =>
-      d.manual_requested_at ? pollingApi.cancelPoll(d.id) : pollingApi.requestPoll(d.id),
-    onSuccess: (res) => {
-      notifications.show({
-        message: res.requested_at
-          ? 'Заявку прийнято — опитають, щойно агент прийде за планом'
-          : 'Заявку скасовано',
-        color: res.requested_at ? 'teal' : 'gray',
-      })
-      qc.invalidateQueries({ queryKey: DEVICES_KEY })
+  const agentOptions = useMemo(
+    () =>
+      (agents ?? []).map((a) => ({
+        value: String(a.id),
+        // Said in the option itself: a site handed to a machine that is not
+        // running looks assigned here and refuses to poll over there.
+        label: a.online ? a.name : `${a.name} · офлайн`,
+      })),
+    [agents],
+  )
+  const agentById = useMemo(
+    () => new Map((agents ?? []).map((a) => [a.id, a])),
+    [agents],
+  )
+
+  const assign = useMutation({
+    mutationFn: ({ deviceId, agentIds }: { deviceId: number; agentIds: number[] }) =>
+      pollingApi.setDeviceAgents(deviceId, agentIds),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: DEVICES_KEY })
+      // The agents screen counts sites per machine. Without this the number
+      // there stays as it was until something else happens to refetch it,
+      // which reads as an assignment that did not take.
+      queryClient.invalidateQueries({ queryKey: AGENTS_KEY })
     },
     onError: notifyErr,
   })
 
-  /**
-   * The correctors fitted at metering points right now, by serial. Searching
-   * by serial is how this list is used: the operator is holding a device with
-   * a number on it, not a point name.
-   */
-  const correctors = useMemo(() => {
-    const out: { value: string; label: string }[] = []
-    for (const m of mappings ?? []) {
-      const device = currentDevice(m)
-      if (!device) continue
-      // Serial first: the operator is holding a device with a number on it.
-      // The model comes next, because two points can look alike by name.
-      const model = device.model_name ? ` · ${device.model_name}` : ''
-      out.push({
-        value: String(device.device_id),
-        label: `№${device.ser_num} — ${m.enterprise_name ?? ''}${model}`.trim(),
-      })
-    }
-    return out.sort((a, b) => a.label.localeCompare(b.label))
-  }, [mappings])
+  if (isLoading) return <Loader size="sm" />
 
-  const agentName = (id: number) =>
-    (agents ?? []).find((a) => a.id === id)?.name ?? `#${id}`
+  const cards = (devices ?? []).filter((d) => d.enterprise_id != null)
+  const q = search.trim().toLowerCase()
+  // Name, serial or phone: the three things somebody arrives here holding.
+  // A phone typed with spaces or without the country code still has to find
+  // the row, so digits are compared against digits.
+  const digits = q.replace(/\D/g, '')
+  const shown = q
+    ? cards.filter(
+        (c) =>
+          (c.target_label ?? '').toLowerCase().includes(q) ||
+          String(c.ser_num ?? '').includes(digits || q) ||
+          (digits.length >= 3 && (c.phone ?? '').replace(/\D/g, '').includes(digits)),
+      )
+    : cards
 
-  const unassigned = (devices ?? []).filter((d) => d.enabled && d.agent_ids.length === 0)
-  const stale = (devices ?? []).filter((d) => d.enabled && !d.still_installed)
-  const neverPolled = (devices ?? []).filter((d) => d.enabled && !d.last_poll_at)
-
-  const targetOptions = (form: Record<string, unknown>) => {
-    const kind = (form.target_kind as PollTargetKind) ?? 'dpd_device'
-    if (kind === 'dpd_line') {
-      return (dpdLines ?? []).map((l) => ({ value: String(l.id), label: l.name || `#${l.id}` }))
-    }
-    return correctors
+  if (cards.length === 0) {
+    return (
+      <Alert color="gray" variant="light" icon={<IconInfoCircle size={16} />}>
+        <Text size="sm">
+          Жодне підприємство не має модема. Номер телефону вписується в картці
+          підприємства — «Адміністрування → Підприємства», блок «Опитування
+          модемом». Картка тут з'явиться сама.
+        </Text>
+      </Alert>
+    )
   }
 
   return (
-    <CrudTable<PollDevice>
-      title="Опитування модемом"
-      description="Номер телефону і коректор, який має відповісти. Опитує агент на машині оператора"
-      queryKey={DEVICES_KEY}
-      fetchAll={pollingApi.getDevices}
-      searchKeys={['target_label', 'phone', 'note', 'model_name']}
-      rowLabel={(d) =>
-        [d.ser_num ? `№${d.ser_num}` : `#${d.id}`, d.target_label]
-          .filter(Boolean)
-          .join(' — ')
-      }
-      create={(v) => {
-        const kind = (v.target_kind as PollTargetKind) ?? 'dpd_device'
-        return pollingApi.createDevice({
-          [TARGET_FIELD[kind]]: Number(v.target_id),
-          ...pollDevicePayload(v),
-        })
-      }}
-      update={(id, v) =>
-        pollingApi.updateDevice(id, {
-          ...pollDevicePayload(v),
-          // Repointing at another serial is how a replacement is recorded —
-          // the one foreign key on this screen that is meant to be edited.
-          ...(v.target_kind === 'dpd_device' && v.target_id
-            ? { dpd_device_id: Number(v.target_id) }
-            : {}),
-        })
-      }
-      // Deleting a card stops the modem polling that corrector; it touches
-      // neither the point's history nor anything already in the archive.
-      remove={(id) => pollingApi.removeDevice(id)}
-      // CrudTable starts every checkbox unticked, so without these a card
-      // added without touching them was created switched off — and nothing
-      // on screen said so.
-      createDefaults={{ enabled: true, auto_poll: true, priority: '0' }}
-      toForm={(d) => ({
-        target_kind: d.target_kind,
-        target_id: String(d.dpd_device_id ?? d.dpd_line_id ?? ''),
-        // Read-only, but the form needs it to decide whether the address is a
-        // question worth asking.
-        address_matters: d.address_matters,
-        enabled: d.enabled,
-        auto_poll: d.auto_poll,
-        poll_times: d.poll_times ?? [],
-        phone: d.phone ?? '',
-        device_address: d.device_address,
-        priority: String(d.priority),
-        note: d.note ?? '',
-      })}
-      notice={
-        unassigned.length + stale.length + neverPolled.length > 0 ? (
-          <Alert color="amber" variant="light" icon={<IconAlertTriangle size={16} />}>
-            {stale.length > 0 && (
-              <Text size="sm">
-                Коректор знято, а номер не перенесено: {stale.length}. Модем
-                дзвонить приладу, якого вже немає — оберіть у картці новий
-                серійний номер.
-              </Text>
-            )}
-            {unassigned.length > 0 && (
-              <Text size="sm">
-                Без агента: {unassigned.length}. Їх не опитує ніхто — прилади
-                обираються в налаштуваннях самого агента.
-              </Text>
-            )}
-            {neverPolled.length > 0 && (
-              <Text size="sm">Жодного разу не опитано: {neverPolled.length}.</Text>
-            )}
-          </Alert>
-        ) : undefined
-      }
-      fields={[
-        {
-          key: 'target_kind',
-          label: 'Тип',
-          type: 'select',
-          options: KIND_OPTIONS,
-          required: true,
-          onlyOn: 'create',
-          hideInTable: true,
-        },
-        {
-          // Editable on purpose: choosing another serial here IS how a
-          // replacement is recorded, and the phone stays with the card.
-          key: 'target_id',
-          label: 'Коректор (за серійним номером)',
-          type: 'select',
-          optionsFor: targetOptions,
-          required: true,
-          hideInTable: true,
-        },
-        {
-          key: 'ser_num',
-          label: 'Коректор',
-          hideInForm: true,
-          render: (d) => (
-            <Group gap={6} wrap="nowrap">
-              <Text size="sm">{d.ser_num ? `№${d.ser_num}` : '—'}</Text>
-              {!d.still_installed && (
-                <Tooltip
-                  label="Цей коректор уже знято з точки — перенесіть номер на новий"
-                  withArrow
-                >
-                  <Badge size="xs" variant="light" color="red">
-                    знято
-                  </Badge>
-                </Tooltip>
-              )}
-            </Group>
-          ),
-        },
-        {
-          // A serial says which device, the model says what it is — and the
-          // model is what decides the driver and the alarm dictionary.
-          key: 'model_name',
-          label: 'Тип коректора',
-          hideInForm: true,
-          render: (d) =>
-            d.model_name ? (
-              <Group gap={4} wrap="nowrap">
-                <Text size="sm">{d.model_name}</Text>
-                {d.manufacturer && (
-                  <Text size="xs" c="dimmed">
-                    {d.manufacturer}
-                  </Text>
-                )}
-              </Group>
-            ) : (
-              <Tooltip
-                label="У приладу не вказано тип коректора — драйвер підібрати нема з чого"
-                withArrow
-              >
-                <Badge size="xs" variant="light" color="amber">
-                  не вказано
-                </Badge>
-              </Tooltip>
-            ),
-        },
-        {
-          key: 'target_label',
-          label: 'Де стоїть',
-          hideInForm: true,
-          render: (d) => (
-            <Group gap={6} wrap="nowrap">
-              <Text size="sm">{d.target_label ?? '—'}</Text>
-              <Badge size="xs" variant="light" color="gray">
-                {KIND_LABEL[d.target_kind]}
-              </Badge>
-            </Group>
-          ),
-        },
-        {
-          key: 'phone',
-          label: 'Телефон',
-          required: true,
-          renderField: (value, onChange) => (
-            <TextInput
-              value={String(value ?? '')}
-              onChange={(e) => onChange(e.currentTarget.value)}
-              placeholder="+380XXXXXXXXX"
-              error={phoneError(value)}
-              description="Український номер; вводиться як завгодно, зберігається як +380…"
-            />
-          ),
-        },
-        {
-          // Not asked for: it comes from the corrector's model, set once in
-          // Типи коректорів. Shown because an empty one means this model has
-          // no Ask2 driver at all and the card can never be polled.
-          key: 'protocol_id',
-          label: 'Драйвер',
-          hideInForm: true,
-          render: (d) =>
-            d.protocol_id == null ? (
-              <Tooltip
-                label="Для цієї моделі немає драйвера Ask2 — модемом її не опитати"
-                withArrow
-              >
-                <Badge size="xs" variant="light" color="red">
-                  немає
-                </Badge>
-              </Tooltip>
-            ) : (
-              <Text size="xs">{d.protocol_id}</Text>
-            ),
-        },
-        {
-          // Asked for only where it is a real choice: several Floutek
-          // correctors share one line and answer on their own addresses.
-          // Every other driver sends the address and checks it in the reply
-          // too, but it is always 1 there — so the server fills it in, and a
-          // box nobody needed to touch cannot collect a typo that reads as a
-          // dead meter.
-          key: 'device_address',
-          label: 'Мережева адреса',
-          type: 'number',
-          numeric: true,
-          hideInTable: true,
-          renderField: (value, onChange, form) =>
-            form.address_matters ? (
-              <NumberInput
-                value={typeof value === 'number' ? value : undefined}
-                onChange={(next) => onChange(next === '' ? null : Number(next))}
-                min={0}
-                max={255}
-                description="Кілька Флоутеків на одній лінії відповідають за своїми адресами"
-              />
-            ) : (
-              <Text size="xs" c="dimmed">
-                Для цього драйвера адреса завжди 1 — задається автоматично
-              </Text>
-            ),
-        },
-        {
-          key: 'enabled',
-          label: 'Картка діє',
-          type: 'checkbox',
-          render: (d) =>
-            d.enabled ? (
-              <Text size="xs">так</Text>
-            ) : (
-              <Badge size="xs" variant="light" color="gray">
-                вимкнена
-              </Badge>
-            ),
-        },
-        {
-          // Two different questions, which is why they are two boxes: a card
-          // can be off entirely, or on but polled only when somebody asks.
-          // This one comes BEFORE the hours it governs — with it off, the
-          // hours mean nothing, and the field below says so by being disabled.
-          key: 'auto_poll',
-          label: 'Опитувати автоматично',
-          type: 'checkbox',
-          render: (d) => (
-            <Text size="xs" c={d.auto_poll ? undefined : 'dimmed'}>
-              {d.auto_poll ? 'за розкладом' : 'лише вручну'}
-            </Text>
-          ),
-        },
-        {
-          key: 'poll_times',
-          label: 'О котрій опитувати',
-          renderField: (value, onChange, form) => (
-            <PollTimesField
-              value={Array.isArray(value) ? (value as string[]) : []}
-              onChange={onChange}
-              disabled={form.auto_poll === false}
-            />
-          ),
-          render: (d) =>
-            !d.auto_poll ? (
-              <Text size="xs" c="dimmed">
-                —
-              </Text>
-            ) : d.poll_times?.length ? (
-              d.poll_times.join(', ')
-            ) : (
-              <Text size="xs" c="dimmed">
-                загальні
-              </Text>
-            ),
-        },
-        {
-          // A queue order compared by eye, so a short list rather than a free
-          // number: "priority 900" says nothing about where it sits.
-          key: 'priority',
-          label: 'Пріоритет',
-          type: 'select',
-          options: PRIORITY_OPTIONS,
-          hideInTable: true,
-        },
-        { key: 'note', label: 'Примітка', hideInTable: true },
-        {
-          key: 'agent_ids',
-          label: 'Агенти',
-          hideInForm: true,
-          render: (d) =>
-            d.agent_ids.length ? (
-              <Text size="xs">{d.agent_ids.map(agentName).join(', ')}</Text>
-            ) : (
-              <Tooltip
-                label="Жоден агент не взяв цей прилад — його ніхто не опитує"
-                withArrow
-              >
-                <Badge size="xs" variant="light" color="amber">
-                  не призначено
-                </Badge>
-              </Tooltip>
-            ),
-        },
-        {
-          key: 'last_poll_at',
-          label: 'Останнє опитування',
-          hideInForm: true,
-          render: (d) => (
-            <Group gap={6} wrap="nowrap">
-              {d.last_poll_at ? (
-                <Text size="xs">{new Date(d.last_poll_at).toLocaleString()}</Text>
-              ) : (
-                <Text size="xs" c="dimmed">
-                  ніколи
+    <>
+      <Alert color="gray" variant="light" icon={<IconInfoCircle size={16} />} mb="sm">
+        <Text size="xs">
+          Телефон, графік і години опитування — у картці підприємства. Тут видно
+          стан по всьому парку і призначається машина, яка дзвонить.
+        </Text>
+      </Alert>
+
+      <Group mb="sm" gap="sm" align="flex-end">
+        <TextInput
+          size="xs"
+          w={300}
+          label="Пошук"
+          placeholder="Підприємство, № коректора або телефон"
+          leftSection={<IconSearch size={14} />}
+          value={search}
+          onChange={(e) => setSearch(e.currentTarget.value)}
+        />
+        <Text size="xs" c="dimmed" pb={6}>
+          {shown.length === cards.length
+            ? `Підприємств: ${cards.length}`
+            : `Знайдено: ${shown.length} з ${cards.length}`}
+        </Text>
+      </Group>
+
+      <Table striped highlightOnHover withTableBorder>
+        <Table.Thead>
+          <Table.Tr>
+            <Table.Th>Підприємство</Table.Th>
+            <Table.Th>Телефон</Table.Th>
+            <Table.Th>Коректор</Table.Th>
+            <Table.Th>Графік</Table.Th>
+            <Table.Th w={260}>Хто опитує</Table.Th>
+            <Table.Th>Останній опит</Table.Th>
+            <Table.Th>Стан</Table.Th>
+            <Table.Th w={40} />
+          </Table.Tr>
+        </Table.Thead>
+        <Table.Tbody>
+          {shown.map((card) => (
+            <Table.Tr key={card.id}>
+              <Table.Td>
+                <Text size="sm">{card.target_label ?? '—'}</Text>
+              </Table.Td>
+              <Table.Td>
+                <Text size="xs" ff="monospace">
+                  {card.phone ?? '—'}
                 </Text>
-              )}
-              {d.last_status === 'error' && (
-                <Tooltip label={d.last_error_text ?? d.last_error_code ?? ''} withArrow multiline w={280}>
-                  <Badge size="xs" variant="light" color="red">
-                    {d.last_error_code ?? 'помилка'}
-                  </Badge>
+              </Table.Td>
+              <Table.Td>
+                <Corrector card={card} />
+              </Table.Td>
+              <Table.Td>
+                <Schedule card={card} />
+              </Table.Td>
+              <Table.Td>
+                <MultiSelect
+                  size="xs"
+                  data={agentOptions}
+                  value={card.agent_ids.map(String)}
+                  onChange={(ids) =>
+                    assign.mutate({ deviceId: card.id, agentIds: ids.map(Number) })
+                  }
+                  placeholder={card.agent_ids.length ? undefined : 'нікому'}
+                  // A site nobody took is never polled, and on every other
+                  // column it looks exactly like a site that is fine.
+                  error={card.agent_ids.length === 0}
+                  searchable
+                  clearable
+                />
+              </Table.Td>
+              <Table.Td>
+                <LastPoll card={card} agentName={
+                  card.last_agent_id != null
+                    ? agentById.get(card.last_agent_id)?.name
+                    : undefined
+                } />
+              </Table.Td>
+              <Table.Td>
+                <State card={card} agents={agentById} />
+              </Table.Td>
+              <Table.Td>
+                <Tooltip label="Журнал останнього опитування" withArrow>
+                  <Button
+                    size="compact-xs"
+                    variant="subtle"
+                    color="gray"
+                    onClick={() => setLogOf(card)}
+                  >
+                    <IconFileText size={14} />
+                  </Button>
                 </Tooltip>
-              )}
-            </Group>
-          ),
-        },
-      ]}
-      extraRowActions={(d) => (
-        <Tooltip
-          label={
-            d.manual_requested_at
-              ? 'Заявку вже подано — натисніть, щоб скасувати'
-              : 'Опитати позачергово, щойно агент прийде за планом'
-          }
-          withArrow
-        >
-          <Button
-            size="compact-xs"
-            variant={d.manual_requested_at ? 'light' : 'subtle'}
-            color={d.manual_requested_at ? 'amber' : undefined}
-            leftSection={<IconPlayerPlay size={13} />}
-            loading={requestPoll.isPending && requestPoll.variables?.id === d.id}
-            onClick={() => requestPoll.mutate(d)}
-          >
-            {d.manual_requested_at ? 'В черзі' : 'Опитати'}
-          </Button>
+              </Table.Td>
+            </Table.Tr>
+          ))}
+        </Table.Tbody>
+      </Table>
+
+      {shown.length === 0 && (
+        <Text size="sm" c="dimmed" ta="center" py="md">
+          Нічого не знайдено
+        </Text>
+      )}
+
+      <LogModal card={logOf} onClose={() => setLogOf(null)} />
+    </>
+  )
+}
+
+/**
+ * The log of the last call to one site.
+ *
+ * Read from a file rather than from the live log: that one is wiped when the
+ * next session starts, and the question asked here is about the session that
+ * has already ended — usually right after it failed, by somebody deciding
+ * whether the meter needs a visit.
+ */
+function LogModal({ card, onClose }: { card: PollDevice | null; onClose: () => void }) {
+  const { data, isFetching } = useQuery({
+    queryKey: ['admin', 'poll-log', card?.id],
+    queryFn: () => pollingApi.getLastLog(card!.id),
+    enabled: card != null,
+    // A poll that is running writes into this file as it goes.
+    refetchInterval: card?.polling_agent_id != null ? 3000 : false,
+  })
+
+  return (
+    <Modal
+      opened={card != null}
+      onClose={onClose}
+      title={`Журнал опитування — ${card?.target_label ?? ''}`}
+      size="xl"
+    >
+      {isFetching && !data ? (
+        <Loader size="sm" />
+      ) : data?.text ? (
+        <>
+          <Text size="xs" c="dimmed" mb={6}>
+            {data.updated_at
+              ? `Записано ${new Date(data.updated_at).toLocaleString('uk-UA')}`
+              : ''}
+          </Text>
+          <ScrollArea h={420} type="auto">
+            <Code block style={{ fontSize: 12, whiteSpace: 'pre-wrap' }}>
+              {data.text}
+            </Code>
+          </ScrollArea>
+        </>
+      ) : (
+        <Text size="sm" c="dimmed">
+          Це підприємство ще жодного разу не опитували через GSM — журналу
+          немає.
+        </Text>
+      )}
+    </Modal>
+  )
+}
+
+/** Whichever corrector stands there today — resolved by the server, not stored. */
+function Corrector({ card }: { card: PollDevice }) {
+  if (!card.still_installed) {
+    return (
+      <Tooltip label="Усі коректори зняті — опитування відмовить" withArrow>
+        <Badge size="xs" color="red" variant="light">
+          немає встановлених
+        </Badge>
+      </Tooltip>
+    )
+  }
+  return (
+    <Group gap={6} wrap="nowrap">
+      <Text size="xs">№{card.ser_num}</Text>
+      <Text size="xs" c="dimmed">
+        {card.model_name ?? ''}
+      </Text>
+    </Group>
+  )
+}
+
+function Schedule({ card }: { card: PollDevice }) {
+  if (!card.auto_poll) {
+    return (
+      <Text size="xs" c="dimmed">
+        вручну
+      </Text>
+    )
+  }
+  const times = card.poll_times?.length ? card.poll_times.join(', ') : 'загальні години'
+  return <Text size="xs">{times}</Text>
+}
+
+function LastPoll({ card, agentName }: { card: PollDevice; agentName?: string }) {
+  if (!card.last_attempt_at) {
+    return (
+      <Text size="xs" c="dimmed">
+        ще не опитувалось
+      </Text>
+    )
+  }
+  const when = new Date(card.last_attempt_at).toLocaleString('uk-UA')
+  const rows = card.last_rows ?? {}
+  return (
+    <Group gap={6} wrap="nowrap">
+      <Text size="xs">{when}</Text>
+      {card.last_status === 'ok' ? (
+        <Badge size="xs" color="green" variant="light">
+          годин {rows.hour ?? 0}, діб {rows.day ?? 0}
+        </Badge>
+      ) : (
+        <Tooltip label={card.last_error_text ?? 'помилка'} withArrow multiline w={280}>
+          <Badge size="xs" color="red" variant="light">
+            {card.last_error_code ?? 'помилка'}
+          </Badge>
         </Tooltip>
       )}
-    />
+      {agentName && (
+        <Text size="xs" c="dimmed">
+          {agentName}
+        </Text>
+      )}
+    </Group>
+  )
+}
+
+function State({
+  card,
+  agents,
+}: {
+  card: PollDevice
+  agents: Map<number, PollAgent>
+}) {
+  if (card.polling_agent_id != null) {
+    const total = card.progress_total ?? 0
+    const done = card.progress_done ?? 0
+    return (
+      <Group gap={6} wrap="nowrap" w={160}>
+        <Loader size={12} />
+        <div style={{ flex: 1 }}>
+          <Text size="xs">
+            {agents.get(card.polling_agent_id)?.name ?? 'опитування'}
+          </Text>
+          {total > 0 && (
+            <Progress value={(done / total) * 100} size="xs" radius="sm" animated />
+          )}
+        </div>
+      </Group>
+    )
+  }
+  if (card.manual_requested_at != null) {
+    return (
+      <Badge size="xs" color="blue" variant="light">
+        у черзі
+      </Badge>
+    )
+  }
+  if (!card.enabled) {
+    return (
+      <Badge size="xs" color="gray" variant="light">
+        вимкнено
+      </Badge>
+    )
+  }
+  if (card.agent_ids.length === 0) {
+    return (
+      <Tooltip label="Жодна машина не дзвонить цьому підприємству" withArrow>
+        <Badge size="xs" color="orange" variant="light" leftSection={
+          <IconAlertTriangle size={10} />
+        }>
+          без агента
+        </Badge>
+      </Tooltip>
+    )
+  }
+  return (
+    <Text size="xs" c="dimmed">
+      очікує
+    </Text>
   )
 }

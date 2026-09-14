@@ -1,10 +1,15 @@
 import { useState } from 'react'
-import { Alert, Badge, Button, Code, Group, Text, Tooltip } from '@mantine/core'
+import { Alert, Badge, Button, Code, Group, Paper, Stack, Text, Tooltip } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
-import { IconAlertTriangle, IconKey } from '@tabler/icons-react'
+import { IconAlertTriangle, IconDownload, IconKey } from '@tabler/icons-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { branchAdminApi } from '@/api/admin'
-import { pollingApi, type PollAgent, type PollAgentCreated } from '@/api/polling'
+import {
+  pollingApi,
+  type AgentInstaller,
+  type PollAgent,
+  type PollAgentCreated,
+} from '@/api/polling'
 import { copyText } from '@/lib/clipboard'
 import { toOptions } from '../useAdminTopology'
 import { CrudTable } from '../CrudTable'
@@ -12,11 +17,6 @@ import { CrudTable } from '../CrudTable'
 const notifyErr = (e: Error) => notifications.show({ message: e.message, color: 'red' })
 
 const AGENTS_KEY = ['admin', 'poll-agents']
-
-const KIND_OPTIONS = [
-  { value: 'workstation', label: 'АРМ оператора' },
-  { value: 'dedicated', label: 'Виділена машина' },
-]
 
 /**
  * Агенти опитування — the machines allowed to dial meters.
@@ -37,7 +37,18 @@ export function PollAgentsTab() {
     queryKey: ['admin', 'branches'],
     queryFn: branchAdminApi.getAll,
   })
-  const { data: agents } = useQuery({ queryKey: AGENTS_KEY, queryFn: pollingApi.getAgents })
+  const { data: agents } = useQuery({
+    queryKey: AGENTS_KEY,
+    queryFn: pollingApi.getAgents,
+    // Two things on this screen move without anybody touching it: whether a
+    // machine is on the line, and how many sites it was given in the monitor.
+    // The table shares this query, so refreshing here refreshes it too.
+    refetchInterval: 5000,
+  })
+  const { data: installer } = useQuery({
+    queryKey: ['admin', 'poll-agent-installer'],
+    queryFn: pollingApi.getAgentInstaller,
+  })
 
   const rotate = useMutation({
     mutationFn: (a: PollAgent) => pollingApi.rotateKey(a.id),
@@ -57,6 +68,8 @@ export function PollAgentsTab() {
 
   return (
     <>
+      <Installer build={installer} />
+
       {issuedKey && (
         <Alert
           color="amber"
@@ -89,7 +102,6 @@ export function PollAgentsTab() {
         create={(v) =>
           pollingApi.createAgent({
             name: String(v.name ?? '').trim(),
-            kind: v.kind ?? 'workstation',
             branch_id: v.branch_id ?? null,
             active: v.active !== false,
           })
@@ -97,7 +109,6 @@ export function PollAgentsTab() {
         update={(id, v) =>
           pollingApi.updateAgent(id, {
             name: String(v.name ?? '').trim(),
-            kind: v.kind,
             branch_id: v.branch_id ?? null,
             active: !!v.active,
           })
@@ -113,8 +124,14 @@ export function PollAgentsTab() {
           ) : undefined
         }
         fields={[
-          { key: 'name', label: 'Назва', required: true },
-          { key: 'kind', label: 'Тип', type: 'select', options: KIND_OPTIONS },
+          {
+            key: 'name',
+            label: 'Назва',
+            required: true,
+            // The one field that says which machine this is, so it is worth
+            // making it say it: a hostname plus where the box stands.
+            placeholder: 'Напр.: Запоріжжя, каб. 214 (PC-ZP-214)',
+          },
           {
             key: 'branch_id',
             label: 'Філія',
@@ -137,16 +154,9 @@ export function PollAgentsTab() {
           },
           {
             key: 'last_seen_at',
-            label: 'Востаннє на зв’язку',
+            label: 'Стан',
             hideInForm: true,
-            render: (a) =>
-              a.last_seen_at ? (
-                new Date(a.last_seen_at).toLocaleString()
-              ) : (
-                <Text size="xs" c="dimmed">
-                  ще не виходив
-                </Text>
-              ),
+            render: (a) => <Presence agent={a} />,
           },
           {
             key: 'host',
@@ -175,4 +185,107 @@ export function PollAgentsTab() {
       />
     </>
   )
+}
+
+
+/**
+ * The agent itself, next to the key it needs.
+ *
+ * Getting the program onto an operator's machine used to be a folder on a
+ * share and a phone call. Here it is the second step of the screen that
+ * already issued the key: create the agent, take the .exe, run it.
+ *
+ * The server may have no build — it is a build artifact, put in place the way
+ * the frontend build is — and that is said in words rather than left as a
+ * button that answers 404.
+ */
+function Installer({ build }: { build?: AgentInstaller }) {
+  const megabytes = build?.size ? (build.size / 1024 / 1024).toFixed(1) : null
+  const built = build?.built_at ? new Date(build.built_at).toLocaleDateString('uk-UA') : null
+
+  return (
+    <Paper withBorder p="sm" radius="md" mb="sm">
+      <Group justify="space-between" wrap="nowrap" align="flex-start">
+        <Stack gap={2}>
+          <Text size="sm" fw={500}>
+            Програма агента для машини з модемом
+          </Text>
+          <Text size="xs" c="dimmed">
+            Створіть агента нижче, скопіюйте ключ, завантажте файл на ту машину
+            й запустіть. Він сам запитає адресу сервера, ключ і COM-порт.
+          </Text>
+          {build?.available && (
+            <Text size="xs" c="dimmed">
+              {build.filename} · {megabytes} МБ{built ? ` · зібрано ${built}` : ''}
+            </Text>
+          )}
+        </Stack>
+        {build?.available ? (
+          <Button
+            size="xs"
+            variant="light"
+            leftSection={<IconDownload size={14} />}
+            onClick={() => pollingApi.downloadAgent()}
+          >
+            Завантажити .exe
+          </Button>
+        ) : (
+          <Tooltip
+            label="Покладіть збірку в backend/data/agent на сервері (hl_poller/build_exe.py --install)"
+            withArrow
+            multiline
+            w={280}
+          >
+            <Text size="xs" c="dimmed">
+              Збірки немає на сервері
+            </Text>
+          </Tooltip>
+        )}
+      </Group>
+    </Paper>
+  )
+}
+
+
+/**
+ * Is this machine there right now.
+ *
+ * The registry cannot answer that: an agent whose workstation went home still
+ * holds its assignments and looks, on every other column, exactly like one
+ * that is working. The server decides it by the same silence it uses to
+ * refuse an immediate poll, so the badge and the refusal always agree.
+ */
+function Presence({ agent }: { agent: PollAgent }) {
+  if (agent.online) {
+    return (
+      <Badge size="sm" color="teal" variant="light">
+        на зв'язку
+      </Badge>
+    )
+  }
+  if (!agent.last_seen_at) {
+    return (
+      <Tooltip label="Програму агента ще жодного разу не запускали з цим ключем" withArrow>
+        <Badge size="sm" color="gray" variant="light">
+          ще не виходив
+        </Badge>
+      </Tooltip>
+    )
+  }
+  return (
+    <Tooltip label={new Date(agent.last_seen_at).toLocaleString('uk-UA')} withArrow>
+      <Badge size="sm" color="gray" variant="light">
+        офлайн · {silence(agent.last_seen_at)}
+      </Badge>
+    </Tooltip>
+  )
+}
+
+/** How long the silence has lasted, in the roughest unit that still says it. */
+function silence(since: string): string {
+  const minutes = Math.max(0, Math.round((Date.now() - new Date(since).getTime()) / 60000))
+  if (minutes < 60) return `${minutes} хв`
+  const hours = Math.round(minutes / 60)
+  if (hours < 24) return `${hours} год`
+  return `${Math.round(hours / 24)} дн`
 }

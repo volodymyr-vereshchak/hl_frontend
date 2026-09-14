@@ -1,11 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import {
-  normalisePhone,
-  normalisePollTimes,
-  phoneError,
-  pollDevicePayload,
-} from './pollDeviceForm'
+import { normalisePhone, normalisePollTimes, phoneError } from './pollDeviceForm'
 
 describe('normalisePhone', () => {
   it('accepts the shapes people write and gives back one', () => {
@@ -53,54 +48,3 @@ describe('normalisePollTimes', () => {
   })
 })
 
-describe('pollDevicePayload', () => {
-  it('leaves an untouched card switched on', () => {
-    // The tab seeds these through createDefaults, because CrudTable starts
-    // every checkbox unticked — without that a card added without touching
-    // them was created switched off, and nothing on screen said so.
-    const body = pollDevicePayload({})
-    expect(body.enabled).toBe(true)
-    expect(body.auto_poll).toBe(true)
-  })
-
-  it('respects an explicit off', () => {
-    const body = pollDevicePayload({ enabled: false, auto_poll: false })
-    expect(body.enabled).toBe(false)
-    expect(body.auto_poll).toBe(false)
-  })
-
-  it('drops the hours when the schedule is off', () => {
-    // Keeping them would leave a card that looks scheduled and is not.
-    const body = pollDevicePayload({ auto_poll: false, poll_times: ['06:00'] })
-    expect(body.poll_times).toBeNull()
-  })
-
-  it('keeps the hours when it is on', () => {
-    const body = pollDevicePayload({ auto_poll: true, poll_times: ['18:00', '06:00'] })
-    expect(body.poll_times).toEqual(['06:00', '18:00'])
-  })
-
-  it('normalises the phone on the way out', () => {
-    expect(pollDevicePayload({ phone: ' 050 123-45-67 ' }).phone).toBe('+380501234567')
-    expect(pollDevicePayload({ phone: '   ' }).phone).toBeNull()
-  })
-
-  it('sends a numeric priority, because the select works in strings', () => {
-    expect(pollDevicePayload({ priority: '3' }).priority).toBe(3)
-    expect(pollDevicePayload({}).priority).toBe(0)
-  })
-
-  it('sends blank text as null rather than as an empty string', () => {
-    expect(pollDevicePayload({ note: '' }).note).toBeNull()
-  })
-
-  it('carries neither a speed nor a driver nor a depth', () => {
-    // Speed belongs to the agent, the driver to the corrector's model, and
-    // there is no depth at all: the first poll takes the whole archive and
-    // later ones fill in what is missing.
-    const body = pollDevicePayload({})
-    expect(body).not.toHaveProperty('baud')
-    expect(body).not.toHaveProperty('protocol_id')
-    expect(body).not.toHaveProperty('depth_days')
-  })
-})

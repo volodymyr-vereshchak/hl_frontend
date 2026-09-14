@@ -20,6 +20,7 @@ import {
 import { DatePickerInput } from '@mantine/dates'
 import { modals } from '@mantine/modals'
 import { notifications } from '@mantine/notifications'
+import { PRESSURE_UNIT_DEFAULT, UNIT_LABELS } from '@/domain/pressureUnits'
 import {
   IconAlertTriangle,
   IconCheck,
@@ -70,10 +71,19 @@ interface FormState {
   description: string
   branch_id: string | null
   lumg_id: string | null
+  /** Which unit the line's pressure is READ in; the archive converts to it. */
+  pressure_unit: string
   devices: DeviceForm[]
 }
 
-const EMPTY: FormState = { name: '', description: '', branch_id: null, lumg_id: null, devices: [] }
+const EMPTY: FormState = {
+  name: '',
+  description: '',
+  branch_id: null,
+  lumg_id: null,
+  pressure_unit: PRESSURE_UNIT_DEFAULT,
+  devices: [],
+}
 
 /**
  * ДПД-лінії. A DPD line has no calculator — it is a chain of correctors, each in
@@ -237,6 +247,7 @@ export function DpdLinesTab() {
       description: line.description ?? '',
       branch_id: line.branch_id != null ? String(line.branch_id) : null,
       lumg_id: line.lumg_id != null ? String(line.lumg_id) : null,
+      pressure_unit: line.pressure_unit || PRESSURE_UNIT_DEFAULT,
       devices: (line.devices ?? []).map((d) => ({
         ser_num: String(d.ser_num),
         manufacturer_id: String(mfrOfCt(d.corector_type_id) ?? ''),
@@ -268,6 +279,7 @@ export function DpdLinesTab() {
       description: form.description || null,
       branch_id: Number(form.branch_id),
       lumg_id: form.lumg_id ? Number(form.lumg_id) : null,
+      pressure_unit: form.pressure_unit,
       active: existing ? existing.active : true,
       include_in_trends: existing ? existing.include_in_trends : false,
       include_in_report: existing ? existing.include_in_report : false,
@@ -391,6 +403,18 @@ export function DpdLinesTab() {
               onChange={(v) => setForm({ ...form, lumg_id: v })}
               searchable
               clearable
+            />
+            {/* Кожен запис архіву несе ту одиницю, яку назвав його коректор, —
+                по парку це і МПа, і кгс/см². Тут задається та, в якій лінію
+                читають; архів переводить у неї. */}
+            <Select
+              label="Од. тиску"
+              size="xs"
+              w={130}
+              data={UNIT_LABELS}
+              value={form.pressure_unit}
+              onChange={(v) => setForm({ ...form, pressure_unit: v || PRESSURE_UNIT_DEFAULT })}
+              allowDeselect={false}
             />
           </Group>
 

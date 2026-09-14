@@ -1,5 +1,4 @@
-import type { ArchiveColumn } from '@/domain/archiveColumns'
-import { resolveEditName } from '@/domain/archiveColumns'
+import { columnTitle, resolveEditName, type ArchiveColumn } from '@/domain/archiveColumns'
 import { formatEditValue } from '@/domain/valueConverter'
 import {
   breakdownHeader,
@@ -24,7 +23,7 @@ export function exportArchiveToExcel(
   type: ArchiveType,
   fileBase: string,
 ) {
-  const header = columns.map((c) => c.label)
+  const header = columns.map(columnTitle)
   const body = rows.map((row) =>
     columns.map((c) => {
       const raw = row[c.key]
@@ -74,7 +73,7 @@ export async function exportWithEnterpriseBreakdown(
 
   const { names: enterpriseCols, byPeriod } = buildEnterpriseBreakdown(records, periodType)
   const insertAt = breakdownInsertAt(columns.map((c) => c.key))
-  const header = breakdownHeader(columns.map((c) => c.label), enterpriseCols, insertAt)
+  const header = breakdownHeader(columns.map(columnTitle), enterpriseCols, insertAt)
 
   const body = rows.map((row) => {
     const base = columns.map((c) => {

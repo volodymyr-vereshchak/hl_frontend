@@ -31,6 +31,8 @@ import { DateRangeControls } from './DateRangeControls'
 import { ArchiveTable } from './ArchiveTable'
 import { ArchiveChart } from './ArchiveChart'
 import {
+  inOneUnit,
+  reportedUnit,
   useArchiveData,
   useArchivePage,
   useArchiveTypeOptions,
@@ -160,6 +162,10 @@ export function ArchivePage() {
     key: `hlv-archive-view-${archiveType}`,
     defaultValue: 'table',
   })
+  // Not remembered between lines: the unit a line is read in starts as the
+  // unit its own newest record reports, and the header switch overrides that
+  // for as long as the line is open.
+  const [unitChoice, setUnitChoice] = useState<string | null>(null)
   const clientPaged = isClientPaged(archiveType)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useLocalStorage({
@@ -168,6 +174,8 @@ export function ArchivePage() {
   })
   // A new period (or archive, or line) starts at its first page.
   useEffect(() => setPage(1), [loadKey])
+  // …and a new line is read in its own unit again.
+  useEffect(() => setUnitChoice(null), [lineId])
   const pageSizeOptions: PageSizeOption[] | undefined = useMemo(
     () => PAGE_SIZES[archiveType]?.map((s) => ({ value: s.value, label: t(s.labelKey) })),
     [archiveType, t],
@@ -229,22 +237,36 @@ export function ArchivePage() {
   // the props referentially stable." applyOverlay maps every row into a new
   // object, so without this the overlay — the heaviest mode there is — handed
   // the table a fresh array on every render and undid the ~0.8s optimisation.
-  const rows = useMemo(
-    () =>
+  // What the rows are stored in: what the newest of them reports, and for
+  // rows that report nothing — a physical line's, whose unit is a setting
+  // rather than a column — the line's own.
+  const lineUnit = normalizeUnit(lineMeta?.pressure_unit)
+  const storedUnit = reportedUnit(rawRows) ?? lineUnit ?? PRESSURE_UNIT_DEFAULT
+  // And what to show them in: that same unit, until the reader says otherwise
+  // in the column header.
+  const displayUnit = unitChoice ?? storedUnit
+
+  const rows = useMemo(() => {
+    const base =
       canOverlay && overlay.enabled && rawRows
         ? applyOverlay(rawRows, overlay.byPeriod, archiveType)
-        : rawRows,
-    [canOverlay, overlay.enabled, overlay.byPeriod, rawRows, archiveType],
+        : rawRows
+    return base ? inOneUnit(base, displayUnit, storedUnit) : base
+  }, [
+    canOverlay,
+    overlay.enabled,
+    overlay.byPeriod,
+    rawRows,
+    archiveType,
+    displayUnit,
+    storedUnit,
+  ])
+  // Everything below (table, chart, export) reads units off `meta`, and after
+  // the conversion above every row is in one — so say which.
+  const meta = useMemo(
+    () => (lineMeta ? { ...lineMeta, pressure_unit: displayUnit } : lineMeta),
+    [lineMeta, displayUnit],
   )
-  // A DPD line has no unit configuration of its own — its pressure unit comes
-  // with the data, as the device reported it. Everything below (table, chart,
-  // export) reads units off `meta`, so fold it in there once.
-  const meta = useMemo(() => {
-    if (!lineMeta || lineMeta.kind !== 'dpd') return lineMeta
-    const withUnit = rows?.find((r) => normalizeUnit(r.press_unit))
-    if (!withUnit) return lineMeta
-    return { ...lineMeta, pressure_unit: normalizeUnit(withUnit.press_unit) }
-  }, [lineMeta, rows])
 
   const showChart = canOverlay && view === 'chart' && !!rows?.length
   // Once the chart has been opened it stays in the tree, hidden.
@@ -492,6 +514,7 @@ export function ArchivePage() {
                   rows={rows}
                   type={archiveType}
                   meta={meta}
+                  onPressureUnit={setUnitChoice}
                   overlay={canOverlay && overlay.enabled && !!overlay.byPeriod}
                   drillHref={drillHref}
                   /* sys/edit arrive one page at a time from the server; the

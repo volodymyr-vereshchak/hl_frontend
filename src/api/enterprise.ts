@@ -62,6 +62,9 @@ export interface EnterpriseMappingRow {
   enabled?: boolean
   /** Corrector history, ordered by install moment. */
   devices?: EnterpriseDeviceRow[]
+  /** The modem at this site, when there is one. Absent means the enterprise
+   *  is not dialled at all — which is what hides the source switch. */
+  gsm?: { phone: string | null; auto_poll: boolean; poll_times: string[] } | null
 }
 
 /**
@@ -376,4 +379,72 @@ export async function streamEnterpriseEvents(
 
   if (result === null) throw new Error('Stream ended without a result')
   return result
+}
+
+/**
+ * Polling one enterprise from DPD into the archive.
+ *
+ * Fetching, not reading. Both granularities of the whole range are pulled
+ * from the DPD API and written to the archive; what comes back is how many
+ * records landed. Looking at them is a separate request — the archive view
+ * reads the database and never contacts DPD, which is why a poll that failed
+ * and a period that genuinely has no data no longer look the same.
+ */
+export interface PollStored {
+  /** NEW records, not fetched ones. A poll asks DPD for the same window
+   *  every time; what an operator waits to hear is how much of it the
+   *  archive did not already have. */
+  daily: number
+  hourly: number
+  /** Rows that were already there and got rewritten with the same values.
+   *  Worth showing separately: "0 нових, 720 перезаписано" says the archive
+   *  is current, which is not what "0" alone says. */
+  rewritten: number
+}
+
+export async function streamEnterprisePoll(
+  params: { enterprise_id: number; from_date: string; to_date: string },
+  { onProgress, signal }: StreamOpts = {},
+): Promise<PollStored> {
+  const url = `${api.resolveBaseUrl()}/enterprise/poll/stream?${buildQuery(params as Record<string, unknown>)}`
+  const stored: PollStored = { daily: 0, hourly: 0, rewritten: 0 }
+
+  await consumeNdjson(url, signal, (line) => {
+    let event: {
+      type?: string
+      done?: number
+      total?: number
+      period?: string
+      records?: number
+      rewritten?: number
+      stored?: Partial<PollStored>
+      message?: string
+      detail?: string
+    }
+    try {
+      event = JSON.parse(line)
+    } catch {
+      return
+    }
+    if (event.type === 'progress') {
+      // The period is worth showing: an operator watching one bar twice needs
+      // to know it is the second archive and not the first one restarting.
+      onProgress?.({
+        done: event.done,
+        total: event.total,
+        phase: event.period === 'hourly' ? 'годинний архів' : 'добовий архів',
+      })
+    } else if (event.type === 'stored' && event.period) {
+      if (event.period === 'daily' || event.period === 'hourly') {
+        stored[event.period] = event.records ?? 0
+      }
+      stored.rewritten += event.rewritten ?? 0
+    } else if (event.type === 'done') {
+      Object.assign(stored, event.stored ?? {})
+    } else if (event.type === 'error') {
+      throw new Error(event.message || event.detail || 'Опитування не вдалося')
+    }
+  })
+
+  return stored
 }

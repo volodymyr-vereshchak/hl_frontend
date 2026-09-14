@@ -94,6 +94,8 @@ export interface DpdLine {
   active?: boolean
   include_in_trends?: boolean
   include_in_report?: boolean
+  /** Which unit this line's pressure is READ in; empty follows the rows. */
+  pressure_unit?: string | null
   devices?: DpdDevice[]
 }
 

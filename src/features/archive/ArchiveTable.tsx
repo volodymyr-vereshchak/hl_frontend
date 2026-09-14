@@ -16,6 +16,7 @@ import { numericStyle } from '@/theme/theme'
 import { useLanguage } from '@/locales/LanguageContext'
 import { columnAggregate, fold, type Aggregate } from '@/domain/aggregate'
 import { getArchiveColumns, resolveEditName } from '@/domain/archiveColumns'
+import { PressureUnitPicker } from '@/components/PressureUnitPicker'
 import { DP_UNIT_DEFAULT, PRESSURE_UNIT_DEFAULT } from '@/domain/pressureUnits'
 import { formatEditValue } from '@/domain/valueConverter'
 import type { ArchiveType } from '@/types'
@@ -23,6 +24,8 @@ import type { LineMeta } from '@/store/selectionStore'
 import type { ArchiveRow } from '@/api/entities'
 
 interface Props {
+  /** Given, the pressure column's unit becomes a choice in its header. */
+  onPressureUnit?: (unit: string) => void
   rows: ArchiveRow[]
   type: ArchiveType
   meta: LineMeta
@@ -92,6 +95,7 @@ export const ArchiveTable = memo(function ArchiveTable({
   drillHref,
   page,
   pageSize,
+  onPressureUnit,
 }: Props) {
   const { t } = useLanguage()
   const [sorting, setSorting] = useState<SortingState>([])
@@ -249,6 +253,16 @@ export const ArchiveTable = memo(function ArchiveTable({
                       {sorted === 'asc' && <IconArrowUp size={13} />}
                       {sorted === 'desc' && <IconArrowDown size={13} />}
                     </Group>
+                    {/* The unit on its own line under the name: pressure is
+                        the one the reader changes, the rest just say. */}
+                    {spec?.unit &&
+                      (onPressureUnit ? (
+                        <PressureUnitPicker value={spec.unit} onChange={onPressureUnit} />
+                      ) : (
+                        <Text size="xs" c="dimmed" fw={400}>
+                          {spec.unit}
+                        </Text>
+                      ))}
                   </Table.Th>
                 )
               })}

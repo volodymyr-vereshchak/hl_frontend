@@ -16,8 +16,20 @@ export const P_UNITS: { label: string; k: number }[] = [
 /** Plain label list for per-line unit selectors (display-only, no conversion). */
 export const UNIT_LABELS = P_UNITS.map((u) => u.label)
 
+const UNIT_K: Record<string, number> = Object.fromEntries(P_UNITS.map((u) => [u.label, u.k]))
+
 // Defaults match the previously hardcoded units (кгс/см² / кгс/м²).
 export const PRESSURE_UNIT_DEFAULT = 'кгс/см²'
+
+/** The switch's "follow the setting / the meter" choice, rather than a unit. */
+export const AUTO_UNIT = 'auto'
+
+/**
+ * Offered in the reading-unit switch. Not all eight: picking a unit to read a
+ * gas archive in is a choice between the two the fleet actually reports and
+ * the two anybody asks for — the full list belongs in a parameter form.
+ */
+export const SWITCHABLE_UNITS = ['кгс/см²', 'МПа', 'кПа', 'бар']
 export const DP_UNIT_DEFAULT = 'кгс/м²'
 
 // Values that mean "the device reported no unit". Part of the DPD correctors
@@ -27,13 +39,46 @@ export const DP_UNIT_DEFAULT = 'кгс/м²'
 // before that landed.
 const ABSENT_UNITS = new Set(['', 'none', 'null', 'nan', 'n/a', '-', '—', '--'])
 
+/**
+ * The same unit written the several ways the archive holds it.
+ *
+ * `кгс/см3` is not a unit at all — it is what the DPD API calls кгс/см², and
+ * 157k rows carry it. Taken literally it is unknown, so the value would be
+ * shown unconverted under someone else's caption; mapped here, it reads as
+ * what the corrector actually measured.
+ */
+const UNIT_ALIASES: Record<string, string> = {
+  'кгс/см3': 'кгс/см²',
+  'кгс/см2': 'кгс/см²',
+  'кг/см2': 'кгс/см²',
+  'кг/см3': 'кгс/см²',
+  'kgf/cm2': 'кгс/см²',
+  'kgf/cm3': 'кгс/см²',
+  'kg/cm2': 'кгс/см²',
+  'кгс/м2': 'кгс/м²',
+  'kgf/m2': 'кгс/м²',
+  mpa: 'МПа',
+  kpa: 'кПа',
+  pa: 'Па',
+  bar: 'бар',
+  psi: 'PSI',
+  'мм рт.ст.': 'мм рт.ст',
+  'мм рт. ст.': 'мм рт.ст',
+  'mm hg': 'мм рт.ст',
+}
+
 /** A unit reported by a device, or null when it reported nothing usable. */
 export function normalizeUnit(raw: string | null | undefined): string | null {
   const text = String(raw ?? '').trim()
-  return ABSENT_UNITS.has(text.toLowerCase()) ? null : text
+  const key = text.toLowerCase()
+  if (ABSENT_UNITS.has(key)) return null
+  return UNIT_ALIASES[key] ?? text
 }
 
-const UNIT_K: Record<string, number> = Object.fromEntries(P_UNITS.map((u) => [u.label, u.k]))
+/** Is this a unit we can convert to and from? */
+export function isKnownUnit(unit: string | null | undefined): boolean {
+  return !!unit && unit in UNIT_K
+}
 
 /**
  * Convert a numeric value between pressure units using their Pa factors.

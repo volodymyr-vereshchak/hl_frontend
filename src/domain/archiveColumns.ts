@@ -32,10 +32,23 @@ export function eventTypeLabel(name: string): string {
 export interface ArchiveColumn {
   key: string
   label: string
+  /**
+   * Shown under the name, and — for pressure — chosen there.
+   *
+   * Kept apart from the label because it is the one unit on the screen that a
+   * reader changes: the archive holds whatever each corrector reported, so
+   * the column has to say which unit it is showing, and let it be switched.
+   */
+  unit?: string
   sortable?: boolean
   isSummable?: boolean
   isAveragable?: boolean
   tooltip?: string
+}
+
+/** The header as one string — for exports, which have no room for a control. */
+export function columnTitle(col: ArchiveColumn): string {
+  return col.unit ? `${col.label}, ${col.unit}` : col.label
 }
 
 interface ColumnOptions {
@@ -86,7 +99,13 @@ export function getArchiveColumns({
         return [
           { key: 'period', label: t('period'), sortable: true },
           { key: 'volume', label: t('volume'), sortable: true, isSummable: true },
-          { key: 'pressure', label: `${t('pressure')}, ${pressureUnit}`, sortable: true, isAveragable: true },
+          {
+            key: 'pressure',
+            label: t('pressure'),
+            unit: pressureUnit,
+            sortable: true,
+            isAveragable: true,
+          },
           { key: 'temperature', label: t('temperature'), sortable: true, isAveragable: true },
         ]
       }
@@ -94,12 +113,19 @@ export function getArchiveColumns({
         { key: 'period', label: t('period'), sortable: true },
         { key: 'volume', label: t('volume'), sortable: true, isSummable: true },
         { key: 'w_volume_dp', label: wVolumeDpLabel, sortable: true, isAveragable: true },
-        { key: 'pressure', label: `${t('pressure')}, ${pressureUnit}`, sortable: true, isAveragable: true },
+        {
+          key: 'pressure',
+          label: t('pressure'),
+          unit: pressureUnit,
+          sortable: true,
+          isAveragable: true,
+        },
         ...(showOutputPressure
           ? [
               {
                 key: 'output_pressure',
-                label: `${t('outputPressure')}, ${pressureUnit}`,
+                label: t('outputPressure'),
+                unit: pressureUnit,
                 sortable: true,
                 isAveragable: true,
               },

@@ -11,7 +11,13 @@ import {
   type CountRow,
 } from '@/api/entities'
 import { commercialHourlyRange, commercialDayOf } from '@/domain/commercialDay'
-import { convertPressureValue, PRESSURE_UNIT_DEFAULT, DP_UNIT_DEFAULT } from '@/domain/pressureUnits'
+import {
+  convertPressureValue,
+  isKnownUnit,
+  normalizeUnit,
+  PRESSURE_UNIT_DEFAULT,
+  DP_UNIT_DEFAULT,
+} from '@/domain/pressureUnits'
 import type { ArchiveType } from '@/types'
 import type { LineMeta, DateRange } from '@/store/selectionStore'
 
@@ -30,6 +36,59 @@ function withOutputPressure(rows: ArchiveRow[], meta: LineMeta): ArchiveRow[] {
     if (!isFinite(p) || !isFinite(dp)) return r
     return { ...r, output_pressure: p - convertPressureValue(dp, dpUnit, pUnit) }
   })
+}
+
+/**
+ * Every row's pressure in ONE unit — the one the view is set to.
+ *
+ * The archive does not hold one: a DPD row carries the unit its corrector
+ * reported, and correctors of the same fleet report different ones. Twelve
+ * devices even changed theirs mid-history, so a single period can hold both
+ * (device 248: кгс/см² until 03.09, МПа after). Captioning such a table with
+ * one unit and leaving the numbers alone — which is what this page did — shows
+ * the same pressure as 1.0 and 0.10 in consecutive rows.
+ *
+ * A row that names no unit is read in `fallback`: for a physical line that is
+ * the line's own setting, for a DPD line the unit the rest of its rows use.
+ */
+export function inOneUnit(
+  rows: ArchiveRow[],
+  target: string,
+  fallback: string,
+): ArchiveRow[] {
+  if (!isKnownUnit(target)) return rows
+  let changed = false
+  const out = rows.map((r) => {
+    const from = normalizeUnit(r.press_unit) ?? fallback
+    if (!isKnownUnit(from)) return r
+    // The label is rewritten even when the value needs no conversion: a row
+    // that says «кгс/см3» is in кгс/см², and leaving the API's spelling on it
+    // would hand the next reader the same puzzle.
+    if (from === target && r.press_unit === target) return r
+    const p = Number(r.pressure)
+    const out = Number(r.output_pressure)
+    changed = true
+    return {
+      ...r,
+      pressure: isFinite(p) ? convertPressureValue(p, from, target) : r.pressure,
+      output_pressure: isFinite(out)
+        ? convertPressureValue(out, from, target)
+        : r.output_pressure,
+      press_unit: target,
+    }
+  })
+  // Same array back when nothing needed converting: ArchiveTable is memoised
+  // and says its props must stay referentially stable.
+  return changed ? out : rows
+}
+
+/** The unit the newest row of the period names, if any names one. */
+export function reportedUnit(rows: ArchiveRow[] | undefined): string | null {
+  for (let i = (rows?.length ?? 0) - 1; i >= 0; i--) {
+    const unit = normalizeUnit(rows![i].press_unit)
+    if (unit) return unit
+  }
+  return null
 }
 
 interface ArchiveQuery {

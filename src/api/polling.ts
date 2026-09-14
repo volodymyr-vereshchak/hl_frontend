@@ -1,4 +1,4 @@
-import { api } from '@/lib/apiClient'
+import { api, apiBaseUrl } from '@/lib/apiClient'
 
 /**
  * GSM polling settings: which correctors get dialled, and from which machines.
@@ -15,10 +15,14 @@ import { api } from '@/lib/apiClient'
  * Підприємства. ЛУМГ correctors are not polled over GSM at all — Ask2 keeps
  * doing that.
  */
-export type PollTargetKind = 'dpd_device' | 'dpd_line'
+export type PollTargetKind = 'enterprise' | 'dpd_device' | 'dpd_line'
 
 export interface PollDevice {
   id: number
+  /** The usual target: the modem stands at the enterprise, and which
+   *  corrector is under it is resolved at poll time from the installation
+   *  history. A replacement then needs nobody to repoint anything. */
+  enterprise_id: number | null
   dpd_device_id: number | null
   dpd_line_id: number | null
   target_kind: PollTargetKind
@@ -88,23 +92,50 @@ export interface PollDevice {
   manual_requested_at: string | null
   polling_agent_id: number | null
   polling_since: string | null
+  /** How far the running session has got, in records. */
+  progress_done: number | null
+  progress_total: number | null
 }
 
 export interface PollAgent {
   id: number
   name: string
-  kind: string
   branch_id: number | null
   active: boolean
   last_seen_at: string | null
   version: string | null
   host: string | null
   device_count: number
+  /** Heard from within the last minute — decided by the server, by the same
+   *  rule that refuses an immediate poll when no modem is free. */
+  online: boolean
 }
 
 /** The one response that carries the key in clear — it exists nowhere else. */
 export interface PollAgentCreated extends PollAgent {
   key: string
+}
+
+/**
+ * The packaged agent (.exe) the server hands out.
+ *
+ * A build artifact, not source: it is put on the server the way a frontend
+ * build is, so "there is no build here yet" is a normal answer and the screen
+ * has to be able to say it.
+ */
+export interface AgentInstaller {
+  available: boolean
+  filename: string | null
+  version: string | null
+  size: number | null
+  built_at: string | null
+}
+
+export interface PollJournal {
+  poll_device_id: number
+  /** null — this site has never been polled from here. */
+  text: string | null
+  updated_at: string | null
 }
 
 export const pollingApi = {
@@ -128,6 +159,13 @@ export const pollingApi = {
     ),
 
   getAgents: () => api.get<PollAgent[]>('/polling/agents'),
+  /** What build is on the server — asked before the button is drawn. */
+  getAgentInstaller: () =>
+    api.get<AgentInstaller>('/polling/agents/installer/info'),
+  /** Straight to the browser: the JSON client cannot save a file, and the
+   *  cookie travels with the navigation. */
+  downloadAgent: () =>
+    window.open(`${apiBaseUrl()}/polling/agents/installer`, '_blank'),
   createAgent: (data: Record<string, unknown>) =>
     api.post<PollAgentCreated>('/polling/agents', data),
   updateAgent: (id: number, data: Record<string, unknown>) =>
@@ -138,10 +176,81 @@ export const pollingApi = {
   removeAgent: (id: number) => api.delete<true>(`/polling/agents/${id}`),
 
   getAgentDevices: (id: number) => api.get<number[]>(`/polling/agents/${id}/devices`),
+
+  /** The log of the last session, kept in a file per site: the live one is
+   *  wiped when the next poll starts. */
+  getLastLog: (deviceId: number) =>
+    api.get<PollJournal>(`/polling/devices/${deviceId}/log/last`),
+
+  /** Which machines dial one site. The mirror of setAgentDevices, and the
+   *  shape the monitor needs: there a row is a site, not an agent, so moving
+   *  one site between two machines must not rewrite either machine's set. */
+  setDeviceAgents: (deviceId: number, agentIds: number[]) =>
+    api.put<number[]>(`/polling/devices/${deviceId}/agents`, { agent_ids: agentIds }),
   setAgentDevices: (id: number, deviceIds: number[]) =>
     api.put<number[]>(`/polling/agents/${id}/devices`, { device_ids: deviceIds }),
 
   getSchedule: () => api.get<{ poll_times: string[] }>('/polling/schedule'),
   setSchedule: (pollTimes: string[]) =>
     api.put<{ poll_times: string[] }>('/polling/schedule', { poll_times: pollTimes }),
+}
+
+/**
+ * Polling one enterprise over its own modem, and watching it happen.
+ *
+ * The call is made on an operator's workstation, not here, so «опитати» is a
+ * request rather than an action: the agent beside the modem picks it up on its
+ * next look, seconds later, and the screen follows the session through the
+ * log it pushes as it goes.
+ */
+export interface EnterprisePollStart {
+  poll_device_id: number
+  ser_num: number | null
+  model_name: string | null
+  /** Which machine will make the call — worth showing, because on a bad day
+   *  the answer to "why is nothing happening" is that it is somebody else's. */
+  agent_name: string | null
+}
+
+export interface PollLogLine {
+  seq: number
+  /** null for a line the journal could not date — one written by an older
+   *  version, or by the corrector itself. */
+  ts: string | null
+  level: string
+  message: string
+}
+
+export interface PollWatch {
+  poll_device_id: number
+  /** waiting — the request is in, nobody has picked it up yet;
+   *  polling — an agent holds the device and is on the phone;
+   *  ok / error — how the last session ended. */
+  status: 'waiting' | 'polling' | 'ok' | 'error'
+  agent_name: string | null
+  ser_num: number | null
+  started_at: string | null
+  finished_at: string | null
+  error_code: string | null
+  error_text: string | null
+  rows: Record<string, number>
+  /** Records read and records to read. A month of hours is seven hundred
+   *  requests down a phone line, so this is the only thing that moves. */
+  done: number | null
+  total: number | null
+  lines: PollLogLine[]
+}
+
+export const enterprisePollApi = {
+  /** Ask for a poll now. Refuses, with a sentence, when there is no modem,
+   *  nothing fitted, or no agent on the line. */
+  start: (enterpriseId: number) =>
+    api.post<EnterprisePollStart>(`/polling/enterprises/${enterpriseId}/poll`),
+
+  /** Everything after `afterSeq`, so a screen refreshing every second asks
+   *  only for what it does not already have. */
+  watch: (enterpriseId: number, afterSeq = 0) =>
+    api.get<PollWatch>(`/polling/enterprises/${enterpriseId}/poll`, {
+      after_seq: afterSeq,
+    }),
 }

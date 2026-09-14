@@ -133,7 +133,7 @@ export function useTreeData() {
           id: d.id,
           name: d.name,
           kind: 'dpd',
-          meta: { kind: 'dpd', name: d.name },
+          meta: { kind: 'dpd', name: d.name, pressure_unit: d.pressure_unit },
         }
         if (!dpdByLumg.has(lumgId)) dpdByLumg.set(lumgId, [])
         dpdByLumg.get(lumgId)!.push(tl)

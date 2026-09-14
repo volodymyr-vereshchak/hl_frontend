@@ -48,12 +48,18 @@ import {
   correctorLabel,
   currentDevice,
   enterpriseLabel,
+  streamEnterprisePoll,
+  type PollStored,
   streamEnterpriseVolumes,
   type EnterpriseMappingRow,
   type EnterpriseRecord,
   type EventGroup,
 } from '@/api/enterprise'
 import { PollProgress } from '@/components/PollProgress'
+import { notifications } from '@mantine/notifications'
+import { enterprisePollApi } from '@/api/polling'
+import { DpdPollPane } from './DpdPollPane'
+import { GsmPollPanel } from './GsmPollPanel'
 import { writeSheet, writeSheets, today } from '@/lib/xlsx'
 import { AccidentsReport, formatDuration } from './AccidentsReport'
 import { useEnterpriseEvents } from './useEnterpriseEvents'
@@ -62,7 +68,13 @@ import { UnpolledReport } from './UnpolledReport'
 import { EMPTY_UNPOLLED_FILTERS, type UnpolledFilters } from './unpolledFilters'
 import { useStickyRowHeights } from '@/components/useMeasuredHeight'
 import { enterpriseRecordTotal } from '@/domain/enterpriseVolumes'
-import { normalizeUnit, PRESSURE_UNIT_DEFAULT } from '@/domain/pressureUnits'
+import {
+  convertPressureValue,
+  isKnownUnit,
+  normalizeUnit,
+  PRESSURE_UNIT_DEFAULT,
+} from '@/domain/pressureUnits'
+import { PressureUnitPicker } from '@/components/PressureUnitPicker'
 import { useLanguage } from '@/locales/LanguageContext'
 import { useSelectionStore } from '@/store/selectionStore'
 import { numericStyle } from '@/theme/theme'
@@ -150,7 +162,37 @@ export function EnterprisePollPage() {
    * flag but the pane went on drawing accidents, so the button looked broken.
    * One value cannot be in two states at once.
    */
-  const [pane, setPane] = useState<'poll' | 'unpolled' | 'accidents'>('poll')
+  const [pane, setPane] = useState<'poll' | 'unpolled' | 'accidents' | 'gsm'>('poll')
+
+  /**
+   * Where the readings come from.
+   *
+   * The Радміртех server is the metered API somebody else runs; GSM is this
+   * site's own modem,
+   * dialled by an agent beside it. The switch appears only where there is a
+   * modem to switch to, because an option that fails for most of the list
+   * teaches people to ignore the option.
+   */
+  const [source, setSource] = useState<'dpd' | 'gsm'>('dpd')
+
+  /**
+   * Two jobs that had been one button.
+   *
+   * Fetching and looking are different questions and they were answered by
+   * the same press: «Опитати» went to DPD for the chosen granularity and drew
+   * the table it got back, so "show me what we have" and "go and get more"
+   * were indistinguishable — and the modem, which fetches without returning
+   * anything to draw, had nowhere to live. Now the poll stores and says how
+   * much; the archive reads the database and never contacts anybody.
+   */
+  const [tab, setTab] = useLocalStorage<'poll' | 'archive'>({
+    key: 'enterprise-poll.tab',
+    defaultValue: 'archive',
+  })
+  const [stored, setStored] = useState<PollStored | null>(null)
+  // Bumped on every «Опитати» over GSM, so the panel starts a clean log
+  // instead of continuing the previous session's.
+  const [gsmRun, setGsmRun] = useState(0)
   const [reportFilters, setReportFilters] = useState<UnpolledFilters>(EMPTY_UNPOLLED_FILTERS)
   const [periodType, setPeriodType] = useState<PeriodType>('daily')
   const initialRange = defaultRange()
@@ -330,6 +372,75 @@ export function EnterprisePollPage() {
     ])
   }
 
+  /**
+   * Ask the agent beside the modem to dial this site now.
+   *
+   * Not awaited into a result: the call is made on somebody else's machine
+   * and takes minutes. What comes back is only whether the request was
+   * accepted — and the refusals are the useful part, because each one is a
+   * call that would otherwise go nowhere: no modem set up, nothing fitted at
+   * the site, no agent on the line.
+   */
+  const runGsm = async () => {
+    if (!selectedMapping) return
+    setPane('gsm')
+    setError(null)
+    try {
+      const started = await enterprisePollApi.start(selectedMapping.id)
+      setGsmRun((n) => n + 1)
+      if (started.agent_name) {
+        notifications.show({
+          message: `Завдання прийняв «${started.agent_name}»`,
+          color: 'blue',
+        })
+      }
+    } catch (e) {
+      // The refusals are sentences meant for an operator — "немає
+      // встановлених корректорів", "немає вільного модема" — so they belong
+      // on the screen as they are.
+      setError(e instanceof Error ? e.message : String(e))
+      setPane('poll')
+    }
+  }
+
+  /**
+   * Poll DPD for this enterprise and store what comes back.
+   *
+   * Both granularities, and no date pickers: the window is not a question for
+   * the operator. It runs from where the archive ends to tomorrow — tomorrow
+   * because the day here is a gas day, so the hours of the current one are
+   * filed under a date that has not arrived yet and ending at today would
+   * leave them behind on every poll. With nothing stored it runs from the day
+   * the corrector was installed.
+   *
+   * Nothing is drawn from the answer. Looking at the readings is the other
+   * tab, and it reads the database.
+   */
+  const runDpd = async () => {
+    if (!selectedMapping) return
+    setPane('poll')
+    abortRef.current?.abort()
+    const ctrl = new AbortController()
+    abortRef.current = ctrl
+    setLoading(true)
+    setError(null)
+    setProgress(null)
+    setStored(null)
+    try {
+      const result = await streamEnterprisePoll(
+        { enterprise_id: selectedMapping.id, from_date: from, to_date: to },
+        { onProgress: setProgress, signal: ctrl.signal },
+      )
+      setStored(result)
+    } catch (e) {
+      const err = e as Error
+      if (err.name !== 'AbortError') setError(err.message)
+    } finally {
+      setLoading(false)
+      setProgress(null)
+    }
+  }
+
   const run = async () => {
     if (!selectedMapping) return
     // Whichever report was open, this button's results are what the operator
@@ -358,12 +469,11 @@ export function EnterprisePollPage() {
             const id = selectedMapping.line_id ?? selectedMapping.dpd_line_id
             return id != null ? [id] : undefined
           })(),
-          // This screen exists to ASK the meter, so the DPD API is the source:
-          // `live` re-polls the whole range and only falls back to the archive
-          // when the API cannot be reached. Without it the button read the DB
-          // and answered with whatever the last scheduled import had left —
-          // the one thing an operator opening "Опитування" is not asking for.
-          live: true,
+          // Reading, not asking. This is the archive view: it answers with
+          // what is stored and never contacts DPD, so a period that is
+          // genuinely empty no longer looks like an API that was unreachable.
+          // Fetching is the other tab, and it stores what it fetches.
+          live: false,
           // A deactivated point is still selectable here, and asking its meter
           // is often WHY it is being looked at. Without this the poll ran and
           // came back empty, because every lookup drops inactive points. It
@@ -403,33 +513,57 @@ export function EnterprisePollPage() {
   }
 
   /**
+   * What the meter reports its pressure in — the newest record that says.
+   *
+   * One device, but not necessarily one unit: a corrector replaced by one set
+   * differently leaves a history in both, and twelve devices of this fleet
+   * already have one. Records with no unit (never sent, or sent as the literal
+   * "None") fall back to the project default; those meters report in кгс/см².
+   */
+  const reported = useMemo(() => {
+    for (let i = (records?.length ?? 0) - 1; i >= 0; i--) {
+      const unit = normalizeUnit(records![i].devices?.[0]?.pressure_unit)
+      if (unit) return unit
+    }
+    return null
+  }, [records])
+
+  // And what the screen reads it in: that same unit, until the reader says
+  // otherwise in the column header. Not remembered between enterprises — each
+  // one is read in its own meter's unit first.
+  const [unitChoice, setUnitChoice] = useState<string | null>(null)
+  const pressureUnit = unitChoice ?? reported ?? PRESSURE_UNIT_DEFAULT
+
+  /**
    * Temperature, pressure and its unit live on the DEVICE, not on the record:
    * the record only carries the period and the rolled-up volume. Reading them
    * off the record left both columns permanently empty.
+   *
+   * Pressure is converted here, once, so the table, the footer, the chart and
+   * the export all read the same unit — captioning them and leaving the
+   * numbers alone showed the same pressure as 1.0 and 0.10 in neighbouring
+   * rows, which is what a unit changing mid-history looks like.
    */
   const rows: PollRow[] = useMemo(
     () =>
       (records ?? [])
         .map((r) => {
           const device = r.devices?.[0]
+          const from = normalizeUnit(device?.pressure_unit) ?? reported ?? PRESSURE_UNIT_DEFAULT
+          const pressure = device?.pressure ?? null
           return {
             period: String(r.period),
             volume: enterpriseRecordTotal(r),
             temperature: device?.temperature ?? null,
-            pressure: device?.pressure ?? null,
-            pressureUnit: normalizeUnit(device?.pressure_unit),
+            pressure:
+              pressure == null || !isKnownUnit(from) || !isKnownUnit(pressureUnit)
+                ? pressure
+                : convertPressureValue(pressure, from, pressureUnit),
+            pressureUnit,
           }
         })
         .sort((a, b) => a.period.localeCompare(b.period)),
-    [records],
-  )
-
-  // One unit for the whole poll (same device) — take the first the API gave us.
-  // Records with no unit (never sent, or sent as the literal "None") fall back
-  // to the project default; those meters report in кгс/см².
-  const pressureUnit = useMemo(
-    () => rows.find((r) => r.pressureUnit)?.pressureUnit ?? PRESSURE_UNIT_DEFAULT,
-    [rows],
+    [records, reported, pressureUnit],
   )
 
   // ── Paging ────────────────────────────────────────────────────────────────
@@ -506,35 +640,75 @@ export function EnterprisePollPage() {
         <Title order={4} style={{ whiteSpace: 'nowrap' }}>
           {t('enterprisePoll')}
         </Title>
+        {/* The split the screen was missing: one press meant both "go and
+            get more" and "show me what we have", so the modem — which
+            fetches and returns nothing to draw — had nowhere to live. */}
         <SegmentedControl
           size="xs"
-          value={periodType}
-          onChange={(v) => setPeriodType(v as PeriodType)}
+          value={tab}
+          onChange={(v) => {
+            setTab(v as 'poll' | 'archive')
+            setPane('poll')
+          }}
           data={[
-            { value: 'daily', label: t('daily') },
-            { value: 'hourly', label: t('hourly') },
+            { value: 'poll', label: 'Опитування' },
+            { value: 'archive', label: 'Архів' },
           ]}
         />
-        <DatePickerInput
-          aria-label={t('from')}
-          leftSection={<IconCalendar size={15} />}
-          value={from}
-          onChange={(v) => v && setFrom(v)}
-          valueFormat="DD.MM.YYYY"
-          size="xs"
-          w={140}
-          popoverProps={{ zIndex: 500, withinPortal: true }}
-        />
-        <DatePickerInput
-          aria-label={t('to')}
-          leftSection={<IconCalendar size={15} />}
-          value={to}
-          onChange={(v) => v && setTo(v)}
-          valueFormat="DD.MM.YYYY"
-          size="xs"
-          w={140}
-          popoverProps={{ zIndex: 500, withinPortal: true }}
-        />
+        {tab === 'archive' && (
+          <SegmentedControl
+            size="xs"
+            value={periodType}
+            onChange={(v) => setPeriodType(v as PeriodType)}
+            data={[
+              { value: 'daily', label: t('daily') },
+              { value: 'hourly', label: t('hourly') },
+            ]}
+          />
+        )}
+        {/* Dates belong to looking, not to fetching. A poll runs from where
+            the archive ends to tomorrow — that is not a choice an operator
+            should have to make, and making it wrong leaves holes. */}
+        {tab === 'archive' && (
+          <>
+            <DatePickerInput
+              aria-label={t('from')}
+              leftSection={<IconCalendar size={15} />}
+              value={from}
+              onChange={(v) => v && setFrom(v)}
+              valueFormat="DD.MM.YYYY"
+              size="xs"
+              w={140}
+              popoverProps={{ zIndex: 500, withinPortal: true }}
+            />
+            <DatePickerInput
+              aria-label={t('to')}
+              leftSection={<IconCalendar size={15} />}
+              value={to}
+              onChange={(v) => v && setTo(v)}
+              valueFormat="DD.MM.YYYY"
+              size="xs"
+              w={140}
+              popoverProps={{ zIndex: 500, withinPortal: true }}
+            />
+          </>
+        )}
+        {/* Only where there is a modem to switch to. An option that fails
+            for most of the list teaches people to ignore the option. */}
+        {tab === 'poll' && selectedMapping?.gsm?.phone && (
+          <SegmentedControl
+            size="xs"
+            value={source}
+            onChange={(v) => setSource(v as 'dpd' | 'gsm')}
+            data={[
+              // The names as the people who run this call them: the data
+              // either comes from the vendor's own server, or off the meter
+              // through a modem.
+              { value: 'dpd', label: 'Сервер Радміртех' },
+              { value: 'gsm', label: 'GSM' },
+            ]}
+          />
+        )}
         {loading ? (
           <Button
             size="xs"
@@ -549,10 +723,14 @@ export function EnterprisePollPage() {
           <Button
             size="xs"
             leftSection={<IconPlayerPlay size={15} />}
-            onClick={run}
+            onClick={() => {
+              if (tab === 'archive') return void run()
+              if (source === 'gsm' && selectedMapping?.gsm?.phone) return void runGsm()
+              return void runDpd()
+            }}
             disabled={!selectedMapping}
           >
-            Опитати
+            {tab === 'archive' ? 'Показати' : 'Опитати'}
           </Button>
         )}
         {/* Answers "is anything not reporting?" without picking a device
@@ -821,7 +999,21 @@ export function EnterprisePollPage() {
         >
           {/* The "no poll" result takes the whole pane: it is a report in its
               own right, and as a modal it covered the tree its rows link into. */}
-          {pane === 'accidents' ? (
+          {tab === 'poll' && pane === 'poll' ? (
+            <DpdPollPane
+              selected={!!selectedMapping}
+              loading={loading}
+              progress={progress}
+              stored={stored}
+              error={error}
+            />
+          ) : pane === 'gsm' && selectedMapping ? (
+            <GsmPollPanel
+              enterpriseId={selectedMapping.id}
+              enterpriseName={selectedMapping.enterprise_name ?? `Підприємство ${selectedMapping.id}`}
+              runKey={gsmRun}
+            />
+          ) : pane === 'accidents' ? (
             <AccidentsReport
               report={acc.report}
               polledAt={acc.polledAt}
@@ -962,7 +1154,14 @@ export function EnterprisePollPage() {
                         <Table.Th ta="center">Період</Table.Th>
                         <Table.Th ta="center">Обʼєм, м³</Table.Th>
                         <Table.Th ta="center">Температура, °C</Table.Th>
-                        <Table.Th ta="center">Тиск, {pressureUnit}</Table.Th>
+                        {/* The unit under the name, and the way to change
+                            it: these records carry whatever their corrector
+                            reported, and the fleet reports both. */}
+                        <Table.Th ta="center">
+                          Тиск
+                          <br />
+                          <PressureUnitPicker value={pressureUnit} onChange={setUnitChoice} />
+                        </Table.Th>
                       </Table.Tr>
                     </Table.Thead>
                     <Table.Tbody>

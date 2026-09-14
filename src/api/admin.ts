@@ -380,6 +380,24 @@ export interface EnterpriseMapping {
   active: boolean
   enabled: boolean
   devices: EnterpriseDevice[]
+  /** The modem at this site, when there is one. It belongs to the enterprise
+   *  rather than to the corrector because that is where it is bolted: the
+   *  correctors under it get replaced, the phone number does not change. */
+  gsm?: EnterpriseGsm | null
+}
+
+/** What an operator sets for a site's modem — and nothing else.
+ *
+ *  Timeouts, retry counts and the init string live on the poll card with
+ *  their defaults. Nobody has needed to change them, and a box nobody needs
+ *  collects the typo that reads later as a dead meter. */
+export interface EnterpriseGsm {
+  phone: string | null
+  /** Poll on a schedule. Off still leaves «Опитати» available — those are
+   *  different questions. */
+  auto_poll: boolean
+  /** "HH:MM" slots. Empty means the hours set globally. */
+  poll_times: string[]
 }
 
 /**
