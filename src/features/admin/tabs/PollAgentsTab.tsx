@@ -193,11 +193,14 @@ export function PollAgentsTab() {
  *
  * Getting the program onto an operator's machine used to be a folder on a
  * share and a phone call. Here it is the second step of the screen that
- * already issued the key: create the agent, take the .exe, run it.
+ * already issued the key: create the agent, take the archive, run what is
+ * inside it.
  *
- * The server may have no build — it is a build artifact, put in place the way
- * the frontend build is — and that is said in words rather than left as a
- * button that answers 404.
+ * A zip rather than the .exe itself: the archive saves nothing on size, but an
+ * .exe arriving through a browser is what proxies and mail filters strike out.
+ *
+ * The server may have no build at all, and that is said in words rather than
+ * left as a button that answers 404.
  */
 function Installer({ build }: { build?: AgentInstaller }) {
   const megabytes = build?.size ? (build.size / 1024 / 1024).toFixed(1) : null
@@ -211,8 +214,9 @@ function Installer({ build }: { build?: AgentInstaller }) {
             Програма агента для машини з модемом
           </Text>
           <Text size="xs" c="dimmed">
-            Створіть агента нижче, скопіюйте ключ, завантажте файл на ту машину
-            й запустіть. Він сам запитає адресу сервера, ключ і COM-порт.
+            Створіть агента нижче, скопіюйте ключ, завантажте архів на ту машину,
+            розпакуйте й запустіть. Програма сама запитає адресу сервера, ключ і
+            COM-порт.
           </Text>
           {build?.available && (
             <Text size="xs" c="dimmed">
@@ -227,7 +231,7 @@ function Installer({ build }: { build?: AgentInstaller }) {
             leftSection={<IconDownload size={14} />}
             onClick={() => pollingApi.downloadAgent()}
           >
-            Завантажити .exe
+            Завантажити
           </Button>
         ) : (
           <Tooltip
