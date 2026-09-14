@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
+import { ArchivePurgeModal } from './ArchivePurgeModal'
 import {
   ActionIcon,
   Badge,
@@ -33,6 +34,7 @@ import {
   IconPlus,
   IconSearch,
   IconTrash,
+  IconEraser,
   IconUpload,
 } from '@tabler/icons-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -138,6 +140,9 @@ export function EnterprisesTab() {
   const [fGsm, setFGsm] = useState<string | null>(null)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(50)
+
+  /** The point whose archive is being cleared, if any. */
+  const [purging, setPurging] = useState<EnterpriseMapping | null>(null)
 
   // Editing
   const [editingId, setEditingId] = useState<number | null>(null)
@@ -614,6 +619,11 @@ export function EnterprisesTab() {
 
   return (
     <Stack gap="md">
+      <ArchivePurgeModal
+        enterprise={purging}
+        onClose={() => setPurging(null)}
+        onPurged={() => qc.invalidateQueries({ queryKey: ['admin', 'enterprise-mappings'] })}
+      />
       {/* Both windows in one stack: the history is opened from inside the edit
           form, and without a stack the one rendered first paints on top — the
           history ended up behind the form that opened it. The stack orders them
@@ -955,6 +965,17 @@ export function EnterprisesTab() {
                         <ActionIcon variant="subtle" onClick={() => startEdit(e)}>
                           <IconPencil size={16} />
                         </ActionIcon>
+                        {/* Rare and destructive, so it lives behind its own
+                            dialog, which counts before it removes. */}
+                        <Tooltip label="Очистити архів за період" withArrow>
+                          <ActionIcon
+                            variant="subtle"
+                            color="orange"
+                            onClick={() => setPurging(e)}
+                          >
+                            <IconEraser size={16} />
+                          </ActionIcon>
+                        </Tooltip>
                         <ActionIcon
                           variant="subtle"
                           color="red"

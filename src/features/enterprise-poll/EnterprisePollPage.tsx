@@ -407,11 +407,11 @@ export function EnterprisePollPage() {
    * Poll DPD for this enterprise and store what comes back.
    *
    * Both granularities, and no date pickers: the window is not a question for
-   * the operator. It runs from where the archive ends to tomorrow — tomorrow
-   * because the day here is a gas day, so the hours of the current one are
-   * filed under a date that has not arrived yet and ending at today would
-   * leave them behind on every poll. With nothing stored it runs from the day
-   * the corrector was installed.
+   * the operator, and it is decided on the server, where the archive is. It
+   * runs from where that archive ends to tomorrow — tomorrow because the day
+   * here is a gas day, so the hours of the current one are filed under a date
+   * that has not arrived yet and ending at today would leave them behind on
+   * every poll. With nothing stored it runs from the start of 2024.
    *
    * Nothing is drawn from the answer. Looking at the readings is the other
    * tab, and it reads the database.
@@ -427,8 +427,12 @@ export function EnterprisePollPage() {
     setProgress(null)
     setStored(null)
     try {
+      // No dates: the server reads from where this point's archive ends to
+      // tomorrow. The pickers above choose what to LOOK at, which is a
+      // different question — polling only the month on screen is how holes
+      // were left behind.
       const result = await streamEnterprisePoll(
-        { enterprise_id: selectedMapping.id, from_date: from, to_date: to },
+        { enterprise_id: selectedMapping.id },
         { onProgress: setProgress, signal: ctrl.signal },
       )
       setStored(result)

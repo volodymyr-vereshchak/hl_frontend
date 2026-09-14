@@ -142,7 +142,27 @@ export interface VolumesParams {
   virtual?: boolean
 }
 
+/** What a purge would take, or did. */
+export interface ArchivePurge {
+  hourly: number
+  daily: number
+  devices: { device_id: number; ser_num: number; from: string; to: string }[]
+}
+
 export const enterpriseApi = {
+  /**
+   * Archive rows of one point in a range of GAS days — counted, then removed.
+   *
+   * Two calls rather than one with a flag: the count is what the screen shows
+   * before it lets anybody press the second, and a deletion that reported its
+   * own size afterwards would be reporting it too late.
+   */
+  previewArchivePurge: (id: number, range: { from_date: string; to_date: string }) =>
+    api.get<ArchivePurge>(`/enterprise/${id}/archive/preview`, range),
+  purgeArchive: (id: number, range: { from_date: string; to_date: string }) =>
+    // `api.delete` takes no params, so the range goes into the path itself.
+    api.delete<ArchivePurge>(`/enterprise/${id}/archive?${buildQuery(range)}`),
+
   /**
    * Enterprise list. The DB-backed table (managed in the admin panel) is the
    * source of truth; the legacy /enterprise/mappings/ endpoint reads an
@@ -402,8 +422,13 @@ export interface PollStored {
   rewritten: number
 }
 
+/**
+ * Poll one point from DPD. The dates are the server's to pick — see the
+ * endpoint: from where this point's archive ends to tomorrow, and from the
+ * start of 2024 for a point that has nothing. Pass them only to override.
+ */
 export async function streamEnterprisePoll(
-  params: { enterprise_id: number; from_date: string; to_date: string },
+  params: { enterprise_id: number; from_date?: string; to_date?: string },
   { onProgress, signal }: StreamOpts = {},
 ): Promise<PollStored> {
   const url = `${api.resolveBaseUrl()}/enterprise/poll/stream?${buildQuery(params as Record<string, unknown>)}`
