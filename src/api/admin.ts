@@ -398,6 +398,10 @@ export interface EnterpriseGsm {
   auto_poll: boolean
   /** "HH:MM" slots. Empty means the hours set globally. */
   poll_times: string[]
+  /** Machines that dial this number. Empty means nobody does — the site is
+   *  set up in every other respect and is never polled. Several mean a shared
+   *  queue: whichever agent asks first takes it, the rest skip it. */
+  agent_ids: number[]
 }
 
 /**

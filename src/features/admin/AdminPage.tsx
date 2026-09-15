@@ -21,6 +21,8 @@ import {
   IconAntennaBars5,
   IconDeviceLaptop,
 } from '@tabler/icons-react'
+import { useEffect } from 'react'
+import { useAdminNavigation } from './adminNavigation'
 import { useUser } from '@/features/auth/UserContext'
 import {
   BranchesTab,
@@ -126,6 +128,14 @@ const ALL_TABS = GROUPS.flatMap((g) => g.tabs)
 export function AdminPage() {
   const { user } = useUser()
   const [activeTab, setActiveTab] = useLocalStorage({ key: 'hlv-admin-tab', defaultValue: 'users' })
+  // A tab asked for from another tab — the monitor sending somebody to the
+  // enterprise card whose settings it shows but no longer edits. The request
+  // is left standing until the destination has taken it, because the tab
+  // switches first and the form opens on the next render.
+  const wanted = useAdminNavigation((s) => s.tab)
+  useEffect(() => {
+    if (wanted && wanted !== activeTab) setActiveTab(wanted)
+  }, [wanted, activeTab, setActiveTab])
 
   if (user?.role !== 'admin') {
     return (

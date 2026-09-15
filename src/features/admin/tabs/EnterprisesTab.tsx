@@ -1,7 +1,8 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArchivePurgeModal } from './ArchivePurgeModal'
 import {
   ActionIcon,
+  MultiSelect,
   Badge,
   Box,
   Button,
@@ -55,6 +56,8 @@ import { LoadingState } from '@/components/LoadingState'
 import { DeviceHistoryEditor, DeviceHistoryModal } from '../DeviceHistoryModal'
 import { PollTimesField } from '../PollTimesField'
 import { phoneError } from './pollDeviceForm'
+import { useAdminNavigation } from '../adminNavigation'
+import { pollingApi } from '@/api/polling'
 import {
   EMPTY_DEVICE,
   EPOCH_YEAR,
@@ -80,6 +83,7 @@ type FormState = {
    *  because that is where it is bolted: correctors get replaced, the number
    *  stays. Empty means there is none and the site is not dialled. */
   gsm_phone: string
+  gsm_agent_ids: string[]
   gsm_auto_poll: boolean
   /** "HH:MM" slots. Empty means the hours set globally. */
   gsm_poll_times: string[]
@@ -94,6 +98,7 @@ const EMPTY: FormState = {
   active: true,
   enabled: true,
   gsm_phone: '',
+  gsm_agent_ids: [],
   gsm_auto_poll: false,
   gsm_poll_times: [],
 }
@@ -125,6 +130,21 @@ export function EnterprisesTab() {
     queryKey: ['admin', 'corrector-types'],
     queryFn: deviceCatalogApi.correctorTypes,
   })
+  // The machines that can dial. Offline is said in the option itself: a site
+  // handed to a workstation that is switched off looks assigned here and
+  // refuses to poll over there.
+  const { data: pollAgents } = useQuery({
+    queryKey: ['admin', 'poll-agents'],
+    queryFn: pollingApi.getAgents,
+  })
+  const agentOptions = useMemo(
+    () =>
+      (pollAgents ?? []).map((a) => ({
+        value: String(a.id),
+        label: a.online ? a.name : `${a.name} · офлайн`,
+      })),
+    [pollAgents],
+  )
 
   // Filters
   const [search, setSearch] = useState('')
@@ -328,6 +348,7 @@ export function EnterprisesTab() {
     // and omitting the key would leave the old one dialling nothing.
     gsm: {
       phone: f.gsm_phone.trim() || null,
+      agent_ids: f.gsm_agent_ids.map(Number),
       auto_poll: f.gsm_auto_poll,
       poll_times: f.gsm_poll_times,
     },
@@ -368,6 +389,20 @@ export function EnterprisesTab() {
     setForm(EMPTY)
   }
 
+  // Somebody arrived here from the monitor, having clicked a site's name.
+  // The list is fetched asynchronously, so this waits for the row rather than
+  // giving up on it — and clears the request once taken, or the form would
+  // reopen every time this tab is visited afterwards.
+  const pendingId = useAdminNavigation((s) => s.enterpriseId)
+  const navigationTaken = useAdminNavigation((s) => s.taken)
+  useEffect(() => {
+    if (pendingId == null) return
+    const row = (enterprises ?? []).find((e) => e.id === pendingId)
+    if (!row) return
+    startEdit(row)
+    navigationTaken()
+  }, [pendingId, enterprises])
+
   const startEdit = (e: EnterpriseMapping) => {
     setAdding(false)
     setEditingId(e.id)
@@ -384,6 +419,7 @@ export function EnterprisesTab() {
       active: e.active,
       enabled: e.enabled,
       gsm_phone: e.gsm?.phone ?? '',
+      gsm_agent_ids: (e.gsm?.agent_ids ?? []).map(String),
       gsm_auto_poll: e.gsm?.auto_poll ?? false,
       gsm_poll_times: e.gsm?.poll_times ?? [],
     })
@@ -600,6 +636,30 @@ export function EnterprisesTab() {
           // Off means "only by hand", and hours that cannot fire read as a
           // schedule that is simply not working.
           disabled={!form.gsm_auto_poll || !form.gsm_phone.trim()}
+        />
+        {/* Which machine dials this number, set here with the rest of the
+            modem's settings. It used to be chosen in the monitor, which made
+            setting a site up two screens — and the second one easy to forget,
+            leaving a number nobody ever calls. */}
+        <MultiSelect
+          label="Хто дзвонить"
+          size="xs"
+          w={260}
+          data={agentOptions}
+          value={form.gsm_agent_ids}
+          onChange={(ids) => setForm({ ...form, gsm_agent_ids: ids })}
+          disabled={!form.gsm_phone.trim()}
+          placeholder={form.gsm_agent_ids.length ? undefined : 'нікому'}
+          // Not a warning about typing: a number with no machine behind it is
+          // a site that is never polled and looks, everywhere else, set up.
+          error={!!form.gsm_phone.trim() && form.gsm_agent_ids.length === 0}
+          description={
+            form.gsm_agent_ids.length > 1
+              ? 'Спільна черга: хто перший звільниться, той і подзвонить'
+              : 'Машина з модемом, якій доручено це підприємство'
+          }
+          searchable
+          clearable
         />
       </Group>
 

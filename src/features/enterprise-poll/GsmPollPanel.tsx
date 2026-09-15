@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import {
   Alert,
   Badge,
+  Button,
   Group,
   Loader,
   Paper,
@@ -10,7 +11,14 @@ import {
   Stack,
   Text,
 } from '@mantine/core'
-import { IconAlertTriangle, IconCheck, IconPhone } from '@tabler/icons-react'
+import {
+  IconAlertTriangle,
+  IconCheck,
+  IconPhone,
+  IconPlayerStop,
+} from '@tabler/icons-react'
+import { useMutation } from '@tanstack/react-query'
+import { notifications } from '@mantine/notifications'
 
 import { enterprisePollApi, type PollLogLine, type PollWatch } from '@/api/polling'
 
@@ -38,6 +46,24 @@ interface Props {
 
 export function GsmPollPanel({ enterpriseId, enterpriseName, runKey }: Props) {
   const [watch, setWatch] = useState<PollWatch | null>(null)
+  const cancel = useMutation({
+    mutationFn: () => enterprisePollApi.cancel(enterpriseId),
+    onSuccess: (result) => {
+      notifications.show({
+        color: result.outcome === 'idle' ? 'gray' : 'orange',
+        message: result.detail,
+      })
+      // Shown at once rather than waited for: the next tick is up to a second
+      // away, and a button that goes on offering to stop what it just stopped
+      // gets pressed again.
+      setWatch((have) =>
+        have && result.outcome === 'asked' ? { ...have, cancelling: true } : have,
+      )
+    },
+    onError: (e: Error) =>
+      notifications.show({ color: 'red', message: e.message }),
+  })
+
   const [lines, setLines] = useState<PollLogLine[]>([])
   const [failed, setFailed] = useState<string | null>(null)
   const bottom = useRef<HTMLDivElement>(null)
@@ -49,21 +75,39 @@ export function GsmPollPanel({ enterpriseId, enterpriseName, runKey }: Props) {
 
     let alive = true
     let seq = 0
+    // One request at a time.
+    //
+    // The tick fires every second; on a slow link a request takes longer than
+    // that, and two would go out asking from the same `seq` — which is how
+    // the journal on one workstation showed «Ініціалізація» and the dialling
+    // several times over while the file on the server held one of each. The
+    // duplicates were never in the data; they were this loop racing itself.
+    let inFlight = false
 
     const tick = async () => {
+      if (inFlight) return
+      inFlight = true
       try {
         const next = await enterprisePollApi.watch(enterpriseId, seq)
         if (!alive) return
         setWatch(next)
         if (next.lines.length) {
           seq = next.lines[next.lines.length - 1].seq
-          setLines((have) => [...have, ...next.lines])
+          // And belt as well as braces: a line already on the screen is
+          // dropped by its sequence number, whatever asked for it.
+          setLines((have) => {
+            const known = new Set(have.map((line) => line.seq))
+            const fresh = next.lines.filter((line) => !known.has(line.seq))
+            return fresh.length ? [...have, ...fresh] : have
+          })
         }
         setFailed(null)
       } catch (e) {
         // A refresh that fails is not a poll that failed: the call carries on
         // beside the modem. Say so quietly and keep asking.
         if (alive) setFailed(e instanceof Error ? e.message : 'немає зв’язку з сервером')
+      } finally {
+        inFlight = false
       }
     }
 
@@ -96,7 +140,34 @@ export function GsmPollPanel({ enterpriseId, enterpriseName, runKey }: Props) {
           </Badge>
         )}
         <StatusBadge status={watch?.status} agent={watch?.agent_name} />
+        {/* Only while there is something to stop. A call already finished
+            has nothing to cancel, and a button that does nothing invites the
+            press that proves it. */}
+        {running && (
+          <Button
+            size="compact-xs"
+            variant="subtle"
+            color="red"
+            ml="auto"
+            leftSection={<IconPlayerStop size={13} />}
+            loading={cancel.isPending}
+            disabled={watch?.cancelling}
+            onClick={() => cancel.mutate()}
+          >
+            {watch?.cancelling ? 'зупиняю…' : 'Зупинити'}
+          </Button>
+        )}
       </Group>
+
+      {/* The wait is real and worth naming: the agent learns of this on its
+          next report, and hangs up between records rather than mid-reading. */}
+      {watch?.cancelling && (
+        <Text size="xs" c="orange">
+          Зупиняю — агент покладе слухавку, щойно дочитає поточний запис.
+          Прочитане цим дзвінком буде відкинуто, щоб не лишити дірку в архіві;
+          дані нікуди не зникнуть, їх прочитає наступний опит.
+        </Text>
+      )}
 
       {/* Two different waits, and an operator needs to tell them apart: the
           request sitting unread, and the phone actually ringing. */}
@@ -110,11 +181,15 @@ export function GsmPollPanel({ enterpriseId, enterpriseName, runKey }: Props) {
         </Group>
       )}
 
+      {/* Labelled from the agent's own phase rather than from the first thing
+          it happened to read. It said "прочитано годин" through the whole of
+          the daily ring, counting days — and before any reading began at all,
+          while the modem was still dialling. */}
       {total > 0 && (
         <Stack gap={2}>
           <Group justify="space-between">
             <Text size="xs" c="dimmed">
-              Прочитано годин
+              {watch?.phase === 'daily' ? 'Прочитано діб' : 'Прочитано годин'}
             </Text>
             <Text size="xs" c="dimmed">
               {done} з {total}
@@ -125,6 +200,7 @@ export function GsmPollPanel({ enterpriseId, enterpriseName, runKey }: Props) {
             animated={running}
             size="sm"
             radius="sm"
+            color={watch?.phase === 'daily' ? 'grape' : undefined}
           />
         </Stack>
       )}
@@ -142,8 +218,11 @@ export function GsmPollPanel({ enterpriseId, enterpriseName, runKey }: Props) {
 
       {watch?.status === 'ok' && (
         <Alert color="green" variant="light" icon={<IconCheck size={16} />} p="xs">
+          {/* Both counts: the call reads two archives, and a summary that
+              named one of them left the other looking like it had not run. */}
           <Text size="xs">
-            Готово. Прочитано годин: {watch.rows?.hour ?? 0}
+            Готово. Прочитано годин: {watch.rows?.hour ?? 0}, діб:{' '}
+            {watch.rows?.day ?? 0}
           </Text>
         </Alert>
       )}

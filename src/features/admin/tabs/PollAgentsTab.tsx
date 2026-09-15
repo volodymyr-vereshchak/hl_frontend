@@ -266,6 +266,25 @@ function Installer({ build }: { build?: AgentInstaller }) {
  * refuse an immediate poll, so the badge and the refusal always agree.
  */
 function Presence({ agent }: { agent: PollAgent }) {
+  // Said before anything about the connection: an agent of the wrong build is
+  // on the line and polls nothing, and "на зв'язку" beside a machine that
+  // picks nothing up is the more confusing of the two facts.
+  if (!agent.version_ok) {
+    return (
+      <Tooltip
+        label={`Агент версії ${agent.version ?? '—'}, сервер роздає ${
+          agent.expected_version ?? '—'
+        }. Опитування зупинено. Завантажте збірку вище й перезапустіть агента.`}
+        withArrow
+        multiline
+        w={300}
+      >
+        <Badge size="sm" color="red" variant="light" leftSection={<IconAlertTriangle size={11} />}>
+          версія {agent.version ?? '—'}
+        </Badge>
+      </Tooltip>
+    )
+  }
   if (agent.online) {
     return (
       <Badge size="sm" color="teal" variant="light">

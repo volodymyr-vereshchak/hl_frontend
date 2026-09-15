@@ -109,6 +109,9 @@ export interface PollAgent {
   /** Heard from within the last minute — decided by the server, by the same
    *  rule that refuses an immediate poll when no modem is free. */
   online: boolean
+  /** False when this agent is not the build the server hands out. */
+  version_ok: boolean
+  expected_version: string | null
 }
 
 /** The one response that carries the key in clear — it exists nowhere else. */
@@ -238,7 +241,20 @@ export interface PollWatch {
    *  requests down a phone line, so this is the only thing that moves. */
   done: number | null
   total: number | null
+  /** Which archive those numbers count. Without it the bar counted days
+   *  under a caption that said hours. */
+  phase: 'hourly' | 'daily' | null
+  /** Somebody asked this call to stop and the agent has not hung up yet. */
+  cancelling: boolean
   lines: PollLogLine[]
+}
+
+/** What stopping a poll actually did. */
+export interface PollCancelled {
+  /** queued — withdrawn before any agent took it; asked — the agent has been
+   *  told to hang up; idle — there was nothing running. */
+  outcome: 'queued' | 'asked' | 'idle'
+  detail: string
 }
 
 export const enterprisePollApi = {
@@ -253,4 +269,9 @@ export const enterprisePollApi = {
     api.get<PollWatch>(`/polling/enterprises/${enterpriseId}/poll`, {
       after_seq: afterSeq,
     }),
+
+  /** Stop it. A request nobody took is withdrawn; a call in progress is asked
+   *  to hang up, and the agent does so between records. */
+  cancel: (enterpriseId: number) =>
+    api.post<PollCancelled>(`/polling/enterprises/${enterpriseId}/poll/cancel`),
 }

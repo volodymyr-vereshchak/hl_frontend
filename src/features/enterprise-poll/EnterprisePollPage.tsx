@@ -3,6 +3,7 @@ import {
   Stack,
   Group,
   Title,
+  MultiSelect,
   Select,
   SegmentedControl,
   Button,
@@ -131,6 +132,16 @@ function defaultRange() {
  * Enterprise poll: pick a branch + enterprise (device) and pull its volumes
  * from the DPD API over the NDJSON progress stream (polls can run minutes).
  */
+/** A point whose corrector nobody has entered. Given a name of its own so it
+ *  can be filtered FOR — that is the list somebody fixing the catalogue
+ *  wants, and it is invisible in every other view. */
+const UNKNOWN_MODEL = 'без коректора'
+
+/** The model standing at a point now, named even when there is none. */
+function fittedModel(m: EnterpriseMappingRow): string {
+  return currentDevice(m)?.model_name ?? UNKNOWN_MODEL
+}
+
 export function EnterprisePollPage() {
   const { t } = useLanguage()
   const { branchId, setBranchId } = useSelectionStore()
@@ -140,6 +151,9 @@ export function EnterprisePollPage() {
   // Picking a branch still carries over; only the empty state stays local.
   const [branchFilter, setBranchFilter] = useState<number | null>(branchId)
   const [search, setSearch] = useState('')
+  /** Corrector models to show. Multi-select: "ВЕГА and КПЛГ, not Флоутек" is
+   *  the question people actually ask. Empty means all of them. */
+  const [models, setModels] = useState<string[]>([])
   const [selected, setSelected] = useState<number | null>(null)
   // Feed the scrollbars, which run between the sticky header and totals row.
   const { containerRef, theadRef, tfootRef, theadHeight, tfootHeight } = useStickyRowHeights()
@@ -255,6 +269,10 @@ export function EnterprisePollPage() {
     return all
       .filter((m) => !branchFilter || m.branch_id === branchFilter)
       .filter((m) => {
+        if (!models.length) return true
+        return models.includes(fittedModel(m))
+      })
+      .filter((m) => {
         if (!q) return true
         return (
           enterpriseLabel(m).toLowerCase().includes(q) ||
@@ -262,7 +280,31 @@ export function EnterprisePollPage() {
           (lineLabel(m) ?? '').toLowerCase().includes(q)
         )
       })
-  }, [mappings, branchFilter, search, lineLabel])
+  }, [mappings, branchFilter, search, lineLabel, models])
+
+  /**
+   * Corrector models to choose from — the ones standing in the industry, not
+   * the catalogue's thirty-nine.
+   *
+   * The catalogue lists every model the system knows; a handful of them are
+   * fitted anywhere. Offering the rest is offering ways to filter the tree to
+   * nothing, and the count beside each name answers the question that usually
+   * follows ("how many ВЕГ have we got?") without filtering at all.
+   *
+   * Counted within the branch already chosen, so the numbers match the tree
+   * underneath rather than the whole country.
+   */
+  const modelOptions = useMemo(() => {
+    const seen = new Map<string, number>()
+    for (const m of mappings ?? []) {
+      if (branchFilter && m.branch_id !== branchFilter) continue
+      const name = fittedModel(m)
+      seen.set(name, (seen.get(name) ?? 0) + 1)
+    }
+    return [...seen.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0], 'uk'))
+      .map(([name, count]) => ({ value: name, label: `${name} (${count})` }))
+  }, [mappings, branchFilter])
 
   /**
    * Branch → line → enterprises, the same shape as the old poll screen. A flat
@@ -831,6 +873,19 @@ export function EnterprisePollPage() {
                 onChange={(e) => setSearch(e.currentTarget.value)}
                 size="xs"
                 style={{ flex: 1 }}
+              />
+              <MultiSelect
+                placeholder={models.length ? undefined : t('correctorAny')}
+                data={modelOptions}
+                value={models}
+                onChange={setModels}
+                size="xs"
+                w={models.length ? 190 : 150}
+                searchable
+                clearable
+                hidePickedOptions
+                comboboxProps={{ withinPortal: true, zIndex: 400, width: 260 }}
+                aria-label={t('correctorModel')}
               />
               {/* A few hundred devices across a dozen branches: opening or
                   closing them one at a time is the slow part of finding one. */}

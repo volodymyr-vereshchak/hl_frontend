@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import {
   Alert,
+  Anchor,
   Badge,
   Button,
   Code,
@@ -15,15 +16,15 @@ import {
   TextInput,
   Tooltip,
 } from '@mantine/core'
-import { notifications } from '@mantine/notifications'
 import {
   IconAlertTriangle,
   IconFileText,
   IconInfoCircle,
   IconSearch,
 } from '@tabler/icons-react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { pollingApi, type PollAgent, type PollDevice } from '@/api/polling'
+import { useAdminNavigation } from '../adminNavigation'
 
 /**
  * Монітор GSM — a monitor, not an editor.
@@ -33,19 +34,25 @@ import { pollingApi, type PollAgent, type PollDevice } from '@/api/polling'
  * get replaced. Editing them here as well would be two places to change one
  * number, which is two places to disagree.
  *
- * What is left is the thing the enterprise card cannot show — the state of
- * the whole fleet on one screen — plus the one setting that is genuinely
- * about machines rather than about a site: which agent dials it.
+ * What is left is the thing the enterprise card cannot show: the state of the
+ * whole fleet on one screen. Which agent dials a site went to the card too —
+ * setting a site up is one form, not two, and the second one was easy to
+ * forget. Every site's name here opens that form, so nothing on this screen
+ * is a dead end.
  */
-
-const notifyErr = (e: Error) => notifications.show({ message: e.message, color: 'red' })
 
 const DEVICES_KEY = ['admin', 'poll-devices']
 const AGENTS_KEY = ['admin', 'poll-agents']
 
 export function PollDevicesTab() {
-  const queryClient = useQueryClient()
   const [search, setSearch] = useState('')
+  /** Filters, all multi-select: the questions asked here are "show me these
+   *  two models" and "show me everything that is not fine", not "show me
+   *  exactly one thing". */
+  const [fState, setFState] = useState<string[]>([])
+  const [fMode, setFMode] = useState<string[]>([])
+  const [fModel, setFModel] = useState<string[]>([])
+  const openEnterprise = useAdminNavigation((s) => s.openEnterprise)
   /** The site whose last poll is open in its own window. */
   const [logOf, setLogOf] = useState<PollDevice | null>(null)
 
@@ -64,33 +71,36 @@ export function PollDevicesTab() {
     refetchInterval: 20000,
   })
 
-  const agentOptions = useMemo(
-    () =>
-      (agents ?? []).map((a) => ({
-        value: String(a.id),
-        // Said in the option itself: a site handed to a machine that is not
-        // running looks assigned here and refuses to poll over there.
-        label: a.online ? a.name : `${a.name} · офлайн`,
-      })),
-    [agents],
-  )
+  /** Models that actually have a modem, counted — see the field's comment. */
+  const modelOptions = useMemo(() => {
+    const seen = new Map<string, number>()
+    for (const card of devices ?? []) {
+      if (card.enterprise_id == null) continue
+      const name = card.model_name ?? '—'
+      seen.set(name, (seen.get(name) ?? 0) + 1)
+    }
+    return [...seen.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0], 'uk'))
+      .map(([name, count]) => ({ value: name, label: `${name} (${count})` }))
+  }, [devices])
+
+  /** Likewise: a state nothing is in is a filter that can only empty the
+   *  table, and the list is short enough that its absence is informative. */
+  const stateFilterOptions = useMemo(() => {
+    const seen = new Set(
+      (devices ?? [])
+        .filter((c) => c.enterprise_id != null)
+        .map((c) => stateOf(c)),
+    )
+    return [...seen]
+      .map((value) => ({ value, label: STATE_LABELS[value] ?? value }))
+      .sort((a, b) => a.label.localeCompare(b.label, 'uk'))
+  }, [devices])
+
   const agentById = useMemo(
     () => new Map((agents ?? []).map((a) => [a.id, a])),
     [agents],
   )
-
-  const assign = useMutation({
-    mutationFn: ({ deviceId, agentIds }: { deviceId: number; agentIds: number[] }) =>
-      pollingApi.setDeviceAgents(deviceId, agentIds),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: DEVICES_KEY })
-      // The agents screen counts sites per machine. Without this the number
-      // there stays as it was until something else happens to refetch it,
-      // which reads as an assignment that did not take.
-      queryClient.invalidateQueries({ queryKey: AGENTS_KEY })
-    },
-    onError: notifyErr,
-  })
 
   if (isLoading) return <Loader size="sm" />
 
@@ -100,14 +110,19 @@ export function PollDevicesTab() {
   // A phone typed with spaces or without the country code still has to find
   // the row, so digits are compared against digits.
   const digits = q.replace(/\D/g, '')
-  const shown = q
-    ? cards.filter(
-        (c) =>
-          (c.target_label ?? '').toLowerCase().includes(q) ||
-          String(c.ser_num ?? '').includes(digits || q) ||
-          (digits.length >= 3 && (c.phone ?? '').replace(/\D/g, '').includes(digits)),
-      )
-    : cards
+  const shown = cards.filter((c) => {
+    if (q) {
+      const found =
+        (c.target_label ?? '').toLowerCase().includes(q) ||
+        String(c.ser_num ?? '').includes(digits || q) ||
+        (digits.length >= 3 && (c.phone ?? '').replace(/\D/g, '').includes(digits))
+      if (!found) return false
+    }
+    if (fState.length && !fState.includes(stateOf(c))) return false
+    if (fMode.length && !fMode.includes(c.auto_poll ? 'auto' : 'manual')) return false
+    if (fModel.length && !fModel.includes(c.model_name ?? '—')) return false
+    return true
+  })
 
   if (cards.length === 0) {
     return (
@@ -133,17 +148,54 @@ export function PollDevicesTab() {
       <Group mb="sm" gap="sm" align="flex-end">
         <TextInput
           size="xs"
-          w={300}
+          w={260}
           label="Пошук"
           placeholder="Підприємство, № коректора або телефон"
           leftSection={<IconSearch size={14} />}
           value={search}
           onChange={(e) => setSearch(e.currentTarget.value)}
         />
+        <MultiSelect
+          size="xs"
+          w={200}
+          label="Стан"
+          placeholder={fState.length ? undefined : 'будь-який'}
+          data={stateFilterOptions}
+          value={fState}
+          onChange={setFState}
+          clearable
+        />
+        <MultiSelect
+          size="xs"
+          w={170}
+          label="Як опитується"
+          placeholder={fMode.length ? undefined : 'будь-як'}
+          data={[
+            { value: 'auto', label: 'за графіком' },
+            { value: 'manual', label: 'тільки вручну' },
+          ]}
+          value={fMode}
+          onChange={setFMode}
+          clearable
+        />
+        <MultiSelect
+          size="xs"
+          w={220}
+          label="Коректор"
+          // Only the models that are actually on this screen. The catalogue
+          // holds thirty-nine and two of them have modems: a list of the
+          // other thirty-seven is a list of ways to filter to nothing.
+          placeholder={fModel.length ? undefined : 'будь-який'}
+          data={modelOptions}
+          value={fModel}
+          onChange={setFModel}
+          searchable
+          clearable
+        />
         <Text size="xs" c="dimmed" pb={6}>
           {shown.length === cards.length
             ? `Підприємств: ${cards.length}`
-            : `Знайдено: ${shown.length} з ${cards.length}`}
+            : `Показано: ${shown.length} з ${cards.length}`}
         </Text>
       </Group>
 
@@ -164,7 +216,24 @@ export function PollDevicesTab() {
           {shown.map((card) => (
             <Table.Tr key={card.id}>
               <Table.Td>
-                <Text size="sm">{card.target_label ?? '—'}</Text>
+                {/* The name is the way back to the settings this screen
+                    shows but no longer edits. Finding the same site again
+                    by hand, down a list of hundreds, is what makes a
+                    read-only screen feel like a dead end. */}
+                <Tooltip label="Відкрити картку підприємства" withArrow>
+                  <Anchor
+                    size="sm"
+                    component="button"
+                    type="button"
+                    ta="left"
+                    onClick={() =>
+                      card.enterprise_id != null &&
+                      openEnterprise(card.enterprise_id)
+                    }
+                  >
+                    {card.target_label ?? '—'}
+                  </Anchor>
+                </Tooltip>
               </Table.Td>
               <Table.Td>
                 <Text size="xs" ff="monospace">
@@ -178,20 +247,7 @@ export function PollDevicesTab() {
                 <Schedule card={card} />
               </Table.Td>
               <Table.Td>
-                <MultiSelect
-                  size="xs"
-                  data={agentOptions}
-                  value={card.agent_ids.map(String)}
-                  onChange={(ids) =>
-                    assign.mutate({ deviceId: card.id, agentIds: ids.map(Number) })
-                  }
-                  placeholder={card.agent_ids.length ? undefined : 'нікому'}
-                  // A site nobody took is never polled, and on every other
-                  // column it looks exactly like a site that is fine.
-                  error={card.agent_ids.length === 0}
-                  searchable
-                  clearable
-                />
+                <Assigned card={card} agents={agentById} />
               </Table.Td>
               <Table.Td>
                 <LastPoll card={card} agentName={
@@ -344,6 +400,81 @@ function LastPoll({ card, agentName }: { card: PollDevice; agentName?: string })
       )}
     </Group>
   )
+}
+
+/**
+ * Which machines dial this site — shown, not chosen.
+ *
+ * Chosen on the enterprise card, with the phone number it goes with. Named
+ * here anyway: "who should have called this" is the first question asked of a
+ * site that has not been polled since Tuesday, and the answer belongs beside
+ * the evidence rather than a tab away.
+ */
+function Assigned({
+  card,
+  agents,
+}: {
+  card: PollDevice
+  agents: Map<number, PollAgent>
+}) {
+  if (card.agent_ids.length === 0) {
+    return (
+      <Tooltip
+        label="Призначається в картці підприємства, блок «Опитування модемом»"
+        withArrow
+      >
+        <Badge size="xs" color="orange" variant="light">
+          нікому
+        </Badge>
+      </Tooltip>
+    )
+  }
+  return (
+    <Group gap={4} wrap="wrap">
+      {card.agent_ids.map((id) => {
+        const agent = agents.get(id)
+        return (
+          <Badge
+            key={id}
+            size="xs"
+            variant="light"
+            color={agent?.online ? 'teal' : 'gray'}
+          >
+            {agent?.name ?? `#${id}`}
+            {agent && !agent.online ? ' · офлайн' : ''}
+          </Badge>
+        )
+      })}
+    </Group>
+  )
+}
+
+/**
+ * The one word for what a row is doing, and what the filter selects on.
+ *
+ * Derived here rather than stored so that the badge and the filter cannot
+ * disagree — a row filtered as "з помилкою" that shows a green last poll is
+ * worse than no filter at all.
+ */
+export function stateOf(card: PollDevice): string {
+  if (card.polling_agent_id != null) return 'polling'
+  if (card.manual_requested_at != null) return 'queued'
+  if (!card.enabled) return 'off'
+  if (card.agent_ids.length === 0) return 'unassigned'
+  if (card.last_status === 'ok') return 'ok'
+  if (card.last_status) return 'error'
+  return 'never'
+}
+
+/** What each of those is called on the screen. */
+const STATE_LABELS: Record<string, string> = {
+  ok: 'успішно',
+  error: 'з помилкою',
+  polling: 'опитується зараз',
+  queued: 'у черзі',
+  unassigned: 'без агента',
+  off: 'вимкнено',
+  never: 'ще не опитували',
 }
 
 function State({
