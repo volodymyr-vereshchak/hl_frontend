@@ -402,6 +402,18 @@ export interface EnterpriseGsm {
    *  set up in every other respect and is never polled. Several mean a shared
    *  queue: whichever agent asks first takes it, the rest skip it. */
   agent_ids: number[]
+  /** What a Floutek ТМ-2 asks for in its archive requests — the vendor's
+   *  default "11" unless the corrector was set otherwise. */
+  password: string
+}
+
+/** What ДПД says the modem number of a site is. */
+export interface PhoneFromDpd {
+  /** Ready for the card, or null when ДПД has nothing usable. */
+  phone: string | null
+  /** Exactly what ДПД holds — "+380" and nothing else is common. */
+  raw: string | null
+  message: string
 }
 
 /**
@@ -443,6 +455,10 @@ export const enterpriseMappingApi = {
   update: (id: number, data: Partial<EnterpriseMapping>) =>
     api.patch<EnterpriseMapping>(`/enterprise-mappings/${id}`, data),
   remove: (id: number) => api.delete<true>(`/enterprise-mappings/${id}`),
+  /** The modem number ДПД keeps for this site's fitted corrector. Offered,
+   *  not written: nothing reaches the card until the form is saved. */
+  phoneFromDpd: (id: number) =>
+    api.get<PhoneFromDpd>(`/enterprise-mappings/${id}/phone-from-dpd`),
 
   downloadTemplate: () => window.open(`${apiBaseUrl()}/enterprise-mappings/template`, '_blank'),
   downloadExport: () => window.open(`${apiBaseUrl()}/enterprise-mappings/export`, '_blank'),

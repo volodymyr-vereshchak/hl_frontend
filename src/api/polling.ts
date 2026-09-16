@@ -80,6 +80,11 @@ export interface PollDevice {
   adapter_is_frequency: boolean
   adapter_is_radio: boolean
 
+  /** What the corrector called itself on the last call that reached it —
+   *  not always what the catalogue calls it. Null until one did. */
+  detected_model: string | null
+  detected_protocol: number | null
+
   last_poll_at: string | null
   last_attempt_at: string | null
   last_status: string | null

@@ -83,6 +83,7 @@ type FormState = {
    *  because that is where it is bolted: correctors get replaced, the number
    *  stays. Empty means there is none and the site is not dialled. */
   gsm_phone: string
+  gsm_password: string
   gsm_agent_ids: string[]
   gsm_auto_poll: boolean
   /** "HH:MM" slots. Empty means the hours set globally. */
@@ -98,6 +99,7 @@ const EMPTY: FormState = {
   active: true,
   enabled: true,
   gsm_phone: '',
+  gsm_password: '11',
   gsm_agent_ids: [],
   gsm_auto_poll: false,
   gsm_poll_times: [],
@@ -348,6 +350,7 @@ export function EnterprisesTab() {
     // and omitting the key would leave the old one dialling nothing.
     gsm: {
       phone: f.gsm_phone.trim() || null,
+      password: f.gsm_password.trim() || '11',
       agent_ids: f.gsm_agent_ids.map(Number),
       auto_poll: f.gsm_auto_poll,
       poll_times: f.gsm_poll_times,
@@ -389,6 +392,34 @@ export function EnterprisesTab() {
     setForm(EMPTY)
   }
 
+  /** Whether the corrector fitted now, as the form has it, is a Floutek —
+   *  the only family whose protocol carries a password. Hidden for the rest,
+   *  like the timeouts: a field nobody needs collects typos. */
+  const fittedIsFloutek = useMemo(() => {
+    const fitted = [...form.devices].reverse().find((d) => !d.removed_date)
+    const type = (corectorTypes ?? []).find(
+      (c) => String(c.id) === String(fitted?.corector_type_id ?? ''),
+    )
+    return /ФЛОУТЕК|FLOUTEK|FLOUTEC/i.test(type?.model_name ?? '')
+  }, [form.devices, corectorTypes])
+
+  /** ДПД's modem number for the site being edited, put into the field. */
+  const phoneLookup = useMutation({
+    mutationFn: (id: number) => enterpriseMappingApi.phoneFromDpd(id),
+    onSuccess: (found) => {
+      if (found.phone) {
+        setForm((f) => ({ ...f, gsm_phone: found.phone! }))
+        notifications.show({ color: 'green', message: found.message })
+      } else {
+        // "+380" and nothing after it is how ДПД keeps a number nobody entered.
+        // Said plainly, so the operator knows to type it rather than wonder
+        // why the button did nothing.
+        notifications.show({ color: 'orange', message: found.message, autoClose: 8000 })
+      }
+    },
+    onError: notifyErr,
+  })
+
   // Somebody arrived here from the monitor, having clicked a site's name.
   // The list is fetched asynchronously, so this waits for the row rather than
   // giving up on it — and clears the request once taken, or the form would
@@ -419,6 +450,7 @@ export function EnterprisesTab() {
       active: e.active,
       enabled: e.enabled,
       gsm_phone: e.gsm?.phone ?? '',
+      gsm_password: e.gsm?.password ?? '11',
       gsm_agent_ids: (e.gsm?.agent_ids ?? []).map(String),
       gsm_auto_poll: e.gsm?.auto_poll ?? false,
       gsm_poll_times: e.gsm?.poll_times ?? [],
@@ -621,7 +653,39 @@ export function EnterprisesTab() {
           // dialtone", which reads exactly like a dead line.
           error={phoneError(form.gsm_phone)}
           description="Порожньо — модема немає, підприємство не дзвонимо"
+          rightSectionWidth={editingId != null ? 58 : undefined}
+          rightSection={
+            // ДПД keeps the number for most sites. Offered for an existing
+            // enterprise only: the lookup goes by the corrector already
+            // saved on it, and a new card has none yet.
+            editingId != null ? (
+              <Tooltip label="Підставити номер модема з ДПД" withArrow>
+                <Button
+                  size="compact-xs"
+                  variant="subtle"
+                  loading={phoneLookup.isPending}
+                  onClick={() => phoneLookup.mutate(editingId)}
+                >
+                  з ДПД
+                </Button>
+              </Tooltip>
+            ) : undefined
+          }
         />
+        {fittedIsFloutek && (
+          <TextInput
+            label="Пароль приладу"
+            size="xs"
+            w={130}
+            value={form.gsm_password}
+            onChange={(e) => setForm({ ...form, gsm_password: e.currentTarget.value })}
+            // A Floutek ТМ-2 asks for it in every archive request. The fleet
+            // keeps the vendor's default, which is why it starts filled in.
+            description="Флоутек; типово 11"
+            maxLength={14}
+            disabled={!form.gsm_phone.trim()}
+          />
+        )}
         <Switch
           size="xs"
           label="Опитувати за графіком"

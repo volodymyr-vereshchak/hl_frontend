@@ -348,13 +348,34 @@ function Corrector({ card }: { card: PollDevice }) {
     )
   }
   return (
-    <Group gap={6} wrap="nowrap">
-      <Text size="xs">№{card.ser_num}</Text>
-      <Text size="xs" c="dimmed">
-        {card.model_name ?? ''}
-      </Text>
-    </Group>
+    <div>
+      <Group gap={6} wrap="nowrap">
+        <Text size="xs">№{card.ser_num}</Text>
+        <Text size="xs" c="dimmed">
+          {card.model_name ?? ''}
+        </Text>
+      </Group>
+      {/* What answered the phone, when it is not what the catalogue says. The
+          agent reads the corrector by its own account, so this is the model
+          actually being polled — and the card is the thing to correct. */}
+      {card.detected_model && !sameModel(card.model_name, card.detected_model) && (
+        <Tooltip label="Так прилад назвав себе на останньому дзвінку" withArrow>
+          <Text size="xs" c="orange">
+            відповів: {card.detected_model}
+          </Text>
+        </Tooltip>
+      )}
+    </div>
   )
+}
+
+/** "ФЛОУТЕК-ТМ-2-3-4" and "Floutek-TM-2-3-4" are the same model in two
+ *  alphabets; the version is what decides. */
+function sameModel(card: string | null, answered: string): boolean {
+  const version = (name: string | null) => name?.match(/\d+(?:[.-]\d+)*/)?.[0] ?? null
+  const a = version(card)
+  const b = version(answered)
+  return a == null || b == null || a === b
 }
 
 function Schedule({ card }: { card: PollDevice }) {
