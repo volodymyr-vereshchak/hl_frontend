@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArchivePurgeModal } from './ArchivePurgeModal'
 import {
   ActionIcon,
-  MultiSelect,
+  Input,
+  Fieldset,
   Badge,
   Box,
   Button,
@@ -35,6 +36,7 @@ import {
   IconPlus,
   IconSearch,
   IconTrash,
+  IconPhone,
   IconEraser,
   IconUpload,
 } from '@tabler/icons-react'
@@ -57,6 +59,7 @@ import { DeviceHistoryEditor, DeviceHistoryModal } from '../DeviceHistoryModal'
 import { PollTimesField } from '../PollTimesField'
 import { phoneError } from './pollDeviceForm'
 import { useAdminNavigation } from '../adminNavigation'
+import { CheckboxFilter } from '@/components/CheckboxFilter'
 import { pollingApi } from '@/api/polling'
 import {
   EMPTY_DEVICE,
@@ -392,15 +395,16 @@ export function EnterprisesTab() {
     setForm(EMPTY)
   }
 
-  /** Whether the corrector fitted now, as the form has it, is a Floutek —
-   *  the only family whose protocol carries a password. Hidden for the rest,
-   *  like the timeouts: a field nobody needs collects typos. */
-  const fittedIsFloutek = useMemo(() => {
+  /** Whether the corrector fitted now speaks ПК-В — a Floutek ТМ-2, or a
+   *  ПК-В itself — the only protocol here that carries a password. A ТМ-1
+   *  has none, so its card does not ask for one. Hidden for the rest, like
+   *  the timeouts: a field nobody needs collects typos. */
+  const fittedSpeaksPkv = useMemo(() => {
     const fitted = [...form.devices].reverse().find((d) => !d.removed_date)
     const type = (corectorTypes ?? []).find(
       (c) => String(c.id) === String(fitted?.corector_type_id ?? ''),
     )
-    return /ФЛОУТЕК|FLOUTEK|FLOUTEC/i.test(type?.model_name ?? '')
+    return /ФЛОУТЕК-ТМ-2|FLOUTEK-TM-2|ПК-В/i.test(type?.model_name ?? '')
   }, [form.devices, corectorTypes])
 
   /** ДПД's modem number for the site being edited, put into the field. */
@@ -639,93 +643,126 @@ export function EnterprisesTab() {
           keep their defaults on the poll card: nobody has needed to change
           them, and a box nobody needs collects the typo that reads later as a
           dead meter. */}
-      <Divider my="xs" label="Опитування модемом" labelPosition="left" />
-      <Group gap="sm" align="flex-start" wrap="wrap">
-        <TextInput
-          label="Телефон модема"
-          size="xs"
-          w={220}
-          value={form.gsm_phone}
-          onChange={(e) => setForm({ ...form, gsm_phone: e.currentTarget.value })}
-          placeholder="+380XXXXXXXXX"
-          // Caught here as well as on the server: a number saved as "050…"
-          // looks right on the screen and fails every night with "no
-          // dialtone", which reads exactly like a dead line.
-          error={phoneError(form.gsm_phone)}
-          description="Порожньо — модема немає, підприємство не дзвонимо"
-          rightSectionWidth={editingId != null ? 58 : undefined}
-          rightSection={
-            // ДПД keeps the number for most sites. Offered for an existing
-            // enterprise only: the lookup goes by the corrector already
-            // saved on it, and a new card has none yet.
-            editingId != null ? (
-              <Tooltip label="Підставити номер модема з ДПД" withArrow>
-                <Button
-                  size="compact-xs"
-                  variant="subtle"
-                  loading={phoneLookup.isPending}
-                  onClick={() => phoneLookup.mutate(editingId)}
-                >
-                  з ДПД
-                </Button>
-              </Tooltip>
-            ) : undefined
-          }
-        />
-        {fittedIsFloutek && (
+      {/* Framed, so the modem's settings read as one thing: the phone, who
+          dials it, when, and what the corrector wants to hear — rather than a
+          few more fields in a long form about the metering point. */}
+      <Fieldset
+        legend={
+          <Group gap={6} wrap="nowrap">
+            <IconPhone size={14} />
+            <Text size="sm" fw={600}>
+              GSM-модем
+            </Text>
+          </Group>
+        }
+        radius="md"
+        p="sm"
+        mt="xs"
+      >
+        <Group gap="sm" align="flex-start" wrap="wrap">
           <TextInput
-            label="Пароль приладу"
+            label="Телефон модема"
             size="xs"
-            w={130}
-            value={form.gsm_password}
-            onChange={(e) => setForm({ ...form, gsm_password: e.currentTarget.value })}
-            // A Floutek ТМ-2 asks for it in every archive request. The fleet
-            // keeps the vendor's default, which is why it starts filled in.
-            description="Флоутек; типово 11"
-            maxLength={14}
-            disabled={!form.gsm_phone.trim()}
+            w={220}
+            value={form.gsm_phone}
+            onChange={(e) => setForm({ ...form, gsm_phone: e.currentTarget.value })}
+            placeholder="+380XXXXXXXXX"
+            // Caught here as well as on the server: a number saved as "050…"
+            // looks right on the screen and fails every night with "no
+            // dialtone", which reads exactly like a dead line.
+            error={phoneError(form.gsm_phone)}
+            description="Порожньо — модема немає, підприємство не дзвонимо"
+            rightSectionWidth={editingId != null ? 58 : undefined}
+            rightSection={
+              // ДПД keeps the number for most sites. Offered for an existing
+              // enterprise only: the lookup goes by the corrector already
+              // saved on it, and a new card has none yet.
+              editingId != null ? (
+                <Tooltip label="Підставити номер модема з ДПД" withArrow>
+                  <Button
+                    size="compact-xs"
+                    variant="subtle"
+                    loading={phoneLookup.isPending}
+                    onClick={() => phoneLookup.mutate(editingId)}
+                  >
+                    з ДПД
+                  </Button>
+                </Tooltip>
+              ) : undefined
+            }
           />
-        )}
-        <Switch
-          size="xs"
-          label="Опитувати за графіком"
-          checked={form.gsm_auto_poll}
-          onChange={(e) => setForm({ ...form, gsm_auto_poll: e.currentTarget.checked })}
-          disabled={!form.gsm_phone.trim()}
-          mt={22}
-        />
-        <PollTimesField
-          value={form.gsm_poll_times}
-          onChange={(times) => setForm({ ...form, gsm_poll_times: times as string[] })}
-          // Off means "only by hand", and hours that cannot fire read as a
-          // schedule that is simply not working.
-          disabled={!form.gsm_auto_poll || !form.gsm_phone.trim()}
-        />
-        {/* Which machine dials this number, set here with the rest of the
-            modem's settings. It used to be chosen in the monitor, which made
-            setting a site up two screens — and the second one easy to forget,
-            leaving a number nobody ever calls. */}
-        <MultiSelect
-          label="Хто дзвонить"
-          size="xs"
-          w={260}
-          data={agentOptions}
-          value={form.gsm_agent_ids}
-          onChange={(ids) => setForm({ ...form, gsm_agent_ids: ids })}
-          disabled={!form.gsm_phone.trim()}
-          placeholder={form.gsm_agent_ids.length ? undefined : 'нікому'}
-          // Not a warning about typing: a number with no machine behind it is
-          // a site that is never polled and looks, everywhere else, set up.
-          error={!!form.gsm_phone.trim() && form.gsm_agent_ids.length === 0}
-          description={
-            form.gsm_agent_ids.length > 1
-              ? 'Спільна черга: хто перший звільниться, той і подзвонить'
-              : 'Машина з модемом, якій доручено це підприємство'
-          }
-          searchable
-          clearable
-        />
-      </Group>
+          {fittedSpeaksPkv && (
+            <TextInput
+              label="Пароль приладу"
+              size="xs"
+              w={130}
+              value={form.gsm_password}
+              onChange={(e) => setForm({ ...form, gsm_password: e.currentTarget.value })}
+              // A Floutek ТМ-2 asks for it in every archive request. The fleet
+              // keeps the vendor's default, which is why it starts filled in.
+              description="ПК-В (Флоутек ТМ-2); типово 11"
+              maxLength={14}
+              disabled={!form.gsm_phone.trim()}
+            />
+          )}
+          <Switch
+            size="xs"
+            label="Опитувати за графіком"
+            checked={form.gsm_auto_poll}
+            onChange={(e) => setForm({ ...form, gsm_auto_poll: e.currentTarget.checked })}
+            disabled={!form.gsm_phone.trim()}
+            mt={22}
+          />
+          <PollTimesField
+            value={form.gsm_poll_times}
+            onChange={(times) => setForm({ ...form, gsm_poll_times: times as string[] })}
+            // Off means "only by hand", and hours that cannot fire read as a
+            // schedule that is simply not working.
+            disabled={!form.gsm_auto_poll || !form.gsm_phone.trim()}
+          />
+          {/* Which machine dials this number, set here with the rest of the
+              modem's settings. It used to be chosen in the monitor, which made
+              setting a site up two screens — and the second one easy to forget,
+              leaving a number nobody ever calls. */}
+          <Input.Wrapper
+            label="Хто дзвонить"
+            size="xs"
+            description={
+              form.gsm_agent_ids.length > 1
+                ? 'Спільна черга: хто перший звільниться, той і подзвонить'
+                : 'Машина з модемом, якій доручено це підприємство'
+            }
+            // Not a warning about typing: a number with no machine behind it is
+            // a site that is never polled and looks, everywhere else, set up.
+            error={
+              !!form.gsm_phone.trim() && form.gsm_agent_ids.length === 0
+                ? 'Нікому не доручено — підприємство не опитуватиметься'
+                : undefined
+            }
+          >
+            {/* The same dropdown as the model filter on the industry screen,
+                but read back by names: this is a setting, and "2 / 5" does not
+                say which machines dial. */}
+            <div>
+              <CheckboxFilter
+                label="Агенти"
+                options={agentOptions}
+                value={form.gsm_agent_ids}
+                onChange={(ids) => setForm({ ...form, gsm_agent_ids: ids })}
+                disabled={!form.gsm_phone.trim()}
+                emptyLabel="нікому"
+                summary={(picked) =>
+                  picked.length <= 2
+                    ? picked.map((o) => o.label).join(', ')
+                    : `${picked.length} з ${agentOptions.length}`
+                }
+                error={!!form.gsm_phone.trim() && form.gsm_agent_ids.length === 0}
+                width={260}
+              />
+            </div>
+          </Input.Wrapper>
+        </Group>
+      </Fieldset>
 
       {deviceBlock}
 

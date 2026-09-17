@@ -21,6 +21,15 @@ interface Props {
   /** Below this many options a search box is more noise than help. */
   searchFrom?: number
   width?: number
+  /** What the closed control says with nothing picked. A filter means "all";
+   *  a setting such as who dials a site means "nobody", and must say so. */
+  emptyLabel?: string
+  /** The closed control's text when something is picked, instead of «2 / 7».
+   *  A setting is read back by its names; a filter by how far it narrows. */
+  summary?: (picked: CheckboxFilterOption[]) => string
+  disabled?: boolean
+  /** Marks the control red — a setting left in a state that does not work. */
+  error?: boolean
 }
 
 /**
@@ -44,6 +53,10 @@ export function CheckboxFilter({
   searchPlaceholder,
   searchFrom = 8,
   width = 300,
+  emptyLabel,
+  summary,
+  disabled,
+  error,
 }: Props) {
   const { t } = useLanguage()
   const [opened, setOpened] = useState(false)
@@ -78,11 +91,18 @@ export function CheckboxFilter({
           // A set filter is visibly set even when the dropdown is closed —
           // otherwise a narrowed table looks like missing data.
           variant={value.length ? 'light' : 'default'}
-          color={value.length ? 'petrol' : undefined}
+          color={error ? 'red' : value.length ? 'petrol' : undefined}
           onClick={() => setOpened((o) => !o)}
           rightSection={<IconChevronDown size={14} />}
+          disabled={disabled}
+          styles={error ? { root: { borderColor: 'var(--mantine-color-red-6)' } } : undefined}
         >
-          {label}: {value.length ? `${value.length} / ${options.length}` : t('selectAll').toLowerCase()}
+          {label}:{' '}
+          {value.length
+            ? summary
+              ? summary(options.filter((o) => picked.has(o.value)))
+              : `${value.length} / ${options.length}`
+            : (emptyLabel ?? t('selectAll').toLowerCase())}
         </Button>
       </Popover.Target>
 
