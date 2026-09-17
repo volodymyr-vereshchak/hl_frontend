@@ -243,8 +243,11 @@ export function ArchivePage() {
   const lineUnit = normalizeUnit(lineMeta?.pressure_unit)
   const storedUnit = reportedUnit(rawRows) ?? lineUnit ?? PRESSURE_UNIT_DEFAULT
   // And what to show them in: that same unit, until the reader says otherwise
-  // in the column header.
-  const displayUnit = unitChoice ?? storedUnit
+  // in the column header. Only a DPD line has that switch: its records carry
+  // the corrector's unit, as an enterprise's do. A ГРС line's archive comes
+  // from hostlibs with no unit at all — the line's setting is the unit.
+  const unitSwitchable = lineMeta?.kind === 'dpd'
+  const displayUnit = (unitSwitchable ? unitChoice : null) ?? storedUnit
 
   const rows = useMemo(() => {
     const base =
@@ -514,7 +517,7 @@ export function ArchivePage() {
                   rows={rows}
                   type={archiveType}
                   meta={meta}
-                  onPressureUnit={setUnitChoice}
+                  onPressureUnit={unitSwitchable ? setUnitChoice : undefined}
                   overlay={canOverlay && overlay.enabled && !!overlay.byPeriod}
                   drillHref={drillHref}
                   /* sys/edit arrive one page at a time from the server; the
