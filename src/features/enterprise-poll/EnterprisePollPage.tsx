@@ -3,7 +3,6 @@ import {
   Stack,
   Group,
   Title,
-  MultiSelect,
   Select,
   SegmentedControl,
   Button,
@@ -35,6 +34,7 @@ import {
   IconPlayerPlay,
   IconPlugConnectedX,
   IconSearch,
+  IconPhone,
   IconPlayerStop,
 } from '@tabler/icons-react'
 import { useLocalStorage } from '@mantine/hooks'
@@ -77,6 +77,7 @@ import {
 } from '@/domain/pressureUnits'
 import { PressureUnitPicker } from '@/components/PressureUnitPicker'
 import { useLanguage } from '@/locales/LanguageContext'
+import { CheckboxFilter } from '@/components/CheckboxFilter'
 import { useSelectionStore } from '@/store/selectionStore'
 import { numericStyle } from '@/theme/theme'
 import { ArchiveChart } from '@/features/archive/ArchiveChart'
@@ -154,6 +155,8 @@ export function EnterprisePollPage() {
   /** Corrector models to show. Multi-select: "ВЕГА and КПЛГ, not Флоутек" is
    *  the question people actually ask. Empty means all of them. */
   const [models, setModels] = useState<string[]>([])
+  /** Whether the site has a modem: "yes" / "no". Empty means both. */
+  const [gsm, setGsm] = useState<string[]>([])
   const [selected, setSelected] = useState<number | null>(null)
   // Feed the scrollbars, which run between the sticky header and totals row.
   const { containerRef, theadRef, tfootRef, theadHeight, tfootHeight } = useStickyRowHeights()
@@ -272,6 +275,7 @@ export function EnterprisePollPage() {
         if (!models.length) return true
         return models.includes(fittedModel(m))
       })
+      .filter((m) => !gsm.length || gsm.includes(m.gsm?.phone ? 'yes' : 'no'))
       .filter((m) => {
         if (!q) return true
         return (
@@ -280,7 +284,7 @@ export function EnterprisePollPage() {
           (lineLabel(m) ?? '').toLowerCase().includes(q)
         )
       })
-  }, [mappings, branchFilter, search, lineLabel, models])
+  }, [mappings, branchFilter, search, lineLabel, models, gsm])
 
   /**
    * Corrector models to choose from — the ones standing in the industry, not
@@ -303,8 +307,18 @@ export function EnterprisePollPage() {
     }
     return [...seen.entries()]
       .sort((a, b) => a[0].localeCompare(b[0], 'uk'))
-      .map(([name, count]) => ({ value: name, label: `${name} (${count})` }))
+      .map(([name, count]) => ({ value: name, label: name, count }))
   }, [mappings, branchFilter])
+
+  /** With a modem or without — counted in the branch, like the models. */
+  const gsmOptions = useMemo(() => {
+    const rows = (mappings ?? []).filter((m) => !branchFilter || m.branch_id === branchFilter)
+    const withModem = rows.filter((m) => m.gsm?.phone).length
+    return [
+      { value: 'yes', label: t('withModem'), count: withModem },
+      { value: 'no', label: t('withoutModem'), count: rows.length - withModem },
+    ]
+  }, [mappings, branchFilter, t])
 
   /**
    * Branch → line → enterprises, the same shape as the old poll screen. A flat
@@ -874,19 +888,6 @@ export function EnterprisePollPage() {
                 size="xs"
                 style={{ flex: 1 }}
               />
-              <MultiSelect
-                placeholder={models.length ? undefined : t('correctorAny')}
-                data={modelOptions}
-                value={models}
-                onChange={setModels}
-                size="xs"
-                w={models.length ? 190 : 150}
-                searchable
-                clearable
-                hidePickedOptions
-                comboboxProps={{ withinPortal: true, zIndex: 400, width: 260 }}
-                aria-label={t('correctorModel')}
-              />
               {/* A few hundred devices across a dozen branches: opening or
                   closing them one at a time is the slow part of finding one. */}
               <Tooltip label={t('expandAll')} withArrow>
@@ -899,6 +900,26 @@ export function EnterprisePollPage() {
                   <IconChevronsUp size={15} />
                 </ActionIcon>
               </Tooltip>
+            </Group>
+            {/* The same control the lines use: a count on the button and the
+                choices as checkboxes, so however much is picked the strip
+                stays one row high. */}
+            <Group gap={6} mt={6} wrap="wrap">
+              <CheckboxFilter
+                label={t('correctorShort')}
+                options={modelOptions}
+                value={models}
+                onChange={setModels}
+                searchPlaceholder={t('correctorModel')}
+                width={280}
+              />
+              <CheckboxFilter
+                label={t('gsmModem')}
+                options={gsmOptions}
+                value={gsm}
+                onChange={setGsm}
+                width={220}
+              />
             </Group>
           </Box>
           <ScrollArea className="hlv-table-scroll" style={{ flex: 1 }} type="hover">
@@ -1011,6 +1032,23 @@ export function EnterprisePollPage() {
                                         >
                                           {enterpriseLabel(m)}
                                         </Text>
+                                        {/* A site that can be dialled, marked
+                                            where it is listed: which ones have
+                                            a modem is what somebody choosing
+                                            between ДПД and GSM wants to see
+                                            before opening each. */}
+                                        {m.gsm?.phone && (
+                                          <span
+                                            title={`${t('gsmModem')}: ${m.gsm.phone}`}
+                                            style={{ display: 'inline-flex', flexShrink: 0 }}
+                                          >
+                                            <IconPhone
+                                              size={12}
+                                              color="var(--mantine-color-petrol-6)"
+                                              aria-label={t('gsmModem')}
+                                            />
+                                          </span>
+                                        )}
                                         {m.active === false && (
                                           <Badge
                                             size="xs"

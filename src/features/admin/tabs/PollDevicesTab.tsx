@@ -8,7 +8,6 @@ import {
   Group,
   Loader,
   Modal,
-  MultiSelect,
   Progress,
   ScrollArea,
   Table,
@@ -25,6 +24,7 @@ import {
 import { useQuery } from '@tanstack/react-query'
 import { pollingApi, type PollAgent, type PollDevice } from '@/api/polling'
 import { useAdminNavigation } from '../adminNavigation'
+import { CheckboxFilter } from '@/components/CheckboxFilter'
 
 /**
  * Монітор GSM — a monitor, not an editor.
@@ -81,19 +81,29 @@ export function PollDevicesTab() {
     }
     return [...seen.entries()]
       .sort((a, b) => a[0].localeCompare(b[0], 'uk'))
-      .map(([name, count]) => ({ value: name, label: `${name} (${count})` }))
+      .map(([name, count]) => ({ value: name, label: name, count }))
+  }, [devices])
+
+  const modeOptions = useMemo(() => {
+    const cards = (devices ?? []).filter((c) => c.enterprise_id != null)
+    const auto = cards.filter((c) => c.auto_poll).length
+    return [
+      { value: 'auto', label: 'за графіком', count: auto },
+      { value: 'manual', label: 'тільки вручну', count: cards.length - auto },
+    ]
   }, [devices])
 
   /** Likewise: a state nothing is in is a filter that can only empty the
    *  table, and the list is short enough that its absence is informative. */
   const stateFilterOptions = useMemo(() => {
-    const seen = new Set(
-      (devices ?? [])
-        .filter((c) => c.enterprise_id != null)
-        .map((c) => stateOf(c)),
-    )
-    return [...seen]
-      .map((value) => ({ value, label: STATE_LABELS[value] ?? value }))
+    const seen = new Map<string, number>()
+    for (const card of devices ?? []) {
+      if (card.enterprise_id == null) continue
+      const state = stateOf(card)
+      seen.set(state, (seen.get(state) ?? 0) + 1)
+    }
+    return [...seen.entries()]
+      .map(([value, count]) => ({ value, label: STATE_LABELS[value] ?? value, count }))
       .sort((a, b) => a.label.localeCompare(b.label, 'uk'))
   }, [devices])
 
@@ -140,8 +150,8 @@ export function PollDevicesTab() {
     <>
       <Alert color="gray" variant="light" icon={<IconInfoCircle size={16} />} mb="sm">
         <Text size="xs">
-          Телефон, графік і години опитування — у картці підприємства. Тут видно
-          стан по всьому парку і призначається машина, яка дзвонить.
+          Телефон, графік і машина, яка дзвонить, — у картці підприємства (назва
+          в таблиці її відкриває). Тут видно стан по всьому парку.
         </Text>
       </Alert>
 
@@ -155,42 +165,32 @@ export function PollDevicesTab() {
           value={search}
           onChange={(e) => setSearch(e.currentTarget.value)}
         />
-        <MultiSelect
-          size="xs"
-          w={200}
+        {/* The control the lines use: a count on the button, checkboxes in
+            the list — one row high however much is picked. */}
+        <CheckboxFilter
           label="Стан"
-          placeholder={fState.length ? undefined : 'будь-який'}
-          data={stateFilterOptions}
+          options={stateFilterOptions}
           value={fState}
           onChange={setFState}
-          clearable
+          width={220}
         />
-        <MultiSelect
-          size="xs"
-          w={170}
+        <CheckboxFilter
           label="Як опитується"
-          placeholder={fMode.length ? undefined : 'будь-як'}
-          data={[
-            { value: 'auto', label: 'за графіком' },
-            { value: 'manual', label: 'тільки вручну' },
-          ]}
+          options={modeOptions}
           value={fMode}
           onChange={setFMode}
-          clearable
+          width={220}
         />
-        <MultiSelect
-          size="xs"
-          w={220}
+        {/* Only the models that are actually on this screen. The catalogue
+            holds thirty-nine and a handful have modems: a list of the rest is
+            a list of ways to filter to nothing. */}
+        <CheckboxFilter
           label="Коректор"
-          // Only the models that are actually on this screen. The catalogue
-          // holds thirty-nine and two of them have modems: a list of the
-          // other thirty-seven is a list of ways to filter to nothing.
-          placeholder={fModel.length ? undefined : 'будь-який'}
-          data={modelOptions}
+          options={modelOptions}
           value={fModel}
           onChange={setFModel}
-          searchable
-          clearable
+          searchPlaceholder="Модель коректора"
+          width={280}
         />
         <Text size="xs" c="dimmed" pb={6}>
           {shown.length === cards.length
