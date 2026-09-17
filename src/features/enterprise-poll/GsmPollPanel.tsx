@@ -159,6 +159,15 @@ export function GsmPollPanel({ enterpriseId, enterpriseName, runKey }: Props) {
         )}
       </Group>
 
+      {/* What this source is, in the pane that describes it. Switching to GSM
+          used to leave the ДПД description standing, which reads as "the
+          modem fetches from the vendor's server" — the opposite of the truth. */}
+      <Text size="xs" c="dimmed">
+        Агент біля модема дзвонить на прилад і читає годинний та добовий
+        архіви від останнього запису в базі до поточної години. Якщо в базі
+        порожньо — 30 діб годин і кільце добових, скільки прилад тримає.
+      </Text>
+
       {/* The wait is real and worth naming: the agent learns of this on its
           next report, and hangs up between records rather than mid-reading. */}
       {watch?.cancelling && (

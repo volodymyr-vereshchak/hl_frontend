@@ -365,6 +365,7 @@ export function EnterprisePollPage() {
   const expandAll = () => setCollapsed({})
 
   const selectedMapping = list.find((m) => m.id === selected) ?? null
+  const hasModem = !!selectedMapping?.gsm?.phone
 
   /**
    * "Немає опитування" — which enterprises have gone silent.
@@ -755,11 +756,19 @@ export function EnterprisePollPage() {
         )}
         {/* Only where there is a modem to switch to. An option that fails
             for most of the list teaches people to ignore the option. */}
-        {tab === 'poll' && selectedMapping?.gsm?.phone && (
+        {tab === 'poll' && hasModem && (
           <SegmentedControl
             size="xs"
             value={source}
-            onChange={(v) => setSource(v as 'dpd' | 'gsm')}
+            onChange={(v) => {
+              const next = v as 'dpd' | 'gsm'
+              setSource(next)
+              // The switch is the answer to "where does this come from", so
+              // the pane answers with it. It used to wait for «Опитати», and
+              // until then GSM was described as a fetch from the Радміртех
+              // server — the other source entirely.
+              setPane(next === 'gsm' ? 'gsm' : 'poll')
+            }}
             data={[
               // The names as the people who run this call them: the data
               // either comes from the vendor's own server, or off the meter
@@ -785,7 +794,7 @@ export function EnterprisePollPage() {
             leftSection={<IconPlayerPlay size={15} />}
             onClick={() => {
               if (tab === 'archive') return void run()
-              if (source === 'gsm' && selectedMapping?.gsm?.phone) return void runGsm()
+              if (source === 'gsm' && hasModem) return void runGsm()
               return void runDpd()
             }}
             disabled={!selectedMapping}
@@ -1096,7 +1105,7 @@ export function EnterprisePollPage() {
         >
           {/* The "no poll" result takes the whole pane: it is a report in its
               own right, and as a modal it covered the tree its rows link into. */}
-          {tab === 'poll' && pane === 'poll' ? (
+          {tab === 'poll' && (pane === 'poll' || (pane === 'gsm' && !hasModem)) ? (
             <DpdPollPane
               selected={!!selectedMapping}
               loading={loading}
