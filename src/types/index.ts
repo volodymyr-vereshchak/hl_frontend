@@ -97,6 +97,16 @@ export interface DpdLine {
   /** Which unit this line's pressure is READ in; empty follows the rows. */
   pressure_unit?: string | null
   devices?: DpdDevice[]
+  /** The modem at the line, where there is one. A ДПД line can carry its own,
+   *  set up exactly as an enterprise's: a number, when to dial it, and which
+   *  machines may. */
+  gsm?: {
+    phone: string | null
+    auto_poll: boolean
+    poll_times: string[]
+    agent_ids: number[]
+    password: string
+  } | null
 }
 
 /**

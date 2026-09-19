@@ -4,7 +4,9 @@ import {
   Box,
   Button,
   Center,
+  Fieldset,
   Group,
+  Input,
   NumberInput,
   Paper,
   Progress,
@@ -17,6 +19,7 @@ import {
   TextInput,
   Tooltip,
 } from '@mantine/core'
+import { IconPhone } from '@tabler/icons-react'
 import { DatePickerInput } from '@mantine/dates'
 import { modals } from '@mantine/modals'
 import { notifications } from '@mantine/notifications'
@@ -32,6 +35,10 @@ import {
 } from '@tabler/icons-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { deviceCatalogApi, dpdLineAdminApi, type DpdJobStatus } from '@/api/admin'
+import { pollingApi } from '@/api/polling'
+import { CheckboxFilter } from '@/components/CheckboxFilter'
+import { PollTimesField } from '../PollTimesField'
+import { phoneError } from './pollDeviceForm'
 import type { DpdLine } from '@/types'
 import { invalidateTopology } from '@/lib/invalidateTopology'
 import { numericStyle } from '@/theme/theme'
@@ -74,6 +81,14 @@ interface FormState {
   /** Which unit the line's pressure is READ in; the archive converts to it. */
   pressure_unit: string
   devices: DeviceForm[]
+  /** The modem at the line. A ДПД line can have one of its own, and it is set
+   *  up here for the same reason it is set up on an enterprise card: the
+   *  number belongs to the thing being metered, not to the machine dialling. */
+  gsm_phone: string
+  gsm_password: string
+  gsm_agent_ids: string[]
+  gsm_auto_poll: boolean
+  gsm_poll_times: string[]
 }
 
 const EMPTY: FormState = {
@@ -83,6 +98,11 @@ const EMPTY: FormState = {
   lumg_id: null,
   pressure_unit: PRESSURE_UNIT_DEFAULT,
   devices: [],
+  gsm_phone: '',
+  gsm_password: '11',
+  gsm_agent_ids: [],
+  gsm_auto_poll: false,
+  gsm_poll_times: [],
 }
 
 /**
@@ -213,6 +233,10 @@ export function DpdLinesTab() {
     const m = new Map((corectorTypes ?? []).map((c) => [c.id, c.manufacturer_id]))
     return (id: number) => m.get(id)
   }, [corectorTypes])
+  const ctById = useMemo(
+    () => new Map((corectorTypes ?? []).map((c) => [c.id, c])),
+    [corectorTypes],
+  )
   const ctsForMfr = (mfrId: string | null) =>
     (corectorTypes ?? []).filter((c) => String(c.manufacturer_id) === mfrId)
 
@@ -240,6 +264,29 @@ export function DpdLinesTab() {
       ),
     }))
 
+  //: The machines that could dial this line, named rather than numbered: this
+  //: is a setting, and "2 / 5" does not say which of them calls.
+  const { data: agents } = useQuery({
+    queryKey: ['admin', 'poll-agents'],
+    queryFn: pollingApi.getAgents,
+    staleTime: 60_000,
+  })
+  const agentOptions = useMemo(
+    () => (agents ?? []).map((a) => ({ value: String(a.id), label: a.name })),
+    [agents],
+  )
+
+  //: A password is asked for only where it is asked of the corrector: the
+  //: ПК-В dialect of a Флоутек ТМ-2. Every other family ignores it.
+  const speaksPkv = useMemo(
+    () =>
+      form.devices.some((d) => {
+        const model = ctById.get(Number(d.corector_type_id))?.model_name ?? ''
+        return /ФЛОУТЕК-ТМ-2|FLOUTEK-TM-2|ПК-В/i.test(model)
+      }),
+    [form.devices, ctById],
+  )
+
   const startEdit = (line: DpdLine) => {
     setEditId(line.id)
     setForm({
@@ -248,6 +295,11 @@ export function DpdLinesTab() {
       branch_id: line.branch_id != null ? String(line.branch_id) : null,
       lumg_id: line.lumg_id != null ? String(line.lumg_id) : null,
       pressure_unit: line.pressure_unit || PRESSURE_UNIT_DEFAULT,
+      gsm_phone: line.gsm?.phone ?? '',
+      gsm_password: line.gsm?.password || '11',
+      gsm_agent_ids: (line.gsm?.agent_ids ?? []).map(String),
+      gsm_auto_poll: line.gsm?.auto_poll ?? false,
+      gsm_poll_times: line.gsm?.poll_times ?? [],
       devices: (line.devices ?? []).map((d) => ({
         ser_num: String(d.ser_num),
         manufacturer_id: String(mfrOfCt(d.corector_type_id) ?? ''),
@@ -280,6 +332,13 @@ export function DpdLinesTab() {
       branch_id: Number(form.branch_id),
       lumg_id: form.lumg_id ? Number(form.lumg_id) : null,
       pressure_unit: form.pressure_unit,
+      gsm: {
+        phone: form.gsm_phone.trim() || null,
+        password: form.gsm_password.trim() || '11',
+        agent_ids: form.gsm_agent_ids.map(Number),
+        auto_poll: form.gsm_auto_poll,
+        poll_times: form.gsm_poll_times,
+      },
       active: existing ? existing.active : true,
       include_in_trends: existing ? existing.include_in_trends : false,
       include_in_report: existing ? existing.include_in_report : false,
@@ -417,6 +476,98 @@ export function DpdLinesTab() {
               allowDeselect={false}
             />
           </Group>
+
+          {/* The modem, framed as one thing, exactly as on an enterprise
+              card: a ДПД line can carry its own, and setting it up in two
+              places would mean the second is the one somebody forgets. */}
+          <Fieldset
+            legend={
+              <Group gap={6} wrap="nowrap">
+                <IconPhone size={14} />
+                <Text size="sm" fw={600}>
+                  GSM-модем
+                </Text>
+              </Group>
+            }
+            radius="md"
+            p="sm"
+          >
+            <Group gap="sm" align="flex-start" wrap="wrap">
+              <TextInput
+                label="Телефон модема"
+                size="xs"
+                w={220}
+                value={form.gsm_phone}
+                onChange={(e) => setForm({ ...form, gsm_phone: e.currentTarget.value })}
+                placeholder="+380XXXXXXXXX"
+                // Caught here as well as on the server: a number saved as
+                // "050…" looks right on the screen and fails every night with
+                // "no dialtone", which reads exactly like a dead line.
+                error={phoneError(form.gsm_phone)}
+                description="Порожньо — модема немає, лінію не дзвонимо"
+              />
+              {speaksPkv && (
+                <TextInput
+                  label="Пароль приладу"
+                  size="xs"
+                  w={130}
+                  value={form.gsm_password}
+                  onChange={(e) => setForm({ ...form, gsm_password: e.currentTarget.value })}
+                  description="ПК-В (Флоутек ТМ-2); типово 11"
+                  maxLength={14}
+                  disabled={!form.gsm_phone.trim()}
+                />
+              )}
+              <Switch
+                size="xs"
+                label="Опитувати за графіком"
+                checked={form.gsm_auto_poll}
+                onChange={(e) => setForm({ ...form, gsm_auto_poll: e.currentTarget.checked })}
+                disabled={!form.gsm_phone.trim()}
+                mt={22}
+              />
+              <PollTimesField
+                value={form.gsm_poll_times}
+                onChange={(times) => setForm({ ...form, gsm_poll_times: times as string[] })}
+                disabled={!form.gsm_auto_poll || !form.gsm_phone.trim()}
+              />
+              <Input.Wrapper
+                label="Хто дзвонить"
+                size="xs"
+                description={
+                  form.gsm_agent_ids.length > 1
+                    ? 'Спільна черга: хто перший звільниться, той і подзвонить'
+                    : 'Машина з модемом, якій доручено цю лінію'
+                }
+                // Not a warning about typing: a number with no machine behind
+                // it is a line that is never polled and looks, everywhere
+                // else, set up.
+                error={
+                  !!form.gsm_phone.trim() && form.gsm_agent_ids.length === 0
+                    ? 'Нікому не доручено — лінія не опитуватиметься'
+                    : undefined
+                }
+              >
+                <div>
+                  <CheckboxFilter
+                    label="Агенти"
+                    options={agentOptions}
+                    value={form.gsm_agent_ids}
+                    onChange={(ids) => setForm({ ...form, gsm_agent_ids: ids })}
+                    disabled={!form.gsm_phone.trim()}
+                    emptyLabel="нікому"
+                    summary={(picked) =>
+                      picked.length <= 2
+                        ? picked.map((o) => o.label).join(', ')
+                        : `${picked.length} з ${agentOptions.length}`
+                    }
+                    error={!!form.gsm_phone.trim() && form.gsm_agent_ids.length === 0}
+                    width={260}
+                  />
+                </div>
+              </Input.Wrapper>
+            </Group>
+          </Fieldset>
 
           <Box>
             <Text size="xs" fw={500}>
