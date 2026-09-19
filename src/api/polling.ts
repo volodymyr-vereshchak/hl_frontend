@@ -190,6 +190,11 @@ export const pollingApi = {
   getLastLog: (deviceId: number) =>
     api.get<PollJournal>(`/polling/devices/${deviceId}/log/last`),
 
+  /** The same call frame by frame — kept the same way, one file per site,
+   *  the last call only. For working out why a poll failed, not for reading. */
+  getDebugLog: (deviceId: number) =>
+    api.get<PollJournal>(`/polling/devices/${deviceId}/log/debug`),
+
   /** Which machines dial one site. The mirror of setAgentDevices, and the
    *  shape the monitor needs: there a row is a site, not an agent, so moving
    *  one site between two machines must not rewrite either machine's set. */
