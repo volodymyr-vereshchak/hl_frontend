@@ -184,8 +184,15 @@ export function GsmPollPanel({ enterpriseId, enterpriseName, runKey }: Props) {
         <Group gap={6}>
           <Loader size="xs" />
           <Text size="xs" c="dimmed">
-            Чекаю, поки агент {watch.agent_name ? `«${watch.agent_name}» ` : ''}
-            візьме завдання
+            {/* Named only when there is one machine to name. Two agents on a
+                site means the call goes to whichever asks for its plan first,
+                and the screen used to point at one of them — sometimes at the
+                one that was switched off. */}
+            {watch.candidates.length === 1
+              ? `Чекаю, поки агент «${watch.candidates[0]}» візьме завдання`
+              : watch.candidates.length > 1
+                ? `Чекаю, поки завдання візьме хтось із агентів: ${watch.candidates.join(', ')}`
+                : 'Чекаю, поки агент візьме завдання'}
           </Text>
         </Group>
       )}

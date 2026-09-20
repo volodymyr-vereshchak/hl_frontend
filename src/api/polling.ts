@@ -234,9 +234,11 @@ export interface EnterprisePollStart {
   poll_device_id: number
   ser_num: number | null
   model_name: string | null
-  /** Which machine will make the call — worth showing, because on a bad day
-   *  the answer to "why is nothing happening" is that it is somebody else's. */
+  /** The one machine this went to — null when several could take it, because
+   *  then the request belongs to whichever asks for its plan first. */
   agent_name: string | null
+  /** Every machine that could take it. */
+  agent_names: string[]
 }
 
 export interface PollLogLine {
@@ -254,7 +256,11 @@ export interface PollWatch {
    *  polling — an agent holds the device and is on the phone;
    *  ok / error — how the last session ended. */
   status: 'waiting' | 'polling' | 'ok' | 'error'
+  /** Who is on the line now, or who made the call that just ended. Null while
+   *  the request is still queued — nobody has taken it yet. */
   agent_name: string | null
+  /** While queued: the machines that can pick it up. */
+  candidates: string[]
   ser_num: number | null
   started_at: string | null
   finished_at: string | null

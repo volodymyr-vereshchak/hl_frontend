@@ -445,12 +445,19 @@ export function EnterprisePollPage() {
     try {
       const started = await enterprisePollApi.start(selectedMapping.id)
       setGsmRun((n) => n + 1)
-      if (started.agent_name) {
-        notifications.show({
-          message: `Завдання прийняв «${started.agent_name}»`,
-          color: 'blue',
-        })
-      }
+      // «Прийняв» was wrong twice over: nobody has taken the request yet —
+      // it is picked up when an agent next asks for its plan — and with two
+      // machines on the site it is not known which of them will.
+      const waiting = started.agent_names ?? []
+      notifications.show({
+        color: 'blue',
+        message:
+          waiting.length === 1
+            ? `Запит передано агенту «${waiting[0]}» — подзвонить, щойно візьме завдання`
+            : waiting.length > 1
+              ? `Запит у черзі — подзвонить той із агентів, хто візьме першим: ${waiting.join(', ')}`
+              : 'Запит у черзі — агент подзвонить, щойно візьме завдання',
+      })
     } catch (e) {
       // The refusals are sentences meant for an operator — "немає
       // встановлених корректорів", "немає вільного модема" — so they belong
