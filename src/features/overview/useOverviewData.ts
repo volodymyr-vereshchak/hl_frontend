@@ -220,11 +220,14 @@ export function useOverviewData(branchId: number | null) {
       const pressures = OverviewCalculator.getLastPressures(allHourlyData, reportLineIds, lines, paramsMap)
 
       const activeAnchorMs = physEndMs ?? dpdEndMs
+      // Up to date means "not behind the anchor": a line whose last record is
+      // newer than the anchor — a ДПД line that closed its hour first — is as
+      // current as a line can be, and used to be counted as inactive.
       const activeLines = Object.values(pressures).filter(
         (p) =>
           activeAnchorMs !== null &&
           p.timestamp &&
-          Math.abs(new Date(p.timestamp).getTime() - activeAnchorMs) < 60_000,
+          new Date(p.timestamp).getTime() > activeAnchorMs - 60_000,
       ).length
 
       return {

@@ -1,5 +1,6 @@
 import { Chip, Group, Input, Stack, Text, TextInput } from '@mantine/core'
 import { CRON_PRESETS, cronError, describeCron } from '@/domain/cronSchedule'
+import { CronHelpButton } from './CronHelp'
 
 /**
  * When a device is polled, as cron — with the usual rhythms one click away.
@@ -29,7 +30,14 @@ export function PollCronField({ value, onChange, disabled }: PollCronFieldProps)
 
   return (
     <Input.Wrapper
-      label="Коли опитувати"
+      // The help sits in the label rather than beside the input: the question
+      // «а як це записати» comes before the field is touched, not after.
+      label={
+        <Group gap={2} wrap="nowrap" align="center">
+          <span>Коли опитувати</span>
+          <CronHelpButton value={value} onPick={onChange} disabled={disabled} />
+        </Group>
+      }
       size="xs"
       description="Порожньо — за загальним розкладом"
     >

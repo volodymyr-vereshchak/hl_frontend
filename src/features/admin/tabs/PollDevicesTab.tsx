@@ -56,6 +56,7 @@ export function PollDevicesTab() {
   const [fMode, setFMode] = useState<string[]>([])
   const [fModel, setFModel] = useState<string[]>([])
   const openEnterprise = useAdminNavigation((s) => s.openEnterprise)
+  const openDpdLine = useAdminNavigation((s) => s.openDpdLine)
   /** The site whose last poll is open in its own window. */
   const [logOf, setLogOf] = useState<PollDevice | null>(null)
 
@@ -88,7 +89,7 @@ export function PollDevicesTab() {
   }, [devices])
 
   const modeOptions = useMemo(() => {
-    const cards = (devices ?? []).filter((c) => c.enterprise_id != null)
+    const cards = devices ?? []
     const auto = cards.filter((c) => c.auto_poll).length
     return [
       { value: 'auto', label: 'за графіком', count: auto },
@@ -101,7 +102,6 @@ export function PollDevicesTab() {
   const stateFilterOptions = useMemo(() => {
     const seen = new Map<string, number>()
     for (const card of devices ?? []) {
-      if (card.enterprise_id == null) continue
       const state = stateOf(card)
       seen.set(state, (seen.get(state) ?? 0) + 1)
     }
@@ -117,7 +117,10 @@ export function PollDevicesTab() {
 
   if (isLoading) return <Loader size="sm" />
 
-  const cards = (devices ?? []).filter((d) => d.enterprise_id != null)
+  // Every card with a modem, whatever it stands for: a ДПД line can have
+  // one of its own, and a monitor that hides half the fleet is a monitor
+  // somebody checks and then goes looking elsewhere anyway.
+  const cards = devices ?? []
   const q = search.trim().toLowerCase()
   // Name, serial or phone: the three things somebody arrives here holding.
   // A phone typed with spaces or without the country code still has to find
@@ -223,20 +226,34 @@ export function PollDevicesTab() {
                     shows but no longer edits. Finding the same site again
                     by hand, down a list of hundreds, is what makes a
                     read-only screen feel like a dead end. */}
-                <Tooltip label="Відкрити картку підприємства" withArrow>
+                <Tooltip
+                  label={
+                    card.dpd_line_id != null
+                      ? 'Відкрити картку ДПД-лінії'
+                      : 'Відкрити картку підприємства'
+                  }
+                  withArrow
+                >
                   <Anchor
                     size="sm"
                     component="button"
                     type="button"
                     ta="left"
-                    onClick={() =>
-                      card.enterprise_id != null &&
-                      openEnterprise(card.enterprise_id)
-                    }
+                    onClick={() => {
+                      if (card.enterprise_id != null) openEnterprise(card.enterprise_id)
+                      else if (card.dpd_line_id != null) openDpdLine(card.dpd_line_id)
+                    }}
                   >
                     {card.target_label ?? '—'}
                   </Anchor>
                 </Tooltip>
+                {card.dpd_line_id != null && (
+                  // Said on the row, because "Радушне" reads as a site until
+                  // somebody notices it is a line.
+                  <Badge size="xs" variant="light" color="gray" tt="none" ml={6}>
+                    ДПД-лінія
+                  </Badge>
+                )}
               </Table.Td>
               <Table.Td>
                 <Text size="xs" ff="monospace">

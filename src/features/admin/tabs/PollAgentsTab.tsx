@@ -1,13 +1,14 @@
 import { useState } from 'react'
 import { Alert, Badge, Button, Code, Group, Paper, Stack, Text, Tooltip } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
-import { IconAlertTriangle, IconDownload, IconKey } from '@tabler/icons-react'
+import { IconAlertTriangle, IconDownload, IconKey, IconPhoneCall } from '@tabler/icons-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { branchAdminApi } from '@/api/admin'
 import {
   pollingApi,
   type AgentInstaller,
   type PollAgent,
+  type PollAgentBusy,
   type PollAgentCreated,
 } from '@/api/polling'
 import { copyText } from '@/lib/clipboard'
@@ -49,7 +50,12 @@ export function PollAgentsTab() {
     // cannot make the answer any fresher — it only makes the browser talk. The
     // count of sites does not wait for this either: assigning one invalidates
     // this query outright.
-    refetchInterval: 20000,
+    //
+    // A call in progress is the exception: it is the one thing here that
+    // moves minute by minute, so while any agent is on the phone the screen
+    // asks every five seconds and goes back to twenty when they hang up.
+    refetchInterval: (query) =>
+      (query.state.data ?? []).some((a) => a.busy) ? 5000 : 20000,
   })
   const { data: installer } = useQuery({
     queryKey: ['admin', 'poll-agent-installer'],
@@ -285,10 +291,28 @@ function Presence({ agent }: { agent: PollAgent }) {
       </Tooltip>
     )
   }
+  // Дзвонить — the answer to "is this machine doing anything right now",
+  // which «на зв'язку» never was: an agent can sit online all day and poll
+  // nothing. A claim is held only for the length of one call, so its mere
+  // presence is the fact.
+  if (agent.busy) {
+    return (
+      <Tooltip label={callDetail(agent.busy)} withArrow multiline w={260}>
+        <Badge
+          size="sm"
+          color="blue"
+          variant="light"
+          leftSection={<IconPhoneCall size={11} />}
+        >
+          опитує · {agent.busy.label ?? `#${agent.busy.poll_device_id}`}
+        </Badge>
+      </Tooltip>
+    )
+  }
   if (agent.online) {
     return (
       <Badge size="sm" color="teal" variant="light">
-        на зв'язку
+        на зв'язку · вільний
       </Badge>
     )
   }
@@ -308,6 +332,25 @@ function Presence({ agent }: { agent: PollAgent }) {
       </Badge>
     </Tooltip>
   )
+}
+
+const PHASE_NAMES: Record<string, string> = {
+  hourly: 'годинний архів',
+  daily: 'добовий архів',
+}
+
+/** What the running call is doing, for the tooltip over «опитує». */
+function callDetail(busy: PollAgentBusy): string {
+  const parts: string[] = []
+  if (busy.since) {
+    const minutes = Math.max(0, Math.round((Date.now() - new Date(busy.since).getTime()) / 60000))
+    parts.push(`Дзвінок триває ${minutes} хв`)
+  }
+  const phase = busy.phase ? PHASE_NAMES[busy.phase] : null
+  if (phase && busy.total) parts.push(`${phase}: ${busy.done ?? 0} з ${busy.total}`)
+  else if (phase) parts.push(phase)
+  else parts.push("З'єднання")
+  return parts.join(' · ')
 }
 
 /** How long the silence has lasted, in the roughest unit that still says it. */

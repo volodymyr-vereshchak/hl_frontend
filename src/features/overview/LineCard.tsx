@@ -140,9 +140,16 @@ function DpBar({ dp }: { dp: NonNullable<PressureReading['dpData']> }) {
 export function LineCard({ lineName, pressure, flow, volume, referenceTime }: LineCardProps) {
   const { t } = useLanguage()
   const dp = pressure.dpData
+  // Behind the rest of the branch, not merely different from it. A ДПД line
+  // polled over GSM often closes its hour before the hostlib files arrive and
+  // is then an hour AHEAD of the physical lines the reference comes from —
+  // that is data arriving early, and marking it red said the opposite.
   const lagMs =
     referenceTime && pressure.timestamp
-      ? Math.abs(new Date(pressure.timestamp).getTime() - new Date(referenceTime).getTime())
+      ? Math.max(
+          0,
+          new Date(referenceTime).getTime() - new Date(pressure.timestamp).getTime(),
+        )
       : 0
   const isStale = lagMs > 60_000
 

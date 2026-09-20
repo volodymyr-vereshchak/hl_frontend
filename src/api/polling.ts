@@ -102,6 +102,16 @@ export interface PollDevice {
   progress_total: number | null
 }
 
+/** The call an agent is on right now, from the claim it holds on a card. */
+export interface PollAgentBusy {
+  poll_device_id: number
+  label: string | null
+  since: string | null
+  phase: 'hourly' | 'daily' | null
+  done: number | null
+  total: number | null
+}
+
 export interface PollAgent {
   id: number
   name: string
@@ -117,6 +127,10 @@ export interface PollAgent {
   /** False when this agent is not the build the server hands out. */
   version_ok: boolean
   expected_version: string | null
+  /** Whom this agent is dialling at this moment, or null when it is free.
+   *  Online and busy are different questions, and the screen used to answer
+   *  only the first. */
+  busy: PollAgentBusy | null
 }
 
 /** The one response that carries the key in clear — it exists nowhere else. */

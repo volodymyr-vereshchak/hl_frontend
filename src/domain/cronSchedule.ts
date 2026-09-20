@@ -150,6 +150,64 @@ function pad(value: number): string {
   return String(value).padStart(2, '0')
 }
 
+/**
+ * The next few moments the expression names, computed here.
+ *
+ * The reference in the help used to link out to an online cron editor to
+ * answer "and when does that actually fire". The server this runs on has no
+ * way out to the internet, so the answer is worked out in the browser: the
+ * same five rules as the field's own check, walked forward.
+ *
+ * Hour by hour rather than minute by minute — an hour has at most sixty
+ * candidates and the minute field already says which of them count, so a year
+ * of search costs nine thousand steps instead of half a million. A year is
+ * also the cap: an expression that names nothing within it (the 31st of
+ * February) gets
+ * an empty answer rather than a hung tab.
+ */
+export function nextRuns(expression: string, from: Date, count = 5): Date[] {
+  const text = (expression ?? '').trim().toLowerCase()
+  if (!text || cronError(text)) return []
+  const [m, h, dom, mon, dow] = text.split(/\s+/)
+  const minutes = new Set(values(m, 0, 59))
+  const hours = new Set(values(h, 0, 23))
+  const days = new Set(values(dom, 1, 31))
+  const months = new Set(values(mon, 1, 12))
+  // Sunday is written both ways, and both have to mean the same day.
+  const weekdays = new Set(values(dow, 0, 7).map((v) => (v === 7 ? 0 : v)))
+  const dayAny = days.size === 31
+  const weekdayAny = weekdays.size === 7
+
+  const out: Date[] = []
+  const cursor = new Date(from.getTime())
+  cursor.setSeconds(0, 0)
+  const startMs = cursor.getTime() + 60_000 // strictly after "now"
+  cursor.setMinutes(0)
+
+  for (let step = 0; step < 366 * 24 && out.length < count; step++) {
+    const hour = new Date(cursor.getTime() + step * 3_600_000)
+    if (!hours.has(hour.getHours()) || !months.has(hour.getMonth() + 1)) continue
+    const dayHit = days.has(hour.getDate())
+    const weekdayHit = weekdays.has(hour.getDay())
+    // Day of month and day of week are OR when both are restricted — the rule
+    // every cron follows and the one that surprises everybody.
+    const dateHit =
+      dayAny && weekdayAny ? true
+      : dayAny ? weekdayHit
+      : weekdayAny ? dayHit
+      : dayHit || weekdayHit
+    if (!dateHit) continue
+    for (const minute of [...minutes].sort((a, b) => a - b)) {
+      const when = new Date(hour.getTime())
+      when.setMinutes(minute, 0, 0)
+      if (when.getTime() < startMs) continue
+      out.push(when)
+      if (out.length === count) break
+    }
+  }
+  return out
+}
+
 /** The rhythms a poll is actually set to, ready to pick. */
 export const CRON_PRESETS: Array<{ label: string; value: string }> = [
   { label: 'Щогодини', value: '0 * * * *' },

@@ -44,6 +44,7 @@ import type { DpdLine } from '@/types'
 import { invalidateTopology } from '@/lib/invalidateTopology'
 import { numericStyle } from '@/theme/theme'
 import { useAdminTopology, toOptions } from '../useAdminTopology'
+import { useAdminNavigation } from '../adminNavigation'
 import { LoadingState } from '@/components/LoadingState'
 import { AdminTabHeader } from '../AdminTableShell'
 
@@ -352,6 +353,21 @@ export function DpdLinesTab() {
       })),
     })
   }
+
+  // Arrived from the GSM monitor, having clicked a line's name. The list is
+  // fetched asynchronously, so this waits for the row instead of giving up on
+  // it, and clears the request once taken — otherwise the window would reopen
+  // every time the tab is visited afterwards.
+  const pendingId = useAdminNavigation((s) => s.dpdLineId)
+  const navigationTaken = useAdminNavigation((s) => s.taken)
+  useEffect(() => {
+    if (pendingId == null) return
+    const row = (lines ?? []).find((l) => l.id === pendingId)
+    if (!row) return
+    startEdit(row)
+    navigationTaken()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingId, lines])
 
   const submit = () => {
     if (!form.name || !form.branch_id) {

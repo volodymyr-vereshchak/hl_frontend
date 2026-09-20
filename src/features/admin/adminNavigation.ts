@@ -17,13 +17,18 @@ interface AdminNavigation {
   tab: string | null
   /** The enterprise to open for editing once that tab is shown. */
   enterpriseId: number | null
+  /** The ДПД line to open, for the rows of the monitor that are lines. */
+  dpdLineId: number | null
   openEnterprise: (id: number) => void
+  openDpdLine: (id: number) => void
   taken: () => void
 }
 
 export const useAdminNavigation = create<AdminNavigation>((set) => ({
   tab: null,
   enterpriseId: null,
-  openEnterprise: (id) => set({ tab: 'enterprises', enterpriseId: id }),
-  taken: () => set({ tab: null, enterpriseId: null }),
+  dpdLineId: null,
+  openEnterprise: (id) => set({ tab: 'enterprises', enterpriseId: id, dpdLineId: null }),
+  openDpdLine: (id) => set({ tab: 'dpd-lines', dpdLineId: id, enterpriseId: null }),
+  taken: () => set({ tab: null, enterpriseId: null, dpdLineId: null }),
 }))
