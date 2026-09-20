@@ -1,16 +1,12 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
   Alert,
   Anchor,
   Badge,
   Button,
-  Code,
   Group,
   Loader,
-  Modal,
   Progress,
-  ScrollArea,
-  Switch,
   Table,
   Text,
   TextInput,
@@ -18,7 +14,6 @@ import {
 } from '@mantine/core'
 import {
   IconAlertTriangle,
-  IconDownload,
   IconFileText,
   IconInfoCircle,
   IconSearch,
@@ -27,6 +22,7 @@ import { useQuery } from '@tanstack/react-query'
 import { describeCron } from '@/domain/cronSchedule'
 import { pollingApi, type PollAgent, type PollDevice } from '@/api/polling'
 import { useAdminNavigation } from '../adminNavigation'
+import { PollLogModal } from '../PollLogModal'
 import { CheckboxFilter } from '@/components/CheckboxFilter'
 
 /**
@@ -302,119 +298,17 @@ export function PollDevicesTab() {
         </Text>
       )}
 
-      <LogModal card={logOf} onClose={() => setLogOf(null)} />
+      <PollLogModal
+        opened={logOf != null}
+        deviceId={logOf?.id ?? null}
+        label={logOf?.target_label ?? ''}
+        // A card an agent has claimed is a call happening right now, and the
+        // window then follows the file instead of showing a snapshot.
+        live={logOf?.polling_agent_id != null}
+        onClose={() => setLogOf(null)}
+      />
     </>
   )
-}
-
-/**
- * The log of the last call to one site.
- *
- * Read from a file rather than from the live log: that one is wiped when the
- * next session starts, and the question asked here is about the session that
- * has already ended — usually right after it failed, by somebody deciding
- * whether the meter needs a visit.
- */
-function LogModal({ card, onClose }: { card: PollDevice | null; onClose: () => void }) {
-  // Two views of one call: what happened, and every frame it took. The second
-  // is for working out a fault, so it starts closed and is not remembered —
-  // the next site opened is a fresh question.
-  const [technical, setTechnical] = useState(false)
-  useEffect(() => {
-    if (card == null) setTechnical(false)
-  }, [card])
-
-  const { data, isFetching } = useQuery({
-    queryKey: ['admin', 'poll-log', card?.id, technical],
-    queryFn: () =>
-      technical ? pollingApi.getDebugLog(card!.id) : pollingApi.getLastLog(card!.id),
-    enabled: card != null,
-    // A poll that is running writes into this file as it goes.
-    refetchInterval: card?.polling_agent_id != null ? 3000 : false,
-  })
-
-  return (
-    <Modal
-      opened={card != null}
-      onClose={onClose}
-      title={`Журнал опитування — ${card?.target_label ?? ''}`}
-      size="xl"
-    >
-      <Group justify="space-between" align="center" mb={8} wrap="nowrap">
-        <Text size="xs" c="dimmed">
-          {data?.updated_at
-            ? `Записано ${new Date(data.updated_at).toLocaleString('uk-UA')}`
-            : ''}
-        </Text>
-        <Group gap="sm" wrap="nowrap">
-          <Switch
-            size="xs"
-            checked={technical}
-            onChange={(e) => setTechnical(e.currentTarget.checked)}
-            label="Технічний журнал"
-          />
-          {/* The technical journal is read by somebody who is not here: it
-              gets sent on. A file is what people attach to a message. */}
-          <Button
-            size="compact-xs"
-            variant="light"
-            leftSection={<IconDownload size={13} />}
-            disabled={!data?.text}
-            onClick={() => card && saveJournal(card, data?.text ?? '', technical)}
-          >
-            Завантажити
-          </Button>
-        </Group>
-      </Group>
-      {isFetching && !data ? (
-        <Loader size="sm" />
-      ) : data?.text ? (
-        <>
-          <ScrollArea h={420} type="auto">
-            <Code block style={{ fontSize: 12, whiteSpace: 'pre-wrap' }}>
-              {data.text}
-            </Code>
-          </ScrollArea>
-        </>
-      ) : (
-        <Text size="sm" c="dimmed">
-          {technical
-            ? 'Технічного журналу цього дзвінка немає — його пише агент від версії 0.7.0.'
-            : 'Це підприємство ще жодного разу не опитували через GSM — журналу немає.'}
-        </Text>
-      )}
-    </Modal>
-  )
-}
-
-/**
- * Save a journal as a file, named so that a pile of them still makes sense.
- *
- * The site, what kind of journal it is and when it was polled are all in the
- * name, because these travel: the technical one is written for somebody who
- * will read it somewhere else, in a week, next to four others.
- */
-function saveJournal(card: PollDevice, text: string, technical: boolean) {
-  const site = (card.target_label ?? `прилад-${card.id}`)
-    .replace(/[\\/:*?"<>|]/g, '')
-    .trim()
-    .slice(0, 60)
-  const when = new Date()
-  const stamp = `${String(when.getDate()).padStart(2, '0')}.${String(
-    when.getMonth() + 1,
-  ).padStart(2, '0')}.${when.getFullYear()}`
-  const name = `${technical ? 'технічний' : 'журнал'} ${site} ${stamp}.log`
-
-  const url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }))
-  const link = document.createElement('a')
-  link.href = url
-  link.download = name
-  document.body.appendChild(link)
-  link.click()
-  link.remove()
-  // Given back at once: the browser has copied what it needs by now, and a
-  // blob left hanging keeps the whole text in memory until the tab closes.
-  URL.revokeObjectURL(url)
 }
 
 /** Whichever corrector stands there today — resolved by the server, not stored. */

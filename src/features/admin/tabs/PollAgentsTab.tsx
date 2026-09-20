@@ -1,7 +1,13 @@
 import { useState } from 'react'
 import { Alert, Badge, Button, Code, Group, Paper, Stack, Text, Tooltip } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
-import { IconAlertTriangle, IconDownload, IconKey, IconPhoneCall } from '@tabler/icons-react'
+import {
+  IconAlertTriangle,
+  IconDownload,
+  IconFileText,
+  IconKey,
+  IconPhoneCall,
+} from '@tabler/icons-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { branchAdminApi } from '@/api/admin'
 import {
@@ -14,6 +20,7 @@ import {
 import { copyText } from '@/lib/clipboard'
 import { toOptions } from '../useAdminTopology'
 import { CrudTable } from '../CrudTable'
+import { PollLogModal } from '../PollLogModal'
 
 const notifyErr = (e: Error) => notifications.show({ message: e.message, color: 'red' })
 
@@ -33,6 +40,13 @@ export function PollAgentsTab() {
   // Shown once and never again, so it stays until it is dismissed — the same
   // treatment a generated user password gets.
   const [issuedKey, setIssuedKey] = useState<{ name: string; key: string } | null>(null)
+  // The call being watched, as it was when the window was opened. The card is
+  // remembered, not looked up again: when the agent hangs up, the journal is
+  // still the answer to what just happened, and a window that vanishes the
+  // moment the call ends takes the last lines away with it.
+  const [watching, setWatching] = useState<
+    { agentId: number; deviceId: number; label: string } | null
+  >(null)
 
   const { data: branches } = useQuery({
     queryKey: ['admin', 'branches'],
@@ -70,6 +84,14 @@ export function PollAgentsTab() {
     },
     onError: notifyErr,
   })
+
+  // Whether that call is still running is read from the list, which refreshes
+  // itself — so the window stops following the file at the moment the agent
+  // hangs up, and says so, rather than either freezing or closing.
+  const watchedAgent = (agents ?? []).find((a) => a.id === watching?.agentId) ?? null
+  const stillOnTheLine =
+    watchedAgent?.busy?.poll_device_id != null &&
+    watchedAgent.busy.poll_device_id === watching?.deviceId
 
   const branchName = (id: number | null) =>
     id == null ? 'Усі філії' : ((branches ?? []).find((b) => b.id === id)?.name ?? `#${id}`)
@@ -182,7 +204,36 @@ export function PollAgentsTab() {
           },
         ]}
         extraRowActions={(a) => (
-          <Tooltip label="Видати новий ключ; старий одразу перестає працювати" withArrow>
+          <>
+            {/* The call as it happens. Disabled rather than hidden when the
+                agent is free: the button is where somebody looks for it, and
+                «зараз нікого не опитує» is the answer they came for. */}
+            <Tooltip
+              label={
+                a.busy
+                  ? `Показати, що зараз відбувається: ${a.busy.label ?? 'дзвінок'}`
+                  : 'Агент зараз нікого не опитує — показувати нічого'
+              }
+              withArrow
+            >
+              <Button
+                size="compact-xs"
+                variant="subtle"
+                leftSection={<IconFileText size={13} />}
+                data-disabled={!a.busy || undefined}
+                onClick={() =>
+                  a.busy &&
+                  setWatching({
+                    agentId: a.id,
+                    deviceId: a.busy.poll_device_id,
+                    label: `${a.name} → ${a.busy.label ?? 'дзвінок'}`,
+                  })
+                }
+              >
+                Поточний лог
+              </Button>
+            </Tooltip>
+            <Tooltip label="Видати новий ключ; старий одразу перестає працювати" withArrow>
             <Button
               size="compact-xs"
               variant="subtle"
@@ -193,7 +244,23 @@ export function PollAgentsTab() {
               Новий ключ
             </Button>
           </Tooltip>
+          </>
         )}
+      />
+
+      <PollLogModal
+        opened={watching != null}
+        deviceId={watching?.deviceId ?? null}
+        label={watching?.label ?? ''}
+        live={stillOnTheLine}
+        note={
+          stillOnTheLine && watchedAgent?.busy
+            ? callDetail(watchedAgent.busy)
+            : watching
+              ? 'Дзвінок завершено — це журнал того, що встигло відбутися'
+              : undefined
+        }
+        onClose={() => setWatching(null)}
       />
     </>
   )
