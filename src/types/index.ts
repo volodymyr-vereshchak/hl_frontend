@@ -103,7 +103,9 @@ export interface DpdLine {
   gsm?: {
     phone: string | null
     auto_poll: boolean
-    poll_times: string[]
+    /** Cron: "0 8 * * *" щоранку, кожні чотири години тощо. Порожнє —
+     *  за загальним розкладом. */
+    poll_cron: string | null
     agent_ids: number[]
     password: string
   } | null

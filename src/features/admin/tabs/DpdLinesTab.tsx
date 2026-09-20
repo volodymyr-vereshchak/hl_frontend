@@ -7,6 +7,7 @@ import {
   Fieldset,
   Group,
   Input,
+  Modal,
   NumberInput,
   Paper,
   Progress,
@@ -35,9 +36,9 @@ import {
 } from '@tabler/icons-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { deviceCatalogApi, dpdLineAdminApi, type DpdJobStatus } from '@/api/admin'
-import { pollingApi } from '@/api/polling'
+import { pollingApi, type PollDevice } from '@/api/polling'
 import { CheckboxFilter } from '@/components/CheckboxFilter'
-import { PollTimesField } from '../PollTimesField'
+import { PollCronField } from '../PollCronField'
 import { phoneError } from './pollDeviceForm'
 import type { DpdLine } from '@/types'
 import { invalidateTopology } from '@/lib/invalidateTopology'
@@ -88,7 +89,7 @@ interface FormState {
   gsm_password: string
   gsm_agent_ids: string[]
   gsm_auto_poll: boolean
-  gsm_poll_times: string[]
+  gsm_poll_cron: string
 }
 
 const EMPTY: FormState = {
@@ -102,7 +103,7 @@ const EMPTY: FormState = {
   gsm_password: '11',
   gsm_agent_ids: [],
   gsm_auto_poll: false,
-  gsm_poll_times: [],
+  gsm_poll_cron: '',
 }
 
 /**
@@ -130,6 +131,10 @@ export function DpdLinesTab() {
 
   const [form, setForm] = useState<FormState>(EMPTY)
   const [editId, setEditId] = useState<number | null>(null)
+  // The editor is a window over the list rather than a panel above it: a line
+  // is a name, a branch, a modem and a history of correctors, and reading that
+  // form while the table it belongs to scrolls underneath never worked.
+  const [editing, setEditing] = useState(false)
   const [branchFilter, setBranchFilter] = useState<string | null>(null)
   const [jobs, setJobs] = useState<Record<number, DpdJobStatus>>({})
   const timers = useRef<Record<number, ReturnType<typeof setInterval>>>({})
@@ -222,6 +227,13 @@ export function DpdLinesTab() {
   const reset = () => {
     setForm(EMPTY)
     setEditId(null)
+    setEditing(false)
+  }
+
+  const startCreate = () => {
+    setForm(EMPTY)
+    setEditId(null)
+    setEditing(true)
   }
 
   // ── Derived ───────────────────────────────────────────────────────────────
@@ -264,6 +276,35 @@ export function DpdLinesTab() {
       ),
     }))
 
+  //: The poll cards, to find the one that belongs to a line: asking for a
+  //: call needs the card, and the line only knows it has a modem.
+  const { data: pollCards } = useQuery({
+    queryKey: ['admin', 'poll-devices'],
+    queryFn: pollingApi.getDevices,
+    staleTime: 15_000,
+  })
+  const cardOfLine = useMemo(() => {
+    const m = new Map<number, PollDevice>()
+    for (const card of pollCards ?? []) {
+      if (card.dpd_line_id != null) m.set(card.dpd_line_id, card)
+    }
+    return m
+  }, [pollCards])
+
+  const askPoll = useMutation({
+    mutationFn: (cardId: number) => pollingApi.requestPoll(cardId),
+    onSuccess: () => {
+      // 202, not "done": the modem is on somebody else's machine and the
+      // request is picked up when that agent next asks for its plan.
+      notifications.show({
+        message: 'Запит прийнято — агент подзвонить, щойно візьме завдання',
+        color: 'teal',
+      })
+      qc.invalidateQueries({ queryKey: ['admin', 'poll-devices'] })
+    },
+    onError: notifyErr,
+  })
+
   //: The machines that could dial this line, named rather than numbered: this
   //: is a setting, and "2 / 5" does not say which of them calls.
   const { data: agents } = useQuery({
@@ -289,6 +330,7 @@ export function DpdLinesTab() {
 
   const startEdit = (line: DpdLine) => {
     setEditId(line.id)
+    setEditing(true)
     setForm({
       name: line.name,
       description: line.description ?? '',
@@ -299,7 +341,7 @@ export function DpdLinesTab() {
       gsm_password: line.gsm?.password || '11',
       gsm_agent_ids: (line.gsm?.agent_ids ?? []).map(String),
       gsm_auto_poll: line.gsm?.auto_poll ?? false,
-      gsm_poll_times: line.gsm?.poll_times ?? [],
+      gsm_poll_cron: line.gsm?.poll_cron ?? '',
       devices: (line.devices ?? []).map((d) => ({
         ser_num: String(d.ser_num),
         manufacturer_id: String(mfrOfCt(d.corector_type_id) ?? ''),
@@ -337,7 +379,7 @@ export function DpdLinesTab() {
         password: form.gsm_password.trim() || '11',
         agent_ids: form.gsm_agent_ids.map(Number),
         auto_poll: form.gsm_auto_poll,
-        poll_times: form.gsm_poll_times,
+        poll_cron: form.gsm_poll_cron.trim() || null,
       },
       active: existing ? existing.active : true,
       include_in_trends: existing ? existing.include_in_trends : false,
@@ -424,7 +466,12 @@ export function DpdLinesTab() {
         }
       />
 
-      <Paper withBorder radius="md" p="md">
+      <Modal
+        opened={editing}
+        onClose={reset}
+        title={editId ? `Лінія ДПД — ${form.name || '—'}` : 'Нова лінія ДПД'}
+        size="xl"
+      >
         <Stack gap="sm">
           <Group gap="sm" align="flex-end" wrap="wrap">
             <TextInput
@@ -526,9 +573,9 @@ export function DpdLinesTab() {
                 disabled={!form.gsm_phone.trim()}
                 mt={22}
               />
-              <PollTimesField
-                value={form.gsm_poll_times}
-                onChange={(times) => setForm({ ...form, gsm_poll_times: times as string[] })}
+              <PollCronField
+                value={form.gsm_poll_cron}
+                onChange={(next) => setForm({ ...form, gsm_poll_cron: next })}
                 disabled={!form.gsm_auto_poll || !form.gsm_phone.trim()}
               />
               <Input.Wrapper
@@ -697,23 +744,26 @@ export function DpdLinesTab() {
             </Button>
           </Box>
 
-          <Group gap="sm">
+          <Group gap="sm" justify="flex-end">
+            <Button size="xs" variant="default" onClick={reset}>
+              Скасувати
+            </Button>
             <Button size="xs" onClick={submit} loading={save.isPending}>
               {editId ? 'Зберегти' : 'Створити'}
             </Button>
-            {editId && (
-              <Button size="xs" variant="default" onClick={reset}>
-                Скасувати
-              </Button>
-            )}
           </Group>
         </Stack>
-      </Paper>
+      </Modal>
 
       <Group justify="space-between">
-        <Text size="sm" c="dimmed">
-          Ліній: {visibleLines.length}
-        </Text>
+        <Group gap="sm">
+          <Button size="xs" leftSection={<IconPlus size={14} />} onClick={startCreate}>
+            Додати лінію
+          </Button>
+          <Text size="sm" c="dimmed">
+            Ліній: {visibleLines.length}
+          </Text>
+        </Group>
         <Select
           size="xs"
           w={220}
@@ -751,6 +801,8 @@ export function DpdLinesTab() {
                   const devs = line.devices ?? []
                   const current = devs.length ? devs[devs.length - 1] : null
                   const running = jobs[line.id]?.status === 'running'
+                  const card = cardOfLine.get(line.id)
+                  const waiting = card?.manual_requested_at != null
                   return (
                     <Table.Tr
                       key={line.id}
@@ -806,6 +858,30 @@ export function DpdLinesTab() {
                       <Table.Td>{renderJob(line.id)}</Table.Td>
                       <Table.Td>
                         <Group gap={2} justify="flex-end" wrap="nowrap">
+                          {/* A call to the modem at the line, as opposed to
+                              the init beside it, which reads the same line
+                              from the ДПД server. Both fill the archive; this
+                              one does it without anybody else's help. */}
+                          <Tooltip
+                            label={
+                              !card
+                                ? 'Модем не налаштовано — впишіть номер у картці лінії'
+                                : waiting
+                                  ? 'Запит уже створено — агент подзвонить, щойно візьме завдання'
+                                  : 'Подзвонити на модем лінії зараз'
+                            }
+                            withArrow
+                          >
+                            <ActionIcon
+                              variant="subtle"
+                              color={waiting ? 'amber' : 'petrol'}
+                              disabled={!card || waiting}
+                              loading={askPoll.isPending && askPoll.variables === card?.id}
+                              onClick={() => card && askPoll.mutate(card.id)}
+                            >
+                              <IconPhone size={15} />
+                            </ActionIcon>
+                          </Tooltip>
                           <Tooltip
                             label={
                               devs.length === 0
@@ -855,7 +931,7 @@ export function DpdLinesTab() {
             {visibleLines.length === 0 && (
               <Center py="xl">
                 <Text c="dimmed" size="sm">
-                  Немає ДПД-ліній — створіть першу вище
+                  Немає ДПД-ліній — створіть першу кнопкою «Додати лінію»
                 </Text>
               </Center>
             )}

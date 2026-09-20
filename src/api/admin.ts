@@ -396,8 +396,9 @@ export interface EnterpriseGsm {
   /** Poll on a schedule. Off still leaves «Опитати» available — those are
    *  different questions. */
   auto_poll: boolean
-  /** "HH:MM" slots. Empty means the hours set globally. */
-  poll_times: string[]
+  /** When to poll, as cron — "0 8 * * *" every morning, every four hours,
+   *  every hour. Empty follows the schedule set globally. */
+  poll_cron: string | null
   /** Machines that dial this number. Empty means nobody does — the site is
    *  set up in every other respect and is never polled. Several mean a shared
    *  queue: whichever agent asks first takes it, the rest skip it. */

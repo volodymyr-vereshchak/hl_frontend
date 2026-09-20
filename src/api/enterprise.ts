@@ -64,7 +64,7 @@ export interface EnterpriseMappingRow {
   devices?: EnterpriseDeviceRow[]
   /** The modem at this site, when there is one. Absent means the enterprise
    *  is not dialled at all — which is what hides the source switch. */
-  gsm?: { phone: string | null; auto_poll: boolean; poll_times: string[] } | null
+  gsm?: { phone: string | null; auto_poll: boolean; poll_cron: string | null } | null
 }
 
 /**

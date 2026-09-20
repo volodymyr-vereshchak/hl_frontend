@@ -56,7 +56,8 @@ import { numericStyle } from '@/theme/theme'
 import { useAdminTopology, toOptions } from '../useAdminTopology'
 import { LoadingState } from '@/components/LoadingState'
 import { DeviceHistoryEditor, DeviceHistoryModal } from '../DeviceHistoryModal'
-import { PollTimesField } from '../PollTimesField'
+import { describeCron } from '@/domain/cronSchedule'
+import { PollCronField } from '../PollCronField'
 import { phoneError } from './pollDeviceForm'
 import { useAdminNavigation } from '../adminNavigation'
 import { CheckboxFilter } from '@/components/CheckboxFilter'
@@ -90,7 +91,7 @@ type FormState = {
   gsm_agent_ids: string[]
   gsm_auto_poll: boolean
   /** "HH:MM" slots. Empty means the hours set globally. */
-  gsm_poll_times: string[]
+  gsm_poll_cron: string
 }
 
 const EMPTY: FormState = {
@@ -105,7 +106,7 @@ const EMPTY: FormState = {
   gsm_password: '11',
   gsm_agent_ids: [],
   gsm_auto_poll: false,
-  gsm_poll_times: [],
+  gsm_poll_cron: '',
 }
 
 /**
@@ -356,7 +357,7 @@ export function EnterprisesTab() {
       password: f.gsm_password.trim() || '11',
       agent_ids: f.gsm_agent_ids.map(Number),
       auto_poll: f.gsm_auto_poll,
-      poll_times: f.gsm_poll_times,
+      poll_cron: f.gsm_poll_cron.trim() || null,
     },
   })
 
@@ -457,7 +458,7 @@ export function EnterprisesTab() {
       gsm_password: e.gsm?.password ?? '11',
       gsm_agent_ids: (e.gsm?.agent_ids ?? []).map(String),
       gsm_auto_poll: e.gsm?.auto_poll ?? false,
-      gsm_poll_times: e.gsm?.poll_times ?? [],
+      gsm_poll_cron: e.gsm?.poll_cron ?? '',
     })
   }
 
@@ -713,11 +714,11 @@ export function EnterprisesTab() {
             disabled={!form.gsm_phone.trim()}
             mt={22}
           />
-          <PollTimesField
-            value={form.gsm_poll_times}
-            onChange={(times) => setForm({ ...form, gsm_poll_times: times as string[] })}
-            // Off means "only by hand", and hours that cannot fire read as a
-            // schedule that is simply not working.
+          <PollCronField
+            value={form.gsm_poll_cron}
+            onChange={(next) => setForm({ ...form, gsm_poll_cron: next })}
+            // Off means "only by hand", and a schedule that cannot fire reads
+            // as one that is simply not working.
             disabled={!form.gsm_auto_poll || !form.gsm_phone.trim()}
           />
           {/* Which machine dials this number, set here with the rest of the
@@ -1209,7 +1210,7 @@ function Gsm({ gsm }: { gsm?: EnterpriseGsm | null }) {
       </Text>
       {gsm.auto_poll && (
         <Tooltip
-          label={gsm.poll_times?.length ? gsm.poll_times.join(', ') : 'загальні години'}
+          label={describeCron(gsm.poll_cron ?? '')}
           withArrow
         >
           <Badge size="xs" variant="light" color="teal" tt="none">

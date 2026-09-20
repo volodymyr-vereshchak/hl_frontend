@@ -24,6 +24,7 @@ import {
   IconSearch,
 } from '@tabler/icons-react'
 import { useQuery } from '@tanstack/react-query'
+import { describeCron } from '@/domain/cronSchedule'
 import { pollingApi, type PollAgent, type PollDevice } from '@/api/polling'
 import { useAdminNavigation } from '../adminNavigation'
 import { CheckboxFilter } from '@/components/CheckboxFilter'
@@ -449,8 +450,18 @@ function Schedule({ card }: { card: PollDevice }) {
       </Text>
     )
   }
-  const times = card.poll_times?.length ? card.poll_times.join(', ') : 'загальні години'
-  return <Text size="xs">{times}</Text>
+  // The expression itself under the words: an operator reads "Кожні 4 год",
+  // and whoever set it up recognises the cron they typed.
+  return (
+    <div>
+      <Text size="xs">{describeCron(card.poll_cron ?? '')}</Text>
+      {card.poll_cron && (
+        <Text size="10px" c="dimmed" ff="monospace">
+          {card.poll_cron}
+        </Text>
+      )}
+    </div>
+  )
 }
 
 function LastPoll({ card, agentName }: { card: PollDevice; agentName?: string }) {

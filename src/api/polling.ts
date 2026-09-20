@@ -44,7 +44,7 @@ export interface PollDevice {
   enabled: boolean
   auto_poll: boolean
   /** "HH:MM" list; null = use the global hours. */
-  poll_times: string[] | null
+  poll_cron: string | null
 
   channel: string
   is_modem: boolean
@@ -203,9 +203,9 @@ export const pollingApi = {
   setAgentDevices: (id: number, deviceIds: number[]) =>
     api.put<number[]>(`/polling/agents/${id}/devices`, { device_ids: deviceIds }),
 
-  getSchedule: () => api.get<{ poll_times: string[] }>('/polling/schedule'),
-  setSchedule: (pollTimes: string[]) =>
-    api.put<{ poll_times: string[] }>('/polling/schedule', { poll_times: pollTimes }),
+  getSchedule: () => api.get<{ poll_cron: string }>('/polling/schedule'),
+  setSchedule: (pollCron: string) =>
+    api.put<{ poll_cron: string }>('/polling/schedule', { poll_cron: pollCron }),
 }
 
 /**
