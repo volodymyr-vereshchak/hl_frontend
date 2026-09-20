@@ -142,6 +142,12 @@ export function DpdLinesTab() {
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ['admin', 'dpd-lines'] })
+    // The modem is saved in the same form as the line, and that same save is
+    // what creates or drops the poll card behind the «подзвонити» button. Its
+    // list is cached, so without this the button kept the state it had before
+    // the number was typed — or stayed lit for a number that had just been
+    // cleared — until the cache aged out on its own.
+    qc.invalidateQueries({ queryKey: ['admin', 'poll-devices'] })
     // ДПД lines appear in every tree and report — refresh those names too.
     invalidateTopology(qc)
   }
@@ -293,7 +299,25 @@ export function DpdLinesTab() {
   }, [pollCards])
 
   const askPoll = useMutation({
-    mutationFn: (cardId: number) => pollingApi.requestPoll(cardId),
+    // Asked for by line, not by card. The card is an implementation detail of
+    // the poll screen, and the one moment somebody presses this button is the
+    // moment right after saving a number — when the card exists on the server
+    // but may not have reached this tab yet. So it is looked up, and fetched
+    // if the cache has not caught up.
+    mutationFn: async (lineId: number) => {
+      let card = cardOfLine.get(lineId)
+      if (!card) {
+        const fresh = await qc.fetchQuery({
+          queryKey: ['admin', 'poll-devices'],
+          queryFn: pollingApi.getDevices,
+        })
+        card = fresh.find((c) => c.dpd_line_id === lineId)
+      }
+      if (!card) {
+        throw new Error('Для цієї лінії ще немає картки опитування — збережіть номер модема')
+      }
+      return pollingApi.requestPoll(card.id)
+    },
     onSuccess: () => {
       // 202, not "done": the modem is on somebody else's machine and the
       // request is picked up when that agent next asks for its plan.
@@ -818,6 +842,10 @@ export function DpdLinesTab() {
                   const current = devs.length ? devs[devs.length - 1] : null
                   const running = jobs[line.id]?.status === 'running'
                   const card = cardOfLine.get(line.id)
+                  // Whether this line has a modem is a fact about the line —
+                  // it is edited two fields away from here. Reading it from
+                  // the poll screen's list made the icon lag a save behind.
+                  const hasModem = !!line.gsm?.phone
                   const waiting = card?.manual_requested_at != null
                   return (
                     <Table.Tr
@@ -880,7 +908,7 @@ export function DpdLinesTab() {
                               one does it without anybody else's help. */}
                           <Tooltip
                             label={
-                              !card
+                              !hasModem
                                 ? 'Модем не налаштовано — впишіть номер у картці лінії'
                                 : waiting
                                   ? 'Запит уже створено — агент подзвонить, щойно візьме завдання'
@@ -891,9 +919,9 @@ export function DpdLinesTab() {
                             <ActionIcon
                               variant="subtle"
                               color={waiting ? 'amber' : 'petrol'}
-                              disabled={!card || waiting}
-                              loading={askPoll.isPending && askPoll.variables === card?.id}
-                              onClick={() => card && askPoll.mutate(card.id)}
+                              disabled={!hasModem || waiting}
+                              loading={askPoll.isPending && askPoll.variables === line.id}
+                              onClick={() => hasModem && askPoll.mutate(line.id)}
                             >
                               <IconPhone size={15} />
                             </ActionIcon>
