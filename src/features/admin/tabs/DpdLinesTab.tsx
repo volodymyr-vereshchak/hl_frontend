@@ -51,6 +51,12 @@ import { AdminTabHeader } from '../AdminTableShell'
 const notifyErr = (e: Error) => notifications.show({ message: e.message, color: 'red' })
 const pad = (n: number) => String(n).padStart(2, '0')
 
+const fmtDate = (iso?: string | null) => {
+  if (!iso) return '—'
+  const [y, m, d] = iso.slice(0, 10).split('-')
+  return `${d}.${m}.${y}`
+}
+
 const fmtDT = (iso?: string | null) => {
   if (!iso) return '—'
   const d = new Date(iso)
@@ -487,11 +493,54 @@ export function DpdLinesTab() {
         </Tooltip>
       )
     }
+    return null
+  }
+
+  /**
+   * How current this line's data is — the column's actual question.
+   *
+   * It used to show the refresh job's finish time with a green tick. The
+   * scheduler refreshes every line in one pass, so every row showed the same
+   * minute and the same tick whether ДПД had sent anything or not. The job is
+   * still what says «running» or «failed»; when it did neither, the row says
+   * how far the archive reaches, coloured by how far behind that is.
+   */
+  const renderStatus = (line: DpdLine) => {
+    const job = jobs[line.id]
+    const busy = renderJob(line.id)
+    if (busy) return busy
+    const newest = line.last_hour ?? (line.last_day ? `${line.last_day}T00:00:00` : null)
+    const checked = job?.finished_at ? `Оновлення перевірялося ${fmtDT(job.finished_at)}` : ''
+    if (!newest) {
+      return (
+        <Tooltip label={checked || 'Архів порожній'} withArrow disabled={!checked}>
+          <Group gap={4} c="red.5">
+            <IconAlertTriangle size={13} />
+            <Text size="10px">даних немає</Text>
+          </Group>
+        </Tooltip>
+      )
+    }
+    // An hour is filed where it begins, so the newest possible one is the
+    // hour before the current one; anything later than two more is behind.
+    const lagHours = (Date.now() - new Date(newest).getTime()) / 3_600_000 - 1
+    const tone = lagHours <= 2 ? 'teal.5' : lagHours <= 26 ? 'amber.5' : 'red.5'
+    const Icon = lagHours <= 2 ? IconCheck : IconAlertTriangle
+    const detail = [
+      line.last_hour ? `Остання година: ${fmtDT(line.last_hour)}` : 'Годинних даних немає',
+      line.last_day ? `Остання доба: ${fmtDate(line.last_day)}` : 'Добових даних немає',
+      checked,
+    ].filter(Boolean).join('\n')
     return (
-      <Group gap={4} c="teal.5">
-        <IconCheck size={13} />
-        <Text size="10px">{fmtDT(job.finished_at)}</Text>
-      </Group>
+      <Tooltip label={detail} withArrow multiline w={240} style={{ whiteSpace: 'pre-line' }}>
+        <Group gap={4} c={tone} wrap="nowrap">
+          <Icon size={13} />
+          <Text size="10px">
+            до {fmtDT(newest)}
+            {lagHours > 2 ? ` · −${lagHours < 48 ? `${Math.round(lagHours)} год` : `${Math.round(lagHours / 24)} дн`}` : ''}
+          </Text>
+        </Group>
+      </Tooltip>
     )
   }
 
@@ -832,7 +881,7 @@ export function DpdLinesTab() {
                   <Table.Th ta="center">У звіт</Table.Th>
                   <Table.Th ta="center">У тренди</Table.Th>
                   <Table.Th ta="center">Активна</Table.Th>
-                  <Table.Th>Стан</Table.Th>
+                  <Table.Th>Дані</Table.Th>
                   <Table.Th w={110} />
                 </Table.Tr>
               </Table.Thead>
@@ -899,7 +948,7 @@ export function DpdLinesTab() {
                           />
                         </Table.Td>
                       ))}
-                      <Table.Td>{renderJob(line.id)}</Table.Td>
+                      <Table.Td>{renderStatus(line)}</Table.Td>
                       <Table.Td>
                         <Group gap={2} justify="flex-end" wrap="nowrap">
                           {/* A call to the modem at the line, as opposed to

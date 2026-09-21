@@ -1112,7 +1112,14 @@ export function EnterprisePollPage() {
         >
           {/* The "no poll" result takes the whole pane: it is a report in its
               own right, and as a modal it covered the tree its rows link into. */}
-          {tab === 'poll' && (pane === 'poll' || (pane === 'gsm' && !hasModem)) ? (
+          {/* Which of the two poll panes is shown follows the source switch,
+              not the route by which the operator got here. Coming back from
+              «Архів», or closing a report, used to land on 'poll' — the
+              Радміртех description — while the switch above still said GSM,
+              so the last modem call's journal was one extra click away. */}
+          {tab === 'poll' &&
+          (pane === 'poll' || pane === 'gsm') &&
+          !(source === 'gsm' && hasModem && selectedMapping) ? (
             <DpdPollPane
               selected={!!selectedMapping}
               loading={loading}
@@ -1120,7 +1127,7 @@ export function EnterprisePollPage() {
               stored={stored}
               error={error}
             />
-          ) : pane === 'gsm' && selectedMapping ? (
+          ) : tab === 'poll' && (pane === 'gsm' || pane === 'poll') && selectedMapping ? (
             <GsmPollPanel
               enterpriseId={selectedMapping.id}
               enterpriseName={selectedMapping.enterprise_name ?? `Підприємство ${selectedMapping.id}`}

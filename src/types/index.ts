@@ -109,6 +109,11 @@ export interface DpdLine {
     agent_ids: number[]
     password: string
   } | null
+  /** The newest hour and day this line's archive holds, from whichever source
+   *  wrote them. What «is this line up to date» is answered by — the refresh
+   *  job only says whether it ran. */
+  last_hour?: string | null
+  last_day?: string | null
 }
 
 /**

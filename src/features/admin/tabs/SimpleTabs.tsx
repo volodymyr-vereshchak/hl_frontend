@@ -378,31 +378,17 @@ export function CorrectorTypesTab() {
       required: true,
       render: (c) => manufacturerName(c.manufacturer_id),
     },
+    // No «Драйвер опитування» column. It asked an administrator for an Ask2
+    // assembly number nobody could know, and the catalogue ended up holding
+    // three numbering schemes at once. Which reader to try first is now read
+    // off the model name, and the agent finds the rest on the call itself:
+    // it tries every family and remembers the one that answered.
     { key: 'model_name', label: 'Модель', required: true },
-    {
-      // Which Ask2 driver can dial this model. Set here, once per model,
-      // rather than on every poll card: it is a property of the make, and
-      // retyping it per device invites a typo that looks like a dead meter.
-      // Empty is a real answer — ТКБ, smart104 and ТАНДЕМ appear in none of
-      // the Ask2 driver assemblies and cannot be polled by modem at all.
-      key: 'protocol_id',
-      label: 'Драйвер опитування',
-      type: 'number',
-      numeric: true,
-      render: (c) =>
-        c.protocol_id == null ? (
-          <Text size="xs" c="dimmed">
-            немає
-          </Text>
-        ) : (
-          String(c.protocol_id)
-        ),
-    },
   ]
   return (
     <CrudTable<CorectorType>
       title="Типи коректорів"
-      description="Довідник каталогу пристроїв. Пара (код виробника, код типу) — те, чим ДПД адресує прилад. Драйвер: 7 Універсал, 33 Флоутек ВР-1, 52 КПЛГ, 54 ВЕГА, 70 Флоутек ВР-2, 77 ПК-В"
+      description="Довідник каталогу пристроїв. Пара (код виробника, код типу) — те, чим ДПД адресує прилад. Як опитувати прилад модемом, агент визначає сам під час дзвінка"
       queryKey={['admin', 'corrector-types']}
       fetchAll={deviceCatalogApi.correctorTypes}
       create={(d) => deviceCatalogApi.createCorrectorType(d as Partial<CorectorType>)}
