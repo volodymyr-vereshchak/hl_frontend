@@ -1,0 +1,1 @@
+import{d as e}from"./index-BOLA2hn0.js";var t=e(`outline`,`check`,`Check`,[[`path`,{d:`M5 12l5 5l10 -10`,key:`svg-0`}]]);export{t};
