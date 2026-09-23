@@ -2,9 +2,10 @@ import { useMemo, useState } from 'react'
 import { Button, Checkbox, Group, Select, Stack, Text, Tooltip } from '@mantine/core'
 import { modals } from '@mantine/modals'
 import { notifications } from '@mantine/notifications'
-import { IconDeviceFloppy, IconDownload } from '@tabler/icons-react'
+import { IconDeviceFloppy, IconDownload, IconTrash } from '@tabler/icons-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CrudTable, type CrudField } from '../CrudTable'
+import { LineArchivePurgeModal } from './LineArchivePurgeModal'
 import { useAdminTopology, toOptions } from '../useAdminTopology'
 import { UNIT_LABELS } from '@/domain/pressureUnits'
 import {
@@ -95,6 +96,8 @@ export function LinesConfigTab() {
   const { branches, calcs, calcName, calcIdsOfBranch } = useAdminTopology()
   const [branchFilter, setBranchFilter] = useState<string | null>(null)
   const [calcFilter, setCalcFilter] = useState<string | null>(null)
+  //: The line whose archive is being cleared, or null while nobody is.
+  const [clearing, setClearing] = useState<Line | null>(null)
 
   // The calc list depends on the branch, so switching branch drops a stale calc.
   const branchCalcIds = useMemo(
@@ -155,6 +158,7 @@ export function LinesConfigTab() {
     { key: 'dp_unit', label: 'Од. перепаду', type: 'select', options: unitOptions('dp_unit') },
   ]
   return (
+    <>
     <CrudTable<Line>
       title="Лінії"
       description="Фізичні вимірювальні лінії"
@@ -167,6 +171,22 @@ export function LinesConfigTab() {
       searchKeys={['name']}
       rowLabel={(l) => l.name}
       createDefaults={calcFilter ? { gas_volume_calc_id: Number(calcFilter) } : undefined}
+      extraRowActions={(l) => (
+        <Tooltip
+          label="Видалити архіви цієї лінії за період — добові, годинні, зміни, аварії, параметри"
+          withArrow
+        >
+          <Button
+            size="compact-xs"
+            variant="subtle"
+            color="red"
+            leftSection={<IconTrash size={13} />}
+            onClick={() => setClearing(l)}
+          >
+            Архіви
+          </Button>
+        </Tooltip>
+      )}
       filter={(l) => {
         if (calcFilter) return String(l.gas_volume_calc_id) === calcFilter
         if (branchCalcIds) return l.gas_volume_calc_id != null && branchCalcIds.has(l.gas_volume_calc_id)
@@ -200,6 +220,8 @@ export function LinesConfigTab() {
         </>
       }
     />
+    <LineArchivePurgeModal line={clearing} onClose={() => setClearing(null)} />
+    </>
   )
 }
 

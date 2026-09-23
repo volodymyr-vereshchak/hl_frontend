@@ -128,11 +128,55 @@ export interface EisCode {
   lumg_id?: number
 }
 
+/** Rows of a line's archive, by kind — the five engines fill one archive. */
+export interface LineArchiveCounts {
+  daily: number
+  hourly: number
+  edits: number
+  alarms: number
+  params: number
+}
+
+export interface LineArchivePreview {
+  line_id: number
+  name: string
+  counts: LineArchiveCounts
+  /** The first and last day the line has anything on; null when it is empty. */
+  extent: { first: string | null; last: string | null }
+}
+
+/**
+ * A range with either end left open: only `from_date` means everything from
+ * that day on, only `to_date` everything up to it, both the span between them
+ * with both days included.
+ */
+export interface LineArchiveRange {
+  from_date?: string
+  to_date?: string
+  /** Read as query parameters, which the client types as an index signature. */
+  [key: string]: string | undefined
+}
+
 export const lineAdminApi = {
   getAll: (lumgId?: number) => api.get<Line[]>('/lines/', lumgId ? { lumg_id: lumgId } : undefined),
   create: (data: Partial<Line>) => api.post<Line>('/lines/', data),
   update: (id: number, data: Partial<Line>) => api.patch<Line>(`/lines/${id}`, data),
   remove: (id: number) => api.delete<true>(`/lines/${id}`),
+  previewArchive: (id: number, range: LineArchiveRange = {}) =>
+    api.get<LineArchivePreview>(`/lines/${id}/archive/preview`, range),
+  purgeArchive: (id: number, range: LineArchiveRange) =>
+    api.delete<{ removed: LineArchiveCounts }>(
+      `/lines/${id}/archive${queryOf(range)}`,
+    ),
+}
+
+/** `api.delete` takes a whole URL, so the range is spelled out here. */
+function queryOf(range: LineArchiveRange): string {
+  const sp = new URLSearchParams()
+  if (range.from_date) sp.append('from_date', range.from_date)
+  if (range.to_date) sp.append('to_date', range.to_date)
+  const qs = sp.toString()
+  return qs ? `?${qs}` : ''
 }
 
 export const calcAdminApi = {
