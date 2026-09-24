@@ -14,6 +14,7 @@ import {
 } from '@mantine/core'
 import {
   IconAlertTriangle,
+  IconExternalLink,
   IconFileText,
   IconInfoCircle,
   IconSearch,
@@ -24,6 +25,7 @@ import { pollingApi, type PollAgent, type PollDevice } from '@/api/polling'
 import { useAdminNavigation } from '../adminNavigation'
 import { PollLogModal } from '../PollLogModal'
 import { CheckboxFilter } from '@/components/CheckboxFilter'
+import { TablePagination } from '@/components/TablePagination'
 
 /**
  * Монітор GSM — a monitor, not an editor.
@@ -55,6 +57,11 @@ export function PollDevicesTab() {
   const openDpdLine = useAdminNavigation((s) => s.openDpdLine)
   /** The site whose last poll is open in its own window. */
   const [logOf, setLogOf] = useState<PollDevice | null>(null)
+  // The fleet is hundreds of rows and every one of them draws a schedule, a
+  // corrector and a state. Paged the way the archives are paged, so that what
+  // is on screen is what somebody is looking at.
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(50)
 
   const { data: devices, isLoading } = useQuery({
     queryKey: DEVICES_KEY,
@@ -136,6 +143,11 @@ export function PollDevicesTab() {
     return true
   })
 
+  // A search, a filter or a shorter page can leave the open page past the end.
+  const pageCount = Math.max(1, Math.ceil(shown.length / pageSize))
+  const currentPage = Math.min(page, pageCount)
+  const rows = shown.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+
   if (cards.length === 0) {
     return (
       <Alert color="gray" variant="light" icon={<IconInfoCircle size={16} />}>
@@ -215,7 +227,7 @@ export function PollDevicesTab() {
           </Table.Tr>
         </Table.Thead>
         <Table.Tbody>
-          {shown.map((card) => (
+          {rows.map((card) => (
             <Table.Tr key={card.id}>
               <Table.Td>
                 {/* The name is the way back to the settings this screen
@@ -249,6 +261,24 @@ export function PollDevicesTab() {
                   <Badge size="xs" variant="light" color="gray" tt="none" ml={6}>
                     ДПД-лінія
                   </Badge>
+                )}
+                {card.enterprise_id != null && (
+                  /* The monitor answers "is it being polled"; the readings
+                     themselves are on Промисловість. It opens in a tab of its
+                     own on purpose: the monitor is what somebody is watching
+                     while they go and look, and a live screen should not be
+                     navigated away from to answer a side question. */
+                  <Tooltip label="Відкрити «Промисловість» по цьому підприємству — у новій вкладці" withArrow>
+                    <Anchor
+                      href={`/enterprise-poll?enterprise=${card.enterprise_id}`}
+                      target="_blank"
+                      rel="noopener"
+                      ml={6}
+                      style={{ display: 'inline-flex', verticalAlign: 'middle' }}
+                    >
+                      <IconExternalLink size={13} />
+                    </Anchor>
+                  </Tooltip>
                 )}
               </Table.Td>
               <Table.Td>
@@ -291,6 +321,17 @@ export function PollDevicesTab() {
           ))}
         </Table.Tbody>
       </Table>
+
+      {shown.length > pageSize && (
+        <TablePagination
+          page={currentPage}
+          pageSize={pageSize}
+          total={shown.length}
+          onPageChange={setPage}
+          onPageSizeChange={setPageSize}
+          shownLabel={`Підприємств: ${shown.length}`}
+        />
+      )}
 
       {shown.length === 0 && (
         <Text size="sm" c="dimmed" ta="center" py="md">

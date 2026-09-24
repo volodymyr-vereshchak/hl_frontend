@@ -76,6 +76,7 @@ import {
   PRESSURE_UNIT_DEFAULT,
 } from '@/domain/pressureUnits'
 import { PressureUnitPicker } from '@/components/PressureUnitPicker'
+import { useSearchParams } from 'react-router-dom'
 import { useLanguage } from '@/locales/LanguageContext'
 import { CheckboxFilter } from '@/components/CheckboxFilter'
 import { useSelectionStore } from '@/store/selectionStore'
@@ -158,6 +159,17 @@ export function EnterprisePollPage() {
   /** Whether the site has a modem: "yes" / "no". Empty means both. */
   const [gsm, setGsm] = useState<string[]>([])
   const [selected, setSelected] = useState<number | null>(null)
+  /**
+   * Arriving on one enterprise: /enterprise-poll?enterprise=<id>.
+   *
+   * The GSM monitor answers "is it being polled" and the readings are here, so
+   * its rows link straight to the site they are about — in a tab of their own,
+   * because the monitor is a live screen somebody is watching while they come
+   * and look. The link also survives being bookmarked or pasted to a
+   * colleague, which the in-page selection never could.
+   */
+  const [params] = useSearchParams()
+  const asked = Number(params.get('enterprise')) || null
   // Feed the scrollbars, which run between the sticky header and totals row.
   const { containerRef, theadRef, tfootRef, theadHeight, tfootHeight } = useStickyRowHeights()
   // Collapsed groups survive reloads; the tree is long and reopening it every
@@ -363,6 +375,31 @@ export function EnterprisePollPage() {
   )
   const collapseAll = () => setCollapsed(Object.fromEntries(allGroupKeys.map((k) => [k, true])))
   const expandAll = () => setCollapsed({})
+
+  // Picked up once the list is there, and only once: the branch is widened to
+  // the one the site belongs to, or the filter would hide what the link asked
+  // for, and its groups are opened so the row can be seen to be selected.
+  const arrived = useRef<number | null>(null)
+  useEffect(() => {
+    if (!asked || arrived.current === asked || !mappings?.length) return
+    const site = mappings.find((m) => m.id === asked)
+    if (!site) return
+    arrived.current = asked
+    setSelected(asked)
+    if (site.branch_id != null && branchFilter !== site.branch_id) {
+      setBranchFilter(site.branch_id)
+    }
+    const branchKey = site.branch_id != null ? String(site.branch_id) : NO_BRANCH
+    const lineKey =
+      (site.line_id ?? site.dpd_line_id) != null
+        ? String(site.line_id ?? site.dpd_line_id)
+        : NO_LINE
+    setCollapsed((open) => ({
+      ...open,
+      [branchKey]: false,
+      [`${branchKey}/${lineKey}`]: false,
+    }))
+  }, [asked, mappings, branchFilter, setBranchFilter, setCollapsed])
 
   const selectedMapping = list.find((m) => m.id === selected) ?? null
   const hasModem = !!selectedMapping?.gsm?.phone
@@ -1328,7 +1365,13 @@ export function EnterprisePollPage() {
                   </Table>
                 </ScrollArea>
               </Box>
-              {view !== 'chart' && rows.length > pageSize && (
+              {/* Always there while the table has rows, the way the daily and
+                  hourly archives have it: the control belongs to the view, not
+                  to how much happened to come back. Hidden below its own page
+                  size, it was all but invisible here — an hourly page is 744
+                  readings, so the bar showed up only past a month of them, and
+                  the size buttons could not be reached to make it show. */}
+              {view !== 'chart' && rows.length > 0 && (
                 <TablePagination
                   page={currentPage}
                   pageSize={pageSize}
