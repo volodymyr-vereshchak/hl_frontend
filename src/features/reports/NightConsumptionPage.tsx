@@ -126,6 +126,13 @@ export function NightConsumptionPage() {
       // Bare commercial days for it, NOT `win`: the enterprise endpoint applies
       // the hourly 07:00→06:00 expansion itself. One day back, so that days
       // `from−1`..`to` expand to exactly the window asked of the archive.
+      //
+      // A failure here fails the whole run. It used to be swallowed with
+      // `.catch(() => [])`, and a report built that way is not this report: the
+      // night is what is left after industry, so an empty industry list turns
+      // every line into pure population and the numbers come out tens of
+      // percent too high — silently, with nothing on screen or in the export to
+      // say so. Two exports of the same September then disagreed.
       const [hourly, enterprise] = await Promise.all([
         archiveDataApi.getHourlyCompact(ids, win.from, win.to, NIGHT_HOURS),
         getEnterpriseFetchFn(true, { hours: NIGHT_HOURS })(
@@ -134,7 +141,7 @@ export function NightConsumptionPage() {
           to,
           'hourly',
           (pr) => setProgress(pollPhaseLabel(pr, t)),
-        ).catch(() => []),
+        ),
       ])
 
       setProgress(t('phaseCalculating'))
