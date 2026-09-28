@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArchivePurgeModal } from './ArchivePurgeModal'
+import { EnterpriseRereadModal } from './EnterpriseRereadModal'
 import {
   ActionIcon,
   Input,
@@ -180,6 +181,7 @@ export function EnterprisesTab() {
 
   /** The point whose archive is being cleared, if any. */
   const [purging, setPurging] = useState<EnterpriseMapping | null>(null)
+  const [rereading, setRereading] = useState<EnterpriseMapping | null>(null)
 
   // Editing
   const [editingId, setEditingId] = useState<number | null>(null)
@@ -797,6 +799,7 @@ export function EnterprisesTab() {
         onClose={() => setPurging(null)}
         onPurged={() => qc.invalidateQueries({ queryKey: ['admin', 'enterprise-mappings'] })}
       />
+      <EnterpriseRereadModal enterprise={rereading} onClose={() => setRereading(null)} />
       {/* Both windows in one stack: the history is opened from inside the edit
           form, and without a stack the one rendered first paints on top — the
           history ended up behind the form that opened it. The stack orders them
@@ -1191,7 +1194,18 @@ export function EnterprisesTab() {
                         </ActionIcon>
                         {/* Rare and destructive, so it lives behind its own
                             dialog, which counts before it removes. */}
-                        <Tooltip label="Очистити архів за період" withArrow>
+                        {/* The other half of the same job: this one brings
+                            a period back from ДПД, that one takes it away. */}
+                        <Tooltip label="Перечитати архів з ДПД за період" withArrow>
+                          <ActionIcon
+                            variant="subtle"
+                            color="orange"
+                            onClick={() => setRereading(e)}
+                          >
+                            <IconHistory size={16} />
+                          </ActionIcon>
+                        </Tooltip>
+                        <Tooltip label="Очистити архів за період або весь" withArrow>
                           <ActionIcon
                             variant="subtle"
                             color="orange"

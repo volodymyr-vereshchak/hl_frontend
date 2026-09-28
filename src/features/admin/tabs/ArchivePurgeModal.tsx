@@ -1,18 +1,21 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   Alert,
   Button,
   Group,
+  Loader,
   Modal,
+  Paper,
   Stack,
   Table,
   Text,
 } from '@mantine/core'
 import { DatePickerInput } from '@mantine/dates'
 import { IconAlertTriangle, IconCalendar, IconTrash } from '@tabler/icons-react'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { notifications } from '@mantine/notifications'
 import { enterpriseApi, type ArchivePurge } from '@/api/enterprise'
+import { humanDate } from '@/domain/lineArchiveRange'
 
 interface Props {
   enterprise: { id: number; enterprise_name: string } | null
@@ -20,35 +23,51 @@ interface Props {
   onPurged?: () => void
 }
 
-const iso = (d: Date) => d.toISOString().slice(0, 10)
-
 /**
- * Removing a stretch of a point's archive.
+ * Removing a stretch of a point's archive — or all of it.
  *
  * Deliberate, irreversible and rare, so it is counted before it is done: the
- * dialog says how many rows would go and from which correctors, and the
- * button that removes them cannot be pressed before that count has been
- * fetched.
+ * dialog says how many rows would go and from which correctors, and the button
+ * that removes them cannot be pressed before that count has come back.
  *
- * The dates are gas days — the hours of one run from 07:00 to 07:00 — and the
- * server clips the range to the window each corrector actually stood at this
- * point, so a device that came from somewhere else keeps the rows it made
- * there.
+ * Both dates are optional, which is the shape the work actually has. A stretch
+ * that was read wrongly is described as "everything before we noticed" or
+ * "everything since the swap", and when the whole archive of a point is wrong
+ * — a corrector polled under somebody else's serial for as long as anybody can
+ * remember — the honest answer is to leave both empty and take it all.
+ *
+ * The dates are gas days, and the server clips the range to the window each
+ * corrector actually stood at this point, so a device that came from somewhere
+ * else keeps the rows it made there.
  */
 export function ArchivePurgeModal({ enterprise, onClose, onPurged }: Props) {
-  const today = new Date()
-  const monthAgo = new Date(today.getFullYear(), today.getMonth() - 1, today.getDate())
-  const [from, setFrom] = useState<string>(iso(monthAgo))
-  const [to, setTo] = useState<string>(iso(today))
-  const [seen, setSeen] = useState<ArchivePurge | null>(null)
+  const [from, setFrom] = useState<string | null>(null)
+  const [to, setTo] = useState<string | null>(null)
 
-  const range = { from_date: from, to_date: to }
+  // Every point opens with empty dates: the range from the point before it
+  // would be somebody else's range, silently pre-armed.
+  useEffect(() => {
+    setFrom(null)
+    setTo(null)
+  }, [enterprise?.id])
 
-  const count = useMutation({
-    mutationFn: () => enterpriseApi.previewArchivePurge(enterprise!.id, range),
-    onSuccess: setSeen,
-    onError: (e: Error) => notifications.show({ color: 'red', message: e.message }),
+  const backwards = !!from && !!to && from > to
+  const range = {
+    ...(from ? { from_date: from } : {}),
+    ...(to ? { to_date: to } : {}),
+  }
+
+  // Counted as the dates change rather than on a button: the number IS the
+  // warning, and a button that has to be pressed to see it gets pressed last.
+  const seen = useQuery({
+    queryKey: ['enterprise-purge-preview', enterprise?.id, from, to],
+    queryFn: () => enterpriseApi.previewArchivePurge(enterprise!.id, range),
+    enabled: !!enterprise && !backwards,
   })
+
+  const counted: ArchivePurge | undefined = seen.data
+  const total = counted ? counted.hourly + counted.daily : 0
+  const everything = !from && !to
 
   const purge = useMutation({
     mutationFn: () => enterpriseApi.purgeArchive(enterprise!.id, range),
@@ -58,27 +77,22 @@ export function ArchivePurgeModal({ enterprise, onClose, onPurged }: Props) {
         message: `Видалено: ${removed.hourly} годинних, ${removed.daily} добових`,
       })
       onPurged?.()
-      close()
+      onClose()
     },
     onError: (e: Error) => notifications.show({ color: 'red', message: e.message }),
   })
 
-  const close = () => {
-    setSeen(null)
-    onClose()
+  /** The range in words — the one thing here worth reading twice. */
+  const explained = () => {
+    if (backwards) return 'Початкова дата пізніша за кінцеву — поміняйте їх місцями'
+    if (from && to) return `Буде видалено з ${humanDate(from)} по ${humanDate(to)} включно`
+    if (from) return `Буде видалено все від ${humanDate(from)} і новіше`
+    if (to) return `Буде видалено все до ${humanDate(to)} включно`
+    return 'Дати не вказані — буде видалено ВЕСЬ архів цього підприємства'
   }
-
-  // A new range invalidates the count that was shown for the old one.
-  const pick = (setter: (v: string) => void) => (value: string | null) => {
-    if (!value) return
-    setSeen(null)
-    setter(value)
-  }
-
-  const nothing = seen != null && seen.hourly === 0 && seen.daily === 0
 
   return (
-    <Modal opened={!!enterprise} onClose={close} title="Очистити архів" size="lg">
+    <Modal opened={!!enterprise} onClose={onClose} title="Очистити архів" size="lg">
       <Stack gap="sm">
         <Text size="sm">
           Підприємство: <b>{enterprise?.enterprise_name}</b>
@@ -87,35 +101,43 @@ export function ArchivePurgeModal({ enterprise, onClose, onPurged }: Props) {
         <Group gap="sm" align="flex-end">
           <DatePickerInput
             label="Від газової доби"
+            placeholder="від початку архіву"
             leftSection={<IconCalendar size={15} />}
             value={from}
-            onChange={pick(setFrom)}
+            onChange={setFrom}
             valueFormat="DD.MM.YYYY"
+            clearable
             size="xs"
-            w={170}
+            w={200}
             popoverProps={{ zIndex: 500, withinPortal: true }}
           />
           <DatePickerInput
             label="До газової доби, включно"
+            placeholder="до кінця архіву"
             leftSection={<IconCalendar size={15} />}
             value={to}
-            onChange={pick(setTo)}
+            onChange={setTo}
             valueFormat="DD.MM.YYYY"
+            clearable
             size="xs"
-            w={190}
+            w={210}
             popoverProps={{ zIndex: 500, withinPortal: true }}
           />
-          <Button size="xs" variant="light" loading={count.isPending} onClick={() => count.mutate()}>
-            Порахувати
-          </Button>
+          {seen.isFetching && <Loader size="xs" mb={6} />}
         </Group>
+
+        <Paper withBorder p="xs" bg={backwards || everything ? 'red.0' : undefined}>
+          <Text size="sm" c={backwards || everything ? 'red' : undefined}>
+            {explained()}
+          </Text>
+        </Paper>
 
         <Text size="xs" c="dimmed">
           Газова доба йде з 07:00 до 07:00, тому години беруться саме за цими
           межами, а доби — за днями, якими вони підписані.
         </Text>
 
-        {seen && (
+        {counted && (
           <>
             <Table withTableBorder withColumnBorders>
               <Table.Thead>
@@ -125,7 +147,7 @@ export function ArchivePurgeModal({ enterprise, onClose, onPurged }: Props) {
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
-                {seen.devices.map((d) => (
+                {counted.devices.map((d) => (
                   <Table.Tr key={`${d.device_id}-${d.from}`}>
                     <Table.Td>№{d.ser_num}</Table.Td>
                     <Table.Td>
@@ -133,7 +155,7 @@ export function ArchivePurgeModal({ enterprise, onClose, onPurged }: Props) {
                     </Table.Td>
                   </Table.Tr>
                 ))}
-                {seen.devices.length === 0 && (
+                {counted.devices.length === 0 && (
                   <Table.Tr>
                     <Table.Td colSpan={2}>
                       <Text size="sm" c="dimmed">
@@ -146,18 +168,18 @@ export function ArchivePurgeModal({ enterprise, onClose, onPurged }: Props) {
             </Table>
 
             <Alert
-              color={nothing ? 'gray' : 'orange'}
+              color={total === 0 ? 'gray' : 'orange'}
               variant="light"
               icon={<IconAlertTriangle size={16} />}
             >
-              {nothing ? (
+              {total === 0 ? (
                 'У цьому періоді записів немає — видаляти нічого.'
               ) : (
                 <>
-                  Буде видалено <b>{seen.hourly}</b> годинних і <b>{seen.daily}</b> добових
-                  записів. Це незворотно. Те, що потрапляє в останні 30 днів, нічний
-                  рефреш ДПД поверне сам; старіше — лише окремим опитуванням того
-                  діапазону.
+                  Буде видалено <b>{counted.hourly}</b> годинних і <b>{counted.daily}</b> добових
+                  записів. Це незворотно. З ДПД повернеться лише те, що
+                  перечитають; начитане модемом не повернеться — у коректорі
+                  лежать тижні, а не роки.
                 </>
               )}
             </Alert>
@@ -165,18 +187,19 @@ export function ArchivePurgeModal({ enterprise, onClose, onPurged }: Props) {
         )}
 
         <Group justify="flex-end">
-          <Button variant="default" size="xs" onClick={close}>
+          <Button variant="default" size="xs" onClick={onClose}>
             Скасувати
           </Button>
           <Button
             size="xs"
             color="red"
             leftSection={<IconTrash size={15} />}
-            disabled={!seen || nothing}
+            disabled={backwards || !counted || total === 0}
             loading={purge.isPending}
             onClick={() => purge.mutate()}
           >
-            Видалити
+            {everything ? 'Видалити весь архів' : 'Видалити'}
+            {counted && total > 0 ? ` (${total})` : ''}
           </Button>
         </Group>
       </Stack>

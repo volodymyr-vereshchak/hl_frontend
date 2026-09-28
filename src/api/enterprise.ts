@@ -142,6 +142,19 @@ export interface VolumesParams {
   virtual?: boolean
 }
 
+/**
+ * A range with either end open.
+ *
+ * Both ends absent means the whole archive of the point — the case where the
+ * readings were wrong end to end and there is nothing in them to keep.
+ */
+export interface ArchiveRange {
+  from_date?: string
+  to_date?: string
+  /** Read as query parameters, which the client types as an index signature. */
+  [key: string]: string | undefined
+}
+
 /** What a purge would take, or did. */
 export interface ArchivePurge {
   hourly: number
@@ -157,9 +170,9 @@ export const enterpriseApi = {
    * before it lets anybody press the second, and a deletion that reported its
    * own size afterwards would be reporting it too late.
    */
-  previewArchivePurge: (id: number, range: { from_date: string; to_date: string }) =>
+  previewArchivePurge: (id: number, range: ArchiveRange) =>
     api.get<ArchivePurge>(`/enterprise/${id}/archive/preview`, range),
-  purgeArchive: (id: number, range: { from_date: string; to_date: string }) =>
+  purgeArchive: (id: number, range: ArchiveRange) =>
     // `api.delete` takes no params, so the range goes into the path itself.
     api.delete<ArchivePurge>(`/enterprise/${id}/archive?${buildQuery(range)}`),
 
