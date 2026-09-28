@@ -552,7 +552,13 @@ export const enterpriseArchiveApi = {
     api.post<{ started: boolean; from_date: string; to_date: string }>(
       `/enterprise/archive/reread?from_date=${range.from_date}&to_date=${range.to_date}`,
     ),
-  clearCache: () => api.delete<unknown>('/enterprise/cache/'),
+  /**
+   * Wipe every enterprise archive — daily, hourly and the coverage marks.
+   *
+   * Not a cache: the rows a modem polled have no second source, so this is
+   * the one button here that destroys data nothing can bring back.
+   */
+  clearAllArchives: () => api.delete<unknown>('/enterprise/cache/'),
   setSchedule: (times: string[]) =>
     api.put<{ refresh_times: string[] }>('/enterprise/archive/refresh/schedule', { times }),
 }

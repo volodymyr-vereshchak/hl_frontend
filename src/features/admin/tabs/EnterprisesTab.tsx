@@ -45,6 +45,7 @@ import {
   currentEnterpriseDevice,
   deviceCatalogApi,
   dpdLineAdminApi,
+  enterpriseArchiveApi,
   enterpriseMappingApi,
   type EnterpriseGsm,
   type EnterpriseMapping,
@@ -117,6 +118,16 @@ const EMPTY: FormState = {
  */
 export function EnterprisesTab() {
   const qc = useQueryClient()
+
+  // Every enterprise archive at once. Lives here rather than with the DPD
+  // credentials: it wipes the modem-polled rows too, and the per-enterprise
+  // clearing it belongs beside is in the rows below.
+  const clearAll = useMutation({
+    mutationFn: enterpriseArchiveApi.clearAllArchives,
+    onSuccess: () =>
+      notifications.show({ message: 'Архіви підприємств очищено', color: 'teal' }),
+    onError: (e: Error) => notifications.show({ message: e.message, color: 'red' }),
+  })
   const { branches, lumgs, calcs, lines, branchName, lumgName, calcIdsOfBranch } =
     useAdminTopology()
 
@@ -812,6 +823,57 @@ export function EnterprisesTab() {
           </>
         }
       />
+
+      {/* Archives of every enterprise at once. It sits here, not with the DPD
+          credentials where it used to: what it wipes is not the DPD cache it
+          was once named after but every enterprise archive there is, the
+          modem-polled rows included, and the per-enterprise clearing it
+          belongs beside is in the rows below. */}
+      <Paper withBorder radius="md" p="sm">
+        <Group gap="sm" wrap="wrap" align="center">
+          <Text size="xs" c="dimmed" fw={600}>
+            Архіви
+          </Text>
+          <Button
+            size="compact-xs"
+            color="red"
+            variant="light"
+            leftSection={<IconTrash size={13} />}
+            loading={clearAll.isPending}
+            onClick={() =>
+              modals.openConfirmModal({
+                title: 'Очистити архіви всіх підприємств',
+                size: 'lg',
+                children: (
+                  <Stack gap="xs">
+                    <Text size="sm">
+                      Буде видалено <b>всі</b> добові та годинні архіви підприємств —
+                      і те, що прийшло з Радміртеха, і те, що начитали модеми.
+                    </Text>
+                    <Text size="sm">
+                      З Радміртеха повернеться лише те, що ви перечитаєте:
+                      звичайне оновлення тягне останні 30 днів, глибше — кнопка
+                      «Перечитати архів» у розділі ДПД.
+                    </Text>
+                    <Text size="sm" fw={600} c="red">
+                      Начитане модемом не повернеться: у коректорі лежать тижні,
+                      а не роки.
+                    </Text>
+                  </Stack>
+                ),
+                labels: { confirm: 'Очистити все', cancel: 'Скасувати' },
+                confirmProps: { color: 'red' },
+                onConfirm: () => clearAll.mutate(),
+              })
+            }
+          >
+            Очистити всі архіви
+          </Button>
+          <Text size="xs" c="dimmed">
+            Архів одного підприємства за період очищається в його рядку
+          </Text>
+        </Group>
+      </Paper>
 
       {/* Excel */}
       <Paper withBorder radius="md" p="sm">

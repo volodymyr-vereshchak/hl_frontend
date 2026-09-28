@@ -25,7 +25,6 @@ import {
   IconDeviceFloppy,
   IconHistory,
   IconRefresh,
-  IconTrash,
 } from '@tabler/icons-react'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -107,12 +106,6 @@ function ArchiveControls() {
     onError: notifyErr,
   })
 
-  const clear = useMutation({
-    mutationFn: enterpriseArchiveApi.clearCache,
-    onSuccess: () => notifications.show({ message: 'Архів очищено', color: 'teal' }),
-    onError: notifyErr,
-  })
-
   const times = job?.refresh_times ?? []
   // What applies when nothing is chosen — from the backend, so the hint cannot
   // drift from the DPD_REFRESH_TIMES a deployment actually runs on.
@@ -185,28 +178,6 @@ function ArchiveControls() {
             disabled={running}
           >
             Перечитати архів
-          </Button>
-          <Button
-            size="xs"
-            color="red"
-            variant="light"
-            leftSection={<IconTrash size={14} />}
-            disabled={running}
-            onClick={() =>
-              modals.openConfirmModal({
-                title: 'Очистити архів ДПД',
-                children: (
-                  <Text size="sm">
-                    Дані буде завантажено заново при наступному оновленні. Продовжити?
-                  </Text>
-                ),
-                labels: { confirm: 'Очистити', cancel: 'Скасувати' },
-                confirmProps: { color: 'red' },
-                onConfirm: () => clear.mutate(),
-              })
-            }
-          >
-            Очистити архів
           </Button>
         </Group>
       </Group>
