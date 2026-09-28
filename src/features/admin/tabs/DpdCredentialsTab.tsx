@@ -7,6 +7,7 @@ import {
   Button,
   Code,
   Group,
+  Modal,
   MultiSelect,
   NumberInput,
   Paper,
@@ -16,9 +17,16 @@ import {
   Text,
   TextInput,
 } from '@mantine/core'
+import { DatePickerInput } from '@mantine/dates'
 import { modals } from '@mantine/modals'
 import { notifications } from '@mantine/notifications'
-import { IconDeviceFloppy, IconRefresh, IconTrash } from '@tabler/icons-react'
+import {
+  IconAlertTriangle,
+  IconDeviceFloppy,
+  IconHistory,
+  IconRefresh,
+  IconTrash,
+} from '@tabler/icons-react'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   branchAdminApi,
@@ -28,6 +36,12 @@ import {
   type DpdCredential,
 } from '@/api/admin'
 import type { Branch } from '@/types'
+
+/** Where the history starts by default: the archive nobody has read yet goes
+ *  back to the start of 2024, and that is what «перечитати» usually means. */
+const HISTORY_START = '2024-01-01'
+
+const today = () => new Date().toISOString().slice(0, 10)
 import { AdminTabHeader } from '../AdminTableShell'
 
 const notifyErr = (e: Error) => notifications.show({ message: e.message, color: 'red' })
@@ -72,6 +86,25 @@ function ArchiveControls() {
         message: 'Не вдалося запустити (можливо, вже виконується)',
         color: 'red',
       }),
+  })
+
+  // «Перечитати архів»: the period is asked for, because the whole point is
+  // reaching further back than the routine window — and how much further is
+  // not something this screen can guess.
+  const [rereading, setRereading] = useState(false)
+  const [since, setSince] = useState<string | null>(HISTORY_START)
+  const [until, setUntil] = useState<string | null>(today())
+
+  const reread = useMutation({
+    mutationFn: () =>
+      enterpriseArchiveApi.reread({ from_date: since!, to_date: until! }),
+    onSuccess: () => {
+      notifications.show({ message: 'Перечитування запущено', color: 'teal' })
+      setRereading(false)
+      setPolling(true)
+      qc.invalidateQueries({ queryKey: ['admin', 'dpd-archive-status'] })
+    },
+    onError: notifyErr,
   })
 
   const clear = useMutation({
@@ -146,6 +179,15 @@ function ArchiveControls() {
           </Button>
           <Button
             size="xs"
+            variant="light"
+            leftSection={<IconHistory size={14} />}
+            onClick={() => setRereading(true)}
+            disabled={running}
+          >
+            Перечитати архів
+          </Button>
+          <Button
+            size="xs"
             color="red"
             variant="light"
             leftSection={<IconTrash size={14} />}
@@ -168,6 +210,61 @@ function ArchiveControls() {
           </Button>
         </Group>
       </Group>
+
+      <Modal
+        opened={rereading}
+        onClose={() => setRereading(false)}
+        title="Перечитати архів ДПД"
+        size="lg"
+      >
+        <Stack gap="sm">
+          <Text size="sm">
+            Архів буде перечитано з ДПД за вказаний період — для всіх
+            підприємств усіх філій, у яких введені облікові дані, за добами і
+            за годинами.
+          </Text>
+          <Group gap="sm" align="flex-end">
+            <DatePickerInput
+              label="Від"
+              value={since}
+              onChange={setSince}
+              valueFormat="DD.MM.YYYY"
+              size="xs"
+              w={190}
+              popoverProps={{ zIndex: 500, withinPortal: true }}
+            />
+            <DatePickerInput
+              label="До (включно)"
+              value={until}
+              onChange={setUntil}
+              valueFormat="DD.MM.YYYY"
+              size="xs"
+              w={190}
+              popoverProps={{ zIndex: 500, withinPortal: true }}
+            />
+          </Group>
+          <Alert color="orange" variant="light" icon={<IconAlertTriangle size={16} />}>
+            Це надовго: рік історії — це тисячі запитів до ДПД, і поки воно йде,
+            звичайне оновлення не запуститься. Наявні записи буде перезаписано
+            тим, що віддасть ДПД; те, чого там уже немає, залишиться як є.
+          </Alert>
+          <Group justify="flex-end">
+            <Button variant="default" size="xs" onClick={() => setRereading(false)}>
+              Скасувати
+            </Button>
+            <Button
+              size="xs"
+              color="orange"
+              leftSection={<IconHistory size={14} />}
+              disabled={!since || !until || since > until}
+              loading={reread.isPending}
+              onClick={() => reread.mutate()}
+            >
+              Перечитати
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
 
       {editingSchedule && (
         <Group gap="sm" mt="sm" align="flex-end" wrap="wrap">

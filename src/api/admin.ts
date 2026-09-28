@@ -541,6 +541,17 @@ export interface ArchiveRefreshStatus {
 export const enterpriseArchiveApi = {
   status: () => api.get<ArchiveRefreshStatus>('/enterprise/archive/refresh/status'),
   refresh: () => api.post<unknown>('/enterprise/archive/refresh'),
+  /**
+   * Re-read a chosen period instead of the routine window.
+   *
+   * The scheduled refresh re-polls a fixed window (30 days) and knows nothing
+   * about what is missing further back, and reading the archive never calls
+   * DPD at all — so this is the only thing that closes an older gap.
+   */
+  reread: (range: { from_date: string; to_date: string }) =>
+    api.post<{ started: boolean; from_date: string; to_date: string }>(
+      `/enterprise/archive/reread?from_date=${range.from_date}&to_date=${range.to_date}`,
+    ),
   clearCache: () => api.delete<unknown>('/enterprise/cache/'),
   setSchedule: (times: string[]) =>
     api.put<{ refresh_times: string[] }>('/enterprise/archive/refresh/schedule', { times }),
