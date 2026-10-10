@@ -134,7 +134,7 @@ function ArchiveControls() {
             Архів даних ДПД
           </Text>
           <Text size="xs" c="dimmed">
-            Останні 30 днів по всіх підприємствах
+            Догружає кожен прилад з останньої дати в його архіві
           </Text>
           {/* The hours are the setting an admin comes here to check, so they
               are chips, not words buried in a dimmed sentence. */}

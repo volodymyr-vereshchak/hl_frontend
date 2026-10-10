@@ -553,7 +553,7 @@ export const enterpriseArchiveApi = {
       `/enterprise/archive/reread?from_date=${range.from_date}&to_date=${range.to_date}`,
     ),
   /**
-   * Wipe every enterprise archive — daily, hourly and the coverage marks.
+   * Wipe every enterprise archive — daily and hourly.
    *
    * Not a cache: the rows a modem polled have no second source, so this is
    * the one button here that destroys data nothing can bring back.
