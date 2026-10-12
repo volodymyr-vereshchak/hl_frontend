@@ -6,6 +6,8 @@ import {
   Select,
   SegmentedControl,
   Button,
+  Menu,
+  Tabs,
   Paper,
   Text,
   Table,
@@ -21,14 +23,19 @@ import {
   ActionIcon,
   Tooltip,
 } from '@mantine/core'
-import { DatePickerInput } from '@mantine/dates'
+import { PeriodPicker } from '@/features/archive/PeriodPicker'
 import {
   IconAlertTriangle,
+  IconBroadcast,
   IconBuildingCommunity,
   IconCalendar,
+  IconCheck,
+  IconChevronDown,
   IconChevronRight,
   IconChevronsDown,
   IconChevronsUp,
+  IconClockHour4,
+  IconDatabase,
   IconRipple,
   IconFileSpreadsheet,
   IconPlayerPlay,
@@ -97,8 +104,11 @@ interface PollRow {
   pressureUnit: string | null
 }
 
-/** Same split height as the archives, so the two screens line up. */
-const SPLIT_HEIGHT = 'calc(100dvh - 150px)'
+/**
+ * Leaves room for the two toolbar rows above it: this screen carries one more
+ * than the archives, so the tree and the pane start lower.
+ */
+const SPLIT_HEIGHT = 'calc(100dvh - 192px)'
 
 const NO_BRANCH = '__no_branch__'
 const NO_LINE = '__no_line__'
@@ -221,7 +231,10 @@ export function EnterprisePollPage() {
    * modem to switch to, because an option that fails for most of the list
    * teaches people to ignore the option.
    */
-  const [source, setSource] = useState<'dpd' | 'gsm'>('dpd')
+  const [source, setSource] = useLocalStorage<'dpd' | 'gsm'>({
+    key: 'enterprise-poll.source',
+    defaultValue: 'dpd',
+  })
 
   /**
    * Two jobs that had been one button.
@@ -242,7 +255,10 @@ export function EnterprisePollPage() {
   // instead of continuing the previous session's.
   const [gsmRun, setGsmRun] = useState(0)
   const [reportFilters, setReportFilters] = useState<UnpolledFilters>(EMPTY_UNPOLLED_FILTERS)
-  const [periodType, setPeriodType] = useState<PeriodType>('daily')
+  const [periodType, setPeriodType] = useLocalStorage<PeriodType>({
+    key: 'enterprise-poll.periodType',
+    defaultValue: 'daily',
+  })
   const initialRange = defaultRange()
   const [from, setFrom] = useState(initialRange.from)
   const [to, setTo] = useState(initialRange.to)
@@ -835,192 +851,288 @@ export function EnterprisePollPage() {
     )
   }
 
+  /**
+   * Starting a poll is one act with two ways of doing it, so the choice sits in
+   * the button that performs it rather than in a switch somewhere to its left.
+   * Picking a way remembers it, and the pane follows.
+   */
+  const startPoll = (next: 'dpd' | 'gsm') => {
+    setSource(next)
+    if (next === 'gsm' && hasModem) return void runGsm()
+    return void runDpd()
+  }
+
+  const stopButton = (
+    <Button
+      size="xs"
+      color="red"
+      variant="light"
+      leftSection={<IconPlayerStop size={15} />}
+      onClick={stop}
+    >
+      {t('stop')}
+    </Button>
+  )
+
   return (
     <Stack gap="sm">
-      {/* Same shape as the archives: one toolbar line, then tree + pane filling
-          the screen. */}
+      {/*
+        Two rows. The first says what the screen is, which half of the job is
+        open, and carries the questions about the whole list; the second carries
+        the controls of that half.
+
+        Both halves used to share one row, so switching between them made the
+        granularity and the dates appear or vanish and shifted everything to
+        their right — including the button that starts the work. The three
+        choices (half of the job, granularity of the data, way of fetching) were
+        also drawn as three identical pills, which said nothing about which of
+        them decides what the screen does.
+      */}
       <Group gap="md" wrap="nowrap" align="center">
         <Title order={4} style={{ whiteSpace: 'nowrap' }}>
           {t('enterprisePoll')}
         </Title>
-        {/* The split the screen was missing: one press meant both "go and
-            get more" and "show me what we have", so the modem — which
-            fetches and returns nothing to draw — had nowhere to live. */}
-        <SegmentedControl
-          size="xs"
+        {/* Reading and fetching are two halves of one job, not two settings:
+            «Архів» reads the database, «Опитування» goes and gets more. Tabs,
+            because everything in the row below belongs to the chosen half. */}
+        <Tabs
           value={tab}
           onChange={(v) => {
+            if (!v) return
             setTab(v as 'poll' | 'archive')
-            setPane('poll')
+            // A report is dismissed; which poll pane was open is kept, so
+            // coming back from the archive does not lose the modem journal.
+            setPane((p) => (p === 'gsm' ? 'gsm' : 'poll'))
           }}
-          data={[
-            { value: 'poll', label: 'Опитування' },
-            { value: 'archive', label: 'Архів' },
-          ]}
-        />
-        {tab === 'archive' && (
-          <SegmentedControl
+        >
+          <Tabs.List style={{ borderBottom: 'none', flexWrap: 'nowrap' }}>
+            <Tabs.Tab value="archive" leftSection={<IconDatabase size={15} />}>
+              {t('pollTabArchive')}
+            </Tabs.Tab>
+            <Tabs.Tab value="poll" leftSection={<IconBroadcast size={15} />}>
+              {t('pollTabPoll')}
+            </Tabs.Tab>
+          </Tabs.List>
+        </Tabs>
+
+        {/* These ask about the whole list rather than the chosen enterprise, so
+            they keep the same place whichever half is open. */}
+        <Group gap="xs" wrap="nowrap" ml="auto">
+          {/* Answers "is anything not reporting?" without picking a device
+              first — the reason it is a toolbar button and not a row action.
+              Once a report exists the button re-opens it rather than spending
+              another multi-minute poll; re-running is «Оновити» inside it. */}
+          <Button
             size="xs"
-            value={periodType}
-            onChange={(v) => setPeriodType(v as PeriodType)}
-            data={[
-              { value: 'daily', label: t('daily') },
-              { value: 'hourly', label: t('hourly') },
-            ]}
+            variant="light"
+            color="amber"
+            leftSection={<IconPlugConnectedX size={15} />}
+            rightSection={
+              pane === 'unpolled' ? undefined : unp.checking ? (
+                <Loader size={12} color="amber" />
+              ) : unp.rows !== null ? (
+                <Badge size="xs" circle variant="filled" color={unp.rows.length ? 'amber' : 'teal'}>
+                  {unp.rows.length}
+                </Badge>
+              ) : undefined
+            }
+            onClick={() => {
+              // Open FIRST, then poll: the check runs for minutes, and starting
+              // it before the pane existed meant those minutes passed with no
+              // progress bar anywhere on screen.
+              setPane('unpolled')
+              if (unp.rows === null && !unp.checking) void unp.run()
+            }}
+            disabled={loading}
+          >
+            {t('unpolledEnterprises')}
+          </Button>
+          {/* Alarms are a different question from volumes and need no
+              enterprise selected, so they sit beside the "no poll" report
+              rather than in a row action. */}
+          <Button
+            size="xs"
+            variant="light"
+            color="amber"
+            leftSection={<IconAlertTriangle size={15} />}
+            rightSection={
+              pane === 'accidents' ? undefined : acc.loading ? (
+                <Loader size={12} color="amber" />
+              ) : acc.report ? (
+                <Badge size="xs" circle variant="filled" color={acc.report.groups.length ? 'amber' : 'teal'}>
+                  {acc.report.groups.length}
+                </Badge>
+              ) : undefined
+            }
+            onClick={() => setPane('accidents')}
+            disabled={loading}
+          >
+            {t('accidents')}
+          </Button>
+          <Select
+            placeholder="Всі філії"
+            data={(branches ?? []).map((b) => ({ value: String(b.id), label: b.name }))}
+            value={branchFilter != null ? String(branchFilter) : null}
+            onChange={(v) => {
+              const next = v ? Number(v) : null
+              setBranchFilter(next)
+              if (next != null) setBranchId(next)
+            }}
+            clearable
+            searchable
+            size="xs"
+            w={200}
           />
-        )}
-        {/* Dates belong to looking, not to fetching. A poll runs from where
-            the archive ends to tomorrow — that is not a choice an operator
-            should have to make, and making it wrong leaves holes. */}
-        {tab === 'archive' && (
+          <Button
+            size="xs"
+            variant="light"
+            color="teal"
+            leftSection={<IconFileSpreadsheet size={15} />}
+            onClick={exportExcel}
+            disabled={!rows.length}
+            style={{ flexShrink: 0 }}
+          >
+            {t('excel')}
+          </Button>
+        </Group>
+      </Group>
+
+      {/* The chosen half's own controls. */}
+      <Group gap="md" wrap="nowrap" align="center">
+        {tab === 'archive' ? (
           <>
-            <DatePickerInput
-              aria-label={t('from')}
-              leftSection={<IconCalendar size={15} />}
-              value={from}
-              onChange={(v) => v && setFrom(v)}
-              valueFormat="DD.MM.YYYY"
+            <SegmentedControl
               size="xs"
-              w={140}
-              popoverProps={{ zIndex: 500, withinPortal: true }}
+              value={periodType}
+              onChange={(v) => setPeriodType(v as PeriodType)}
+              data={[
+                {
+                  value: 'daily',
+                  label: (
+                    <Group gap={5} wrap="nowrap">
+                      <IconCalendar size={13} />
+                      {t('daily')}
+                    </Group>
+                  ),
+                },
+                {
+                  value: 'hourly',
+                  label: (
+                    <Group gap={5} wrap="nowrap">
+                      <IconClockHour4 size={13} />
+                      {t('hourly')}
+                    </Group>
+                  ),
+                },
+              ]}
             />
-            <DatePickerInput
-              aria-label={t('to')}
-              leftSection={<IconCalendar size={15} />}
-              value={to}
-              onChange={(v) => v && setTo(v)}
-              valueFormat="DD.MM.YYYY"
-              size="xs"
-              w={140}
-              popoverProps={{ zIndex: 500, withinPortal: true }}
+            {/* The archives' own period control, so the two screens that read
+                stored readings are driven the same way — its «сьогодні» preset
+                included. Whole days either way: the hour window is not
+                something this endpoint takes. */}
+            <PeriodPicker
+              withTime={false}
+              from={from}
+              to={to}
+              onChange={({ from: nextFrom, to: nextTo }) => {
+                setFrom(nextFrom)
+                setTo(nextTo)
+              }}
+              disabled={loading}
             />
+            {loading ? (
+              stopButton
+            ) : (
+              <Button
+                size="xs"
+                leftSection={<IconPlayerPlay size={15} />}
+                onClick={() => void run()}
+                disabled={!selectedMapping}
+              >
+                {t('pollShow')}
+              </Button>
+            )}
+          </>
+        ) : (
+          <>
+            {/* Dates belong to looking, not to fetching: a poll runs from where
+                the archive ends to tomorrow. Saying so beats an empty space
+                where the pickers used to be. */}
+            <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
+              {t('pollWindowHint')}
+            </Text>
+            {loading ? (
+              stopButton
+            ) : (
+              <Button.Group>
+                <Button
+                  size="xs"
+                  leftSection={<IconPlayerPlay size={15} />}
+                  onClick={() => startPoll(source)}
+                  disabled={!selectedMapping}
+                >
+                  {/* Where it will read from, written on the button that does
+                      it — and only where there is a second way to name. */}
+                  {hasModem
+                    ? `${t('poll')} · ${source === 'gsm' ? 'GSM' : t('sourceDpdShort')}`
+                    : t('poll')}
+                </Button>
+                <Menu position="bottom-end" withinPortal>
+                  <Menu.Target>
+                    <Button
+                      size="xs"
+                      px={7}
+                      disabled={!selectedMapping}
+                      aria-label={t('pollSourceLabel')}
+                    >
+                      <IconChevronDown size={14} />
+                    </Button>
+                  </Menu.Target>
+                  <Menu.Dropdown>
+                    <Menu.Label>{t('pollSourceLabel')}</Menu.Label>
+                    <Menu.Item
+                      leftSection={<IconDatabase size={15} />}
+                      rightSection={source === 'dpd' ? <IconCheck size={13} /> : undefined}
+                      onClick={() => startPoll('dpd')}
+                    >
+                      {t('pollViaDpd')}
+                    </Menu.Item>
+                    {/* Kept visible without a modem and disabled instead: an
+                        option that disappears teaches nobody that it exists,
+                        and whether it works depends on the enterprise picked
+                        in the tree. */}
+                    <Menu.Item
+                      leftSection={<IconPhone size={15} />}
+                      rightSection={source === 'gsm' ? <IconCheck size={13} /> : undefined}
+                      disabled={!hasModem}
+                      onClick={() => startPoll('gsm')}
+                    >
+                      {t('pollViaGsm')}
+                      {!hasModem && (
+                        <Text size="10px" c="dimmed">
+                          {t('pollNoModem')}
+                        </Text>
+                      )}
+                    </Menu.Item>
+                  </Menu.Dropdown>
+                </Menu>
+              </Button.Group>
+            )}
+            {/* What the pane shows, not where the data comes from: the journal
+                of modem calls, or the result of the last poll. */}
+            {hasModem && (
+              <SegmentedControl
+                size="xs"
+                value={pane === 'gsm' ? 'gsm' : 'poll'}
+                onChange={(v) => setPane(v as 'poll' | 'gsm')}
+                data={[
+                  { value: 'poll', label: t('pollPaneResult') },
+                  { value: 'gsm', label: t('pollPaneGsmLog') },
+                ]}
+              />
+            )}
           </>
         )}
-        {/* Only where there is a modem to switch to. An option that fails
-            for most of the list teaches people to ignore the option. */}
-        {tab === 'poll' && hasModem && (
-          <SegmentedControl
-            size="xs"
-            value={source}
-            onChange={(v) => {
-              const next = v as 'dpd' | 'gsm'
-              setSource(next)
-              // The switch is the answer to "where does this come from", so
-              // the pane answers with it. It used to wait for «Опитати», and
-              // until then GSM was described as a fetch from the Радміртех
-              // server — the other source entirely.
-              setPane(next === 'gsm' ? 'gsm' : 'poll')
-            }}
-            data={[
-              // The names as the people who run this call them: the data
-              // either comes from the vendor's own server, or off the meter
-              // through a modem.
-              { value: 'dpd', label: 'Сервер Радміртех' },
-              { value: 'gsm', label: 'GSM' },
-            ]}
-          />
-        )}
-        {loading ? (
-          <Button
-            size="xs"
-            color="red"
-            variant="light"
-            leftSection={<IconPlayerStop size={15} />}
-            onClick={stop}
-          >
-            Зупинити
-          </Button>
-        ) : (
-          <Button
-            size="xs"
-            leftSection={<IconPlayerPlay size={15} />}
-            onClick={() => {
-              if (tab === 'archive') return void run()
-              if (source === 'gsm' && hasModem) return void runGsm()
-              return void runDpd()
-            }}
-            disabled={!selectedMapping}
-          >
-            {tab === 'archive' ? 'Показати' : 'Опитати'}
-          </Button>
-        )}
-        {/* Answers "is anything not reporting?" without picking a device
-            first — the reason it is a toolbar button and not a row action.
-            Once a report exists the button re-opens it rather than spending
-            another multi-minute poll; re-running is «Оновити» inside it. */}
-        <Button
-          size="xs"
-          variant="light"
-          color="amber"
-          leftSection={<IconPlugConnectedX size={15} />}
-          rightSection={
-            pane === 'unpolled' ? undefined : unp.checking ? (
-              <Loader size={12} color="amber" />
-            ) : unp.rows !== null ? (
-              <Badge size="xs" circle variant="filled" color={unp.rows.length ? 'amber' : 'teal'}>
-                {unp.rows.length}
-              </Badge>
-            ) : undefined
-          }
-          onClick={() => {
-            // Open FIRST, then poll: the check runs for minutes, and starting
-            // it before the pane existed meant those minutes passed with no
-            // progress bar anywhere on screen.
-            setPane('unpolled')
-            if (unp.rows === null && !unp.checking) void unp.run()
-          }}
-          disabled={loading}
-        >
-          {t('unpolledEnterprises')}
-        </Button>
-        {/* Alarms are a different question from volumes and need no
-            enterprise selected, so they sit beside the "no poll" report
-            rather than in a row action. */}
-        <Button
-          size="xs"
-          variant="light"
-          color="amber"
-          leftSection={<IconAlertTriangle size={15} />}
-          rightSection={
-            pane === 'accidents' ? undefined : acc.loading ? (
-              <Loader size={12} color="amber" />
-            ) : acc.report ? (
-              <Badge size="xs" circle variant="filled" color={acc.report.groups.length ? 'amber' : 'teal'}>
-                {acc.report.groups.length}
-              </Badge>
-            ) : undefined
-          }
-          onClick={() => setPane('accidents')}
-          disabled={loading}
-        >
-          {t('accidents')}
-        </Button>
-        <Select
-          placeholder="Всі філії"
-          data={(branches ?? []).map((b) => ({ value: String(b.id), label: b.name }))}
-          value={branchFilter != null ? String(branchFilter) : null}
-          onChange={(v) => {
-            const next = v ? Number(v) : null
-            setBranchFilter(next)
-            if (next != null) setBranchId(next)
-          }}
-          clearable
-          searchable
-          size="xs"
-          w={220}
-        />
-        <Button
-          size="xs"
-          variant="light"
-          color="teal"
-          leftSection={<IconFileSpreadsheet size={15} />}
-          onClick={exportExcel}
-          disabled={!rows.length}
-          ml="auto"
-          style={{ flexShrink: 0 }}
-        >
-          {t('excel')}
-        </Button>
       </Group>
 
       <Box style={{ display: 'flex', gap: 'var(--mantine-spacing-md)', height: SPLIT_HEIGHT, minHeight: 360 }}>
@@ -1281,26 +1393,23 @@ export function EnterprisePollPage() {
         >
           {/* The "no poll" result takes the whole pane: it is a report in its
               own right, and as a modal it covered the tree its rows link into. */}
-          {/* Which of the two poll panes is shown follows the source switch,
-              not the route by which the operator got here. Coming back from
-              «Архів», or closing a report, used to land on 'poll' — the
-              Радміртех description — while the switch above still said GSM,
-              so the last modem call's journal was one extra click away. */}
-          {tab === 'poll' &&
-          (pane === 'poll' || pane === 'gsm') &&
-          !(source === 'gsm' && hasModem && selectedMapping) ? (
+          {/* Which poll pane is shown is now its own choice («Результат» /
+              «Журнал GSM» in the row above) rather than a consequence of where
+              the data comes from. Dialling over GSM opens the journal by
+              itself, and a tab change keeps whichever was open. */}
+          {tab === 'poll' && pane === 'gsm' && hasModem && selectedMapping ? (
+            <GsmPollPanel
+              enterpriseId={selectedMapping.id}
+              enterpriseName={selectedMapping.enterprise_name ?? `Підприємство ${selectedMapping.id}`}
+              runKey={gsmRun}
+            />
+          ) : tab === 'poll' && (pane === 'poll' || pane === 'gsm') ? (
             <DpdPollPane
               selected={!!selectedMapping}
               loading={loading}
               progress={progress}
               stored={stored}
               error={error}
-            />
-          ) : tab === 'poll' && (pane === 'gsm' || pane === 'poll') && selectedMapping ? (
-            <GsmPollPanel
-              enterpriseId={selectedMapping.id}
-              enterpriseName={selectedMapping.enterprise_name ?? `Підприємство ${selectedMapping.id}`}
-              runKey={gsmRun}
             />
           ) : pane === 'accidents' ? (
             <AccidentsReport

@@ -536,5 +536,17 @@ grsTrends: "Тренды ГРС",
   hkPaging: "Предыдущая / следующая страница",
   hkTableMove: "По строкам таблицы",
   hkTableDrill: "Суточный архив: часы этих суток в новой вкладке",
-  hkFootnote: "Клавиши работают при любой раскладке. Комбинации с Alt действуют и тогда, когда курсор стоит в поле поиска."
+  hkFootnote: "Клавиши работают при любой раскладке. Комбинации с Alt действуют и тогда, когда курсор стоит в поле поиска.",
+  // Enterprise poll toolbar
+  pollTabArchive: "Архив",
+  pollTabPoll: "Опрос",
+  pollWindowHint: "от конца архива до завтра",
+  pollShow: "Показать",
+  pollSourceLabel: "Откуда читать",
+  pollViaDpd: "Опросить через сервер Радмиртех",
+  pollViaGsm: "Опросить через GSM-модем",
+  pollNoModem: "у предприятия нет модема",
+  pollPaneResult: "Результат",
+  pollPaneGsmLog: "Журнал GSM",
+  sourceDpdShort: "Радмиртех"
 };
