@@ -1118,19 +1118,6 @@ export function EnterprisePollPage() {
                 </Menu>
               </Button.Group>
             )}
-            {/* What the pane shows, not where the data comes from: the journal
-                of modem calls, or the result of the last poll. */}
-            {hasModem && (
-              <SegmentedControl
-                size="xs"
-                value={pane === 'gsm' ? 'gsm' : 'poll'}
-                onChange={(v) => setPane(v as 'poll' | 'gsm')}
-                data={[
-                  { value: 'poll', label: t('pollPaneResult') },
-                  { value: 'gsm', label: t('pollPaneGsmLog') },
-                ]}
-              />
-            )}
           </>
         )}
       </Group>
@@ -1393,24 +1380,54 @@ export function EnterprisePollPage() {
         >
           {/* The "no poll" result takes the whole pane: it is a report in its
               own right, and as a modal it covered the tree its rows link into. */}
-          {/* Which poll pane is shown is now its own choice («Результат» /
-              «Журнал GSM» in the row above) rather than a consequence of where
-              the data comes from. Dialling over GSM opens the journal by
-              itself, and a tab change keeps whichever was open. */}
-          {tab === 'poll' && pane === 'gsm' && hasModem && selectedMapping ? (
-            <GsmPollPanel
-              enterpriseId={selectedMapping.id}
-              enterpriseName={selectedMapping.enterprise_name ?? `Підприємство ${selectedMapping.id}`}
-              runKey={gsmRun}
-            />
-          ) : tab === 'poll' && (pane === 'poll' || pane === 'gsm') ? (
-            <DpdPollPane
-              selected={!!selectedMapping}
-              loading={loading}
-              progress={progress}
-              stored={stored}
-              error={error}
-            />
+          {/*
+            Which of the two poll panes is on screen follows the poll that was
+            started: «Опитати» over the server shows its result, over the modem
+            shows the call. It is not a question to answer beforehand, so it is
+            not asked in the toolbar — the switch lives here, on the pane it
+            switches, for going back to a call's journal without dialling again
+            (and it only exists where there is a modem to dial with).
+          */}
+          {tab === 'poll' && (pane === 'poll' || pane === 'gsm') ? (
+            <>
+              {hasModem && selectedMapping && (
+                <Group
+                  px="sm"
+                  py={6}
+                  gap="sm"
+                  style={{ borderBottom: '1px solid var(--hlv-border)', flexShrink: 0 }}
+                >
+                  <SegmentedControl
+                    size="xs"
+                    value={pane === 'gsm' ? 'gsm' : 'poll'}
+                    onChange={(v) => setPane(v as 'poll' | 'gsm')}
+                    data={[
+                      { value: 'poll', label: t('pollPaneResult') },
+                      { value: 'gsm', label: t('pollPaneGsmLog') },
+                    ]}
+                  />
+                </Group>
+              )}
+              <Box style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+                {pane === 'gsm' && hasModem && selectedMapping ? (
+                  <GsmPollPanel
+                    enterpriseId={selectedMapping.id}
+                    enterpriseName={
+                      selectedMapping.enterprise_name ?? `Підприємство ${selectedMapping.id}`
+                    }
+                    runKey={gsmRun}
+                  />
+                ) : (
+                  <DpdPollPane
+                    selected={!!selectedMapping}
+                    loading={loading}
+                    progress={progress}
+                    stored={stored}
+                    error={error}
+                  />
+                )}
+              </Box>
+            </>
           ) : pane === 'accidents' ? (
             <AccidentsReport
               report={acc.report}
