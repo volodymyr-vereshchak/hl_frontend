@@ -541,12 +541,9 @@ grsTrends: "Тренди ГРС",
   pollTabArchive: "Архів",
   pollTabPoll: "Опитування",
   pollWindowHint: "від кінця архіву до завтра",
-  pollShow: "Показати",
   pollSourceLabel: "Звідки читати",
   pollViaDpd: "Опитати через сервер Радміртех",
   pollViaGsm: "Опитати через GSM-модем",
   pollNoModem: "у підприємства немає модема",
-  pollPaneResult: "Результат",
-  pollPaneGsmLog: "Журнал GSM",
   sourceDpdShort: "Радміртех"
 };

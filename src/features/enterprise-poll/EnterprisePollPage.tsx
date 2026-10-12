@@ -7,6 +7,7 @@ import {
   SegmentedControl,
   Button,
   Menu,
+  Switch,
   Tabs,
   Paper,
   Text,
@@ -263,6 +264,20 @@ export function EnterprisePollPage() {
   const [from, setFrom] = useState(initialRange.from)
   const [to, setTo] = useState(initialRange.to)
   const [records, setRecords] = useState<EnterpriseRecord[] | null>(null)
+  /**
+   * Reading the stored archive is gated the same way the daily and hourly
+   * archives are: pick a point, then turn the date filter on. Nothing is
+   * fetched until it is on, and turning it off empties the pane again —
+   * so this half of the screen never shows what the other half did.
+   */
+  const [dateFilterOn, setDateFilterOn] = useState(false)
+  /**
+   * Which half started the work that is running. `loading`, `progress` and
+   * `error` are shared, and without this a poll's progress bar and its errors
+   * surfaced in the archive pane (and the other way round) as soon as the tab
+   * was switched.
+   */
+  const [jobTab, setJobTab] = useState<'archive' | 'poll' | null>(null)
   const [loading, setLoading] = useState(false)
   const [progress, setProgress] = useState<{ done?: number; total?: number; phase?: string } | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -592,6 +607,7 @@ export function EnterprisePollPage() {
   const runGsm = async () => {
     if (!selectedMapping) return
     setPane('gsm')
+    setJobTab('poll')
     setError(null)
     try {
       const started = await enterprisePollApi.start(selectedMapping.id)
@@ -634,6 +650,7 @@ export function EnterprisePollPage() {
   const runDpd = async () => {
     if (!selectedMapping) return
     setPane('poll')
+    setJobTab('poll')
     abortRef.current?.abort()
     const ctrl = new AbortController()
     abortRef.current = ctrl
@@ -662,9 +679,10 @@ export function EnterprisePollPage() {
 
   const run = async () => {
     if (!selectedMapping) return
-    // Whichever report was open, this button's results are what the operator
-    // is now waiting for — leaving a report on top ran the poll invisibly.
+    // Whichever report was open, these results are what the operator is now
+    // waiting for — leaving a report on top loaded the archive invisibly.
     setPane('poll')
+    setJobTab('archive')
     abortRef.current?.abort()
     const ctrl = new AbortController()
     abortRef.current = ctrl
@@ -715,6 +733,48 @@ export function EnterprisePollPage() {
     abortRef.current?.abort()
     setLoading(false)
   }
+
+  /**
+   * With the filter on, the archive loads itself — for the point, granularity
+   * and period currently chosen, and again whenever any of them changes. There
+   * is no «Показати» press any more, the same as in the daily and hourly
+   * archives, where the filter switch IS the press.
+   *
+   * `run` closes over all of that and is rebuilt every render, so the effect
+   * reaches it through a ref rather than depending on it; the key is what
+   * decides when to go again.
+   */
+  const archiveKey = `${selectedMapping?.id ?? ''}|${periodType}|${from}|${to}`
+  const runRef = useRef(run)
+  const loadedKey = useRef<string | null>(null)
+  useEffect(() => {
+    runRef.current = run
+  })
+  useEffect(() => {
+    if (tab !== 'archive' || !dateFilterOn || !selectedMapping) return
+    if (loadedKey.current === archiveKey) return
+    loadedKey.current = archiveKey
+    void runRef.current()
+  }, [tab, dateFilterOn, selectedMapping, archiveKey])
+
+  /** Turning the filter off empties the pane; turning it on loads again. */
+  const toggleDateFilter = (on: boolean) => {
+    setDateFilterOn(on)
+    if (on) return
+    abortRef.current?.abort()
+    loadedKey.current = null
+    setRecords(null)
+    setError(null)
+    setLoading(false)
+  }
+
+  /**
+   * A journal belongs to the call that was made, so it must not stay on screen
+   * over a different enterprise — the next one has its own (usually empty) one.
+   */
+  useEffect(() => {
+    setPane((prev) => (prev === 'gsm' ? 'poll' : prev))
+  }, [selected])
 
   /** One row per (event type, enterprise): the expanded view, flattened. */
   const exportAccidents = (groups: EventGroup[]) => {
@@ -1040,18 +1100,20 @@ export function EnterprisePollPage() {
               }}
               disabled={loading}
             />
-            {loading ? (
-              stopButton
-            ) : (
-              <Button
-                size="xs"
-                leftSection={<IconPlayerPlay size={15} />}
-                onClick={() => void run()}
-                disabled={!selectedMapping}
-              >
-                {t('pollShow')}
-              </Button>
-            )}
+            {/* The same gate the daily and hourly archives have, with the
+                same wording: nothing is read until it is on. It replaced a
+                «Показати» button, which had to be pressed again after every
+                change of period and said nothing about why the pane was
+                empty before the first press. */}
+            <Switch
+              checked={dateFilterOn}
+              onChange={(e) => toggleDateFilter(e.currentTarget.checked)}
+              label={t('activateDate')}
+              color="petrol"
+              size="sm"
+              styles={{ label: { whiteSpace: 'nowrap' } }}
+            />
+            {loading && jobTab === 'archive' && stopButton}
           </>
         ) : (
           <>
@@ -1381,53 +1443,33 @@ export function EnterprisePollPage() {
           {/* The "no poll" result takes the whole pane: it is a report in its
               own right, and as a modal it covered the tree its rows link into. */}
           {/*
-            Which of the two poll panes is on screen follows the poll that was
-            started: «Опитати» over the server shows its result, over the modem
-            shows the call. It is not a question to answer beforehand, so it is
-            not asked in the toolbar — the switch lives here, on the pane it
-            switches, for going back to a call's journal without dialling again
-            (and it only exists where there is a modem to dial with).
+            Which poll pane is on screen is decided by the poll that was run,
+            and by nothing else: over the server it is the result, over the
+            modem it is the call. No switch — the choice was already made by
+            pressing «Опитати», and the journal stays up until another poll or
+            another enterprise replaces it.
           */}
           {tab === 'poll' && (pane === 'poll' || pane === 'gsm') ? (
-            <>
-              {hasModem && selectedMapping && (
-                <Group
-                  px="sm"
-                  py={6}
-                  gap="sm"
-                  style={{ borderBottom: '1px solid var(--hlv-border)', flexShrink: 0 }}
-                >
-                  <SegmentedControl
-                    size="xs"
-                    value={pane === 'gsm' ? 'gsm' : 'poll'}
-                    onChange={(v) => setPane(v as 'poll' | 'gsm')}
-                    data={[
-                      { value: 'poll', label: t('pollPaneResult') },
-                      { value: 'gsm', label: t('pollPaneGsmLog') },
-                    ]}
-                  />
-                </Group>
+            <Box style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+              {pane === 'gsm' && hasModem && selectedMapping ? (
+                <GsmPollPanel
+                  enterpriseId={selectedMapping.id}
+                  enterpriseName={
+                    selectedMapping.enterprise_name ?? `Підприємство ${selectedMapping.id}`
+                  }
+                  runKey={gsmRun}
+                />
+              ) : (
+                /* Only this half's own work shows here. */
+                <DpdPollPane
+                  selected={!!selectedMapping}
+                  loading={loading && jobTab === 'poll'}
+                  progress={jobTab === 'poll' ? progress : null}
+                  stored={stored}
+                  error={jobTab === 'poll' ? error : null}
+                />
               )}
-              <Box style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
-                {pane === 'gsm' && hasModem && selectedMapping ? (
-                  <GsmPollPanel
-                    enterpriseId={selectedMapping.id}
-                    enterpriseName={
-                      selectedMapping.enterprise_name ?? `Підприємство ${selectedMapping.id}`
-                    }
-                    runKey={gsmRun}
-                  />
-                ) : (
-                  <DpdPollPane
-                    selected={!!selectedMapping}
-                    loading={loading}
-                    progress={progress}
-                    stored={stored}
-                    error={error}
-                  />
-                )}
-              </Box>
-            </>
+            </Box>
           ) : pane === 'accidents' ? (
             <AccidentsReport
               report={acc.report}
@@ -1527,18 +1569,26 @@ export function EnterprisePollPage() {
             )}
           </Group>
 
-          {loading ? (
-            <Box p="md">
-              <PollProgress progress={progress ?? { phase: 'polling' }} />
-            </Box>
-          ) : error ? (
-            <Alert color="red" variant="light" icon={<IconAlertTriangle size={16} />} m="sm">
-              {error}
-            </Alert>
-          ) : !selectedMapping ? (
+          {/* Pick a point, then turn the filter on — the daily and hourly
+              archives read the same way, and until both are done this pane
+              says which of them is missing rather than showing anything the
+              other half of the screen produced. */}
+          {!selectedMapping ? (
             <Center style={{ flex: 1 }}>
               <Text c="dimmed">{t('selectEnterprise')}</Text>
             </Center>
+          ) : !dateFilterOn ? (
+            <Center style={{ flex: 1 }}>
+              <Text c="dimmed">{t('activateDate')}</Text>
+            </Center>
+          ) : loading && jobTab === 'archive' ? (
+            <Box p="md">
+              <PollProgress progress={progress ?? { phase: 'polling' }} />
+            </Box>
+          ) : error && jobTab === 'archive' ? (
+            <Alert color="red" variant="light" icon={<IconAlertTriangle size={16} />} m="sm">
+              {error}
+            </Alert>
           ) : records && rows.length === 0 ? (
             <Center style={{ flex: 1 }}>
               <Text c="dimmed">{t('enterpriseNoData')}</Text>
