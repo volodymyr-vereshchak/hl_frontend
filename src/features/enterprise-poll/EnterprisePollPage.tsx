@@ -213,24 +213,31 @@ export function EnterprisePollPage() {
     (key: string) => !!search.trim() || !collapsed[key],
     [search, collapsed],
   )
+
   /**
-   * Which report owns the right pane.
+   * Which report owns the right pane, 'poll' meaning "no report — the screen's
+   * own work".
    *
    * Was two independent booleans, and the pane's ternary checked accidents
    * first: once «Аварії» had been opened, pressing «Не опитуються» set its own
    * flag but the pane went on drawing accidents, so the button looked broken.
    * One value cannot be in two states at once.
+   *
+   * Which of the two POLL panes is shown is not kept here: it is `source`
+   * below. A separate state for it had to be guessed at every entry to the
+   * screen, and guessed wrong — selecting a point polled over GSM opened the
+   * description of a Радміртех poll, which is the other source entirely.
    */
-  const [pane, setPane] = useState<'poll' | 'unpolled' | 'accidents' | 'gsm'>('poll')
+  const [pane, setPane] = useState<'poll' | 'unpolled' | 'accidents'>('poll')
 
   /**
-   * Where the readings come from.
+   * Where the readings come from — and therefore which poll pane is on screen:
+   * the server's result, or the modem call's journal.
    *
    * The Радміртех server is the metered API somebody else runs; GSM is this
-   * site's own modem,
-   * dialled by an agent beside it. The switch appears only where there is a
-   * modem to switch to, because an option that fails for most of the list
-   * teaches people to ignore the option.
+   * site's own modem, dialled by an agent beside it. Remembered, so a point
+   * that is polled over GSM opens its journal the moment it is selected rather
+   * than after somebody dials again.
    */
   const [source, setSource] = useLocalStorage<'dpd' | 'gsm'>({
     key: 'enterprise-poll.source',
@@ -647,7 +654,7 @@ export function EnterprisePollPage() {
    */
   const runGsm = async () => {
     if (!selectedMapping) return
-    setPane('gsm')
+    setPane('poll')
     setJobTab('poll')
     setError(null)
     try {
@@ -669,9 +676,10 @@ export function EnterprisePollPage() {
     } catch (e) {
       // The refusals are sentences meant for an operator — "немає
       // встановлених корректорів", "немає вільного модема" — so they belong
-      // on the screen as they are.
+      // on the screen as they are. Shown on the server pane, because a call
+      // that was never accepted has no journal to show them in.
       setError(e instanceof Error ? e.message : String(e))
-      setPane('poll')
+      setSource('dpd')
     }
   }
 
@@ -810,14 +818,6 @@ export function EnterprisePollPage() {
   }
 
   /**
-   * A journal belongs to the call that was made, so it must not stay on screen
-   * over a different enterprise — the next one has its own (usually empty) one.
-   */
-  useEffect(() => {
-    setPane((prev) => (prev === 'gsm' ? 'poll' : prev))
-  }, [selected])
-
-  /**
    * A call in progress IS what this half of the screen is about, so selecting
    * its point shows the journal without being asked — whoever started the call.
    *
@@ -833,8 +833,8 @@ export function EnterprisePollPage() {
     const key = `${selected}|${liveWatch?.started_at ?? ''}`
     if (autoJournalFor.current === key) return
     autoJournalFor.current = key
-    setPane('gsm')
-  }, [tab, selected, gsmRunning, liveWatch?.started_at])
+    setSource('gsm')
+  }, [tab, selected, gsmRunning, liveWatch?.started_at, setSource])
 
   /** One row per (event type, enterprise): the expanded view, flattened. */
   const exportAccidents = (groups: EventGroup[]) => {
@@ -1020,9 +1020,10 @@ export function EnterprisePollPage() {
           onChange={(v) => {
             if (!v) return
             setTab(v as 'poll' | 'archive')
-            // A report is dismissed; which poll pane was open is kept, so
-            // coming back from the archive does not lose the modem journal.
-            setPane((p) => (p === 'gsm' ? 'gsm' : 'poll'))
+            // Only a report is dismissed. Which poll pane was open is a
+            // property of the source, so coming back from the archive lands
+            // on the same one.
+            setPane('poll')
           }}
         >
           <Tabs.List style={{ borderBottom: 'none', flexWrap: 'nowrap' }}>
@@ -1503,15 +1504,15 @@ export function EnterprisePollPage() {
           {/* The "no poll" result takes the whole pane: it is a report in its
               own right, and as a modal it covered the tree its rows link into. */}
           {/*
-            Which poll pane is on screen is decided by the poll that was run,
-            and by nothing else: over the server it is the result, over the
-            modem it is the call. No switch — the choice was already made by
-            pressing «Опитати», and the journal stays up until another poll or
-            another enterprise replaces it.
+            Which poll pane is on screen is the source, and nothing else: over
+            the server it is the result, over the modem it is the journal of the
+            call. No switch of its own — «Опитати ▾» already names the source,
+            selecting a point polled over GSM opens its journal straight away,
+            and a call that starts anywhere else moves the source to GSM.
           */}
-          {tab === 'poll' && (pane === 'poll' || pane === 'gsm') ? (
+          {tab === 'poll' && pane === 'poll' ? (
             <Box style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
-              {pane === 'gsm' && hasModem && selectedMapping ? (
+              {source === 'gsm' && hasModem && selectedMapping ? (
                 <GsmPollPanel
                   enterpriseId={selectedMapping.id}
                   enterpriseName={
@@ -1530,7 +1531,7 @@ export function EnterprisePollPage() {
                   /* A call running in the background, named on the pane that
                      is not about it, with the way to go and watch it. */
                   gsmRunning={gsmRunning ? (liveWatch?.agent_name ?? true) : null}
-                  onShowGsm={() => setPane('gsm')}
+                  onShowGsm={() => setSource('gsm')}
                 />
               )}
             </Box>
