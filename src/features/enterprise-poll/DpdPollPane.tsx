@@ -1,5 +1,5 @@
-import { Alert, Group, Progress, Stack, Text } from '@mantine/core'
-import { IconAlertTriangle, IconCheck, IconCloudDownload } from '@tabler/icons-react'
+import { Alert, Anchor, Group, Progress, Stack, Text } from '@mantine/core'
+import { IconAlertTriangle, IconCheck, IconCloudDownload, IconPhone } from '@tabler/icons-react'
 
 /**
  * A DPD poll while it runs, and what it stored when it is done.
@@ -15,9 +15,25 @@ interface Props {
   progress: { done?: number; total?: number; phase?: string } | null
   stored: { daily: number; hourly: number; rewritten: number } | null
   error: string | null
+  /**
+   * A GSM call on this point going on right now — the agent's name when it is
+   * known, `true` while the request is still queued, null when there is none.
+   * This pane is about the other source entirely, so it says so and offers the
+   * journal instead of letting the call happen out of sight.
+   */
+  gsmRunning?: string | true | null
+  onShowGsm?: () => void
 }
 
-export function DpdPollPane({ selected, loading, progress, stored, error }: Props) {
+export function DpdPollPane({
+  selected,
+  loading,
+  progress,
+  stored,
+  error,
+  gsmRunning,
+  onShowGsm,
+}: Props) {
   if (!selected) {
     return (
       <Text size="sm" c="dimmed" p="md">
@@ -40,6 +56,19 @@ export function DpdPollPane({ selected, loading, progress, stored, error }: Prop
         доба тут газова, тож години поточної підшиті під дату, яка ще не
         настала. Якщо в базі порожньо, від дати встановлення корректора.
       </Text>
+
+      {gsmRunning && onShowGsm && (
+        <Alert color="petrol" variant="light" icon={<IconPhone size={16} />} p="xs">
+          <Text size="xs">
+            {gsmRunning === true
+              ? 'Триває опитування через GSM — запит у черзі. '
+              : `Триває опитування через GSM — агент «${gsmRunning}». `}
+            <Anchor component="button" type="button" size="xs" onClick={onShowGsm}>
+              Відкрити журнал
+            </Anchor>
+          </Text>
+        </Alert>
+      )}
 
       {loading && (
         <Stack gap={4}>

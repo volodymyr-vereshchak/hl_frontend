@@ -531,7 +531,48 @@ export function EnterprisePollPage() {
   }, [asked, mappings, branchFilter, setBranchFilter, setCollapsed])
 
   const selectedMapping = list.find((m) => m.id === selected) ?? null
-  const hasModem = !!selectedMapping?.gsm?.phone
+  /**
+   * Whether this point has a GSM call going on right now — asked of the
+   * server, not remembered here.
+   *
+   * The journal used to appear only because this screen had just dialled. A
+   * call started anywhere else — by the agent's own schedule, from another
+   * workstation, or before this page was opened — left the pane describing a
+   * Радміртех poll that nobody had asked for, with the live call invisible
+   * behind it.
+   *
+   * `after_seq` is set past any sequence number so the status comes back
+   * without the log: the journal panel fetches that itself, every second,
+   * and this only needs to know whether there is one.
+   */
+  const liveWatchQuery = useQuery({
+    queryKey: ['polling', 'enterprise-watch', selected],
+    queryFn: () => enterprisePollApi.watch(selected as number, 2_000_000_000),
+    enabled: selected != null && tab === 'poll',
+    refetchInterval: 10_000,
+    // A point with no poll card has no state to report, and that is an answer,
+    // not a failure to retry.
+    retry: false,
+    gcTime: 0,
+  })
+  const liveWatch = liveWatchQuery.data ?? null
+  /**
+   * A call that is actually happening, as opposed to a card that has simply
+   * never been dialled: the server reports both as «waiting» (its status is
+   * derived, and a card with no request and no last attempt falls through to
+   * that), and the two are told apart by whether there is a start time —
+   * a queued request has one, an untouched card does not.
+   */
+  const gsmRunning =
+    liveWatch?.status === 'polling' ||
+    (liveWatch?.status === 'waiting' && !!liveWatch.started_at)
+  /**
+   * A phone number is how a card usually reaches a corrector, but not the only
+   * way (a card can sit on a TCP adapter instead), and the server will dial
+   * either. So the question is whether there is a card at all — which having
+   * any poll state at all answers.
+   */
+  const hasModem = !!selectedMapping?.gsm?.phone || !!liveWatch
 
   /**
    * "Немає опитування" — which enterprises have gone silent.
@@ -775,6 +816,25 @@ export function EnterprisePollPage() {
   useEffect(() => {
     setPane((prev) => (prev === 'gsm' ? 'poll' : prev))
   }, [selected])
+
+  /**
+   * A call in progress IS what this half of the screen is about, so selecting
+   * its point shows the journal without being asked — whoever started the call.
+   *
+   * Once per call, keyed on when it started: after that the operator is free to
+   * run a Радміртех poll and read its result while the modem is still dialling,
+   * and the pane stays where they put it. Nothing here ever switches away from
+   * the journal, in particular not when the call ends — the end is the part
+   * worth reading.
+   */
+  const autoJournalFor = useRef<string | null>(null)
+  useEffect(() => {
+    if (tab !== 'poll' || selected == null || !gsmRunning) return
+    const key = `${selected}|${liveWatch?.started_at ?? ''}`
+    if (autoJournalFor.current === key) return
+    autoJournalFor.current = key
+    setPane('gsm')
+  }, [tab, selected, gsmRunning, liveWatch?.started_at])
 
   /** One row per (event type, enterprise): the expanded view, flattened. */
   const exportAccidents = (groups: EventGroup[]) => {
@@ -1467,6 +1527,10 @@ export function EnterprisePollPage() {
                   progress={jobTab === 'poll' ? progress : null}
                   stored={stored}
                   error={jobTab === 'poll' ? error : null}
+                  /* A call running in the background, named on the pane that
+                     is not about it, with the way to go and watch it. */
+                  gsmRunning={gsmRunning ? (liveWatch?.agent_name ?? true) : null}
+                  onShowGsm={() => setPane('gsm')}
                 />
               )}
             </Box>
