@@ -16,6 +16,7 @@ import { useLocalStorage } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
 import { IconAlertTriangle, IconInfoCircle } from '@tabler/icons-react'
 import { useSelectionStore } from '@/store/selectionStore'
+import { useHotkeys } from '@/lib/hotkeys'
 import { useLanguage } from '@/locales/LanguageContext'
 import { getArchiveColumns, eventTypeLabel } from '@/domain/archiveColumns'
 import { commercialHourlyRange } from '@/domain/commercialDay'
@@ -373,6 +374,52 @@ export function ArchivePage() {
     })
     return `/archive/hourly?${qs}`
   }, [])
+
+  /**
+   * Shortcuts for this screen's four controls. Alt-combinations throughout, so
+   * they keep working while the cursor sits in the tree's search box and cannot
+   * be typed by accident; the brackets are matched by position as well as by
+   * character, because a Cyrillic layout puts other letters there.
+   *
+   * Registered here rather than in the global table: these mean nothing on the
+   * other screens, and a shortcut that silently does nothing is worse than one
+   * that does not exist.
+   */
+  const lastPage = Math.max(1, Math.ceil(total / pageSize))
+  useHotkeys([
+    {
+      alt: true,
+      key: ['f', 'F'],
+      code: ['KeyF'],
+      run: () => setDateFilterEnabled(!dateFilterEnabled),
+    },
+    {
+      alt: true,
+      key: ['e', 'E'],
+      code: ['KeyE'],
+      enabled: canExport,
+      run: () => void handleExport(),
+    },
+    {
+      alt: true,
+      key: ['g', 'G'],
+      code: ['KeyG'],
+      enabled: canOverlay && !!rows?.length,
+      run: () => startTransition(() => setView(view === 'chart' ? 'table' : 'chart')),
+    },
+    {
+      key: ['['],
+      code: ['BracketLeft'],
+      enabled: showPagination && page > 1,
+      run: () => setPage(page - 1),
+    },
+    {
+      key: [']'],
+      code: ['BracketRight'],
+      enabled: showPagination && page < lastPage,
+      run: () => setPage(page + 1),
+    },
+  ])
 
   if (!validType) return <Navigate to="/overview" replace />
 

@@ -231,3 +231,50 @@ table:has(.hlv-table-filler) {
   border: 1px solid var(--mantine-color-petrol-5);
   font-weight: 700;
 }
+
+/*
+ * Keyboard focus. The app had no focus styling at all, which is survivable with
+ * a mouse and hopeless with the keyboard: the tree hands focus from row to row,
+ * and without a ring there is nothing on screen saying where the next Enter
+ * will land. `:focus-visible` only, so clicking never draws it.
+ */
+:root,
+[data-mantine-color-scheme='light'] {
+  --hlv-focus: var(--mantine-color-petrol-7);
+}
+[data-mantine-color-scheme='dark'] {
+  --hlv-focus: var(--mantine-color-petrol-4);
+}
+
+:focus-visible {
+  outline: 2px solid var(--hlv-focus);
+  outline-offset: 2px;
+}
+
+/*
+ * Tree rows and table rows draw the ring INSIDE their own box: both sit flush
+ * against their neighbours, and an offset ring would be clipped by the
+ * scroll container at the top and bottom of the list.
+ */
+.hlv-tree-row:focus-visible,
+.hlv-table-row:focus-visible {
+  outline: 2px solid var(--hlv-focus);
+  outline-offset: -2px;
+  border-radius: 6px;
+}
+.hlv-tree-row {
+  /* The row is the keyboard target, so it must not be skipped by the mouse
+     either — the hover tells the two apart from the selected tint. */
+  cursor: default;
+}
+.hlv-tree-row:hover {
+  background: var(--hlv-surface-2);
+}
+
+/* Shortcut keys in the help dialog, laid out as a column of pairs. */
+.hlv-keys {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 14px;
+  align-items: center;
+}

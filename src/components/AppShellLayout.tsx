@@ -1,59 +1,24 @@
-import { AppShell, Group, Text, Button, Menu, Box, ScrollArea } from '@mantine/core'
+import { AppShell, Group, Text, Button, Menu, Box, ScrollArea, ActionIcon, Tooltip } from '@mantine/core'
 import {
   IconGauge,
-  IconCalendar,
-  IconClockHour4,
-  IconAlertTriangle,
-  IconPencil,
-  IconAdjustments,
-  IconBuildingFactory2,
   IconReportAnalytics,
   IconSettings,
   IconChevronDown,
-  IconChartHistogram,
-  IconFlask,
-  IconGitCompare,
-  IconMoon,
-  IconCalculator,
+  IconKeyboard,
 } from '@tabler/icons-react'
-import { Suspense } from 'react'
+import { Suspense, useState } from 'react'
 import { NavLink as RouterNavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useRememberRoute } from '@/app/router'
+import { MAIN_NAV, REPORTS_NAV, type NavItem } from '@/app/navItems'
+import { useHotkeys } from '@/lib/hotkeys'
 import { useLanguage } from '@/locales/LanguageContext'
 import { useUser } from '@/features/auth/UserContext'
 import { ColorSchemeToggle } from './ColorSchemeToggle'
 import { LoadingState } from './LoadingState'
 import { LanguagePicker } from './LanguagePicker'
 import { WhatsNewButton } from './WhatsNewButton'
+import { HotkeysHelpModal } from './HotkeysHelpModal'
 import { UserBadge } from '@/features/auth/UserBadge'
-import type { TranslationKey } from '@/locales'
-
-interface NavItem {
-  to: string
-  labelKey: TranslationKey
-  icon: React.ReactNode
-}
-
-const MAIN_NAV: NavItem[] = [
-  { to: '/overview', labelKey: 'overview', icon: <IconGauge size={16} /> },
-  { to: '/archive/daily', labelKey: 'daily', icon: <IconCalendar size={16} /> },
-  { to: '/archive/hourly', labelKey: 'hourly', icon: <IconClockHour4 size={16} /> },
-  { to: '/archive/sys', labelKey: 'sys', icon: <IconAlertTriangle size={16} /> },
-  { to: '/archive/edit', labelKey: 'edit', icon: <IconPencil size={16} /> },
-  { to: '/archive/param', labelKey: 'param', icon: <IconAdjustments size={16} /> },
-  { to: '/enterprise-poll', labelKey: 'navPoll', icon: <IconBuildingFactory2 size={16} /> },
-]
-
-/** The "Звіти" dropdown. `/flow-calc` lives outside /reports — hence the
- *  explicit list rather than a prefix match. */
-const REPORTS_NAV: NavItem[] = [
-  { to: '/reports/grs-trends', labelKey: 'grsTrends', icon: <IconChartHistogram size={16} /> },
-  { to: '/reports/night-consumption', labelKey: 'nightConsumption', icon: <IconMoon size={16} /> },
-  { to: '/reports/accidents', labelKey: 'accidents', icon: <IconAlertTriangle size={16} /> },
-  { to: '/reports/fhp-comparison', labelKey: 'fhpComparison', icon: <IconFlask size={16} /> },
-  { to: '/reports/line-comparison', labelKey: 'lineComparison', icon: <IconGitCompare size={16} /> },
-  { to: '/flow-calc', labelKey: 'navFlowCalc', icon: <IconCalculator size={16} /> },
-]
 
 /**
  * Shared look for the top-level nav buttons. The tinted background alone was
@@ -78,12 +43,21 @@ function navButtonProps(active: boolean) {
   }
 }
 
-function NavButton({ item }: { item: NavItem }) {
+function NavButton({ item, hotkey }: { item: NavItem; hotkey?: string }) {
   const { t } = useLanguage()
   const location = useLocation()
   const active = location.pathname === item.to
   return (
-    <Button component={RouterNavLink} to={item.to} leftSection={item.icon} {...navButtonProps(active)}>
+    <Button
+      component={RouterNavLink}
+      to={item.to}
+      leftSection={item.icon}
+      /* The shortcut goes in the native tooltip rather than on the button: a
+         row of eight buttons has no room for a badge each, and "?" lists them
+         all anyway. */
+      title={hotkey ? `${t(item.labelKey)} (${hotkey})` : undefined}
+      {...navButtonProps(active)}
+    >
       {t(item.labelKey)}
     </Button>
   )
@@ -96,9 +70,38 @@ export function AppShellLayout() {
   const location = useLocation()
   // /flow-calc sits under this menu too, so the button lights up for it as well.
   const reportsActive = REPORTS_NAV.some((item) => location.pathname === item.to)
+  // Controlled so Alt+8 can open it; from there the arrows walk the items.
+  const [reportsOpen, setReportsOpen] = useState(false)
+  const [helpOpen, setHelpOpen] = useState(false)
+  const isAdmin = user?.role === 'admin'
 
   // Remember the screen so a reload returns here instead of the overview.
   useRememberRoute()
+
+  /**
+   * Alt+digit for the sections, in the order the buttons are drawn. Alt rather
+   * than Ctrl because Ctrl+digit is the browser's own tab switcher, and digits
+   * rather than letters because they are the same keys on a Cyrillic layout.
+   */
+  useHotkeys([
+    ...MAIN_NAV.map((item, i) => ({
+      alt: true,
+      key: [String(i + 1)],
+      code: [`Digit${i + 1}`],
+      run: () => navigate(item.to),
+    })),
+    { alt: true, key: ['8'], code: ['Digit8'], run: () => setReportsOpen((o) => !o) },
+    {
+      alt: true,
+      key: ['9'],
+      code: ['Digit9'],
+      enabled: isAdmin,
+      run: () => navigate('/admin'),
+    },
+    // "?" is Shift+/ on a Latin layout and Shift+7 on a Cyrillic one; both
+    // report '?' as the character, which is why this matches the character.
+    { key: ['?'], run: () => setHelpOpen(true) },
+  ])
 
   return (
     <AppShell header={{ height: 56 }} padding="lg">
@@ -113,15 +116,22 @@ export function AppShellLayout() {
 
           <ScrollArea type="never" style={{ flex: 1 }}>
             <Group gap={4} wrap="nowrap">
-              {MAIN_NAV.map((item) => (
-                <NavButton key={item.to} item={item} />
+              {MAIN_NAV.map((item, i) => (
+                <NavButton key={item.to} item={item} hotkey={`Alt+${i + 1}`} />
               ))}
 
-              <Menu shadow="md" width={220} position="bottom-start">
+              <Menu
+                shadow="md"
+                width={220}
+                position="bottom-start"
+                opened={reportsOpen}
+                onChange={setReportsOpen}
+              >
                 <Menu.Target>
                   <Button
                     leftSection={<IconReportAnalytics size={16} />}
                     rightSection={<IconChevronDown size={14} />}
+                    title={`${t('navReports')} (Alt+8)`}
                     {...navButtonProps(reportsActive)}
                   >
                     {t('navReports')}
@@ -149,15 +159,27 @@ export function AppShellLayout() {
                 </Menu.Dropdown>
               </Menu>
 
-              {user?.role === 'admin' && (
+              {isAdmin && (
                 <NavButton
                   item={{ to: '/admin', labelKey: 'navAdmin', icon: <IconSettings size={16} /> }}
+                  hotkey="Alt+9"
                 />
               )}
             </Group>
           </ScrollArea>
 
           <Group gap="xs" wrap="nowrap" style={{ flexShrink: 0 }}>
+            <Tooltip label={`${t('hotkeysTitle')} (?)`} withArrow>
+              <ActionIcon
+                variant="subtle"
+                color="gray"
+                size="lg"
+                onClick={() => setHelpOpen(true)}
+                aria-label={t('hotkeysTitle')}
+              >
+                <IconKeyboard size={18} />
+              </ActionIcon>
+            </Tooltip>
             <WhatsNewButton />
             <LanguagePicker />
             <ColorSchemeToggle />
@@ -176,6 +198,8 @@ export function AppShellLayout() {
           </Suspense>
         </Box>
       </AppShell.Main>
+
+      <HotkeysHelpModal opened={helpOpen} onClose={() => setHelpOpen(false)} isAdmin={!!isAdmin} />
     </AppShell>
   )
 }

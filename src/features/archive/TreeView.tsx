@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocalStorage } from '@mantine/hooks'
 import {
   Box,
@@ -23,9 +23,32 @@ import {
 } from '@tabler/icons-react'
 import { useSelectionStore, type GroupSelection } from '@/store/selectionStore'
 import { useLanguage } from '@/locales/LanguageContext'
+import { useHotkeys } from '@/lib/hotkeys'
+import { useTreeNav, type TreeRowAria } from '@/lib/treeNav'
 import { useTreeData, type TreeLine } from './useTreeData'
+import {
+  branchKey,
+  calcKey,
+  flattenTree,
+  isNodeOpen,
+  lineKey,
+  lumgKey,
+  type OpenMap,
+  type TreeRow,
+} from './treeRows'
 
-function LineRow({ line }: { line: TreeLine }) {
+/** Props the keyboard needs on the element drawing one row. */
+type RowProps = TreeRowAria
+
+function LineRow({
+  line,
+  rowProps,
+  onPointerFocus,
+}: {
+  line: TreeLine
+  rowProps: RowProps
+  onPointerFocus: (key: string) => void
+}) {
   const { lineId, selectLine } = useSelectionStore()
   const active = lineId === line.id
   const badge =
@@ -41,7 +64,11 @@ function LineRow({ line }: { line: TreeLine }) {
 
   return (
     <UnstyledButton
-      onClick={() => selectLine(line.id, line.meta)}
+      {...rowProps}
+      onClick={() => {
+        onPointerFocus(lineKey(line))
+        selectLine(line.id, line.meta)
+      }}
       pl={40}
       pr="xs"
       py={5}
@@ -128,11 +155,13 @@ interface NodeProps {
   count?: number
   defaultOpen?: boolean
   forceOpen?: boolean
-  openMap: Record<string, boolean>
+  openMap: OpenMap
   onToggle: (key: string, open: boolean) => void
   /** Selecting the node shows every line under it in the daily/hourly archive. */
   onSelect?: () => void
   selected?: boolean
+  rowProps: RowProps
+  onPointerFocus: (key: string) => void
   children: React.ReactNode
 }
 
@@ -148,13 +177,17 @@ function TreeNode({
   onToggle,
   onSelect,
   selected,
+  rowProps,
+  onPointerFocus,
   children,
 }: NodeProps) {
   // Open state lives in the parent's persisted map, so re-mounting the tree
   // (navigating away and back, or a reload) does not collapse everything.
-  const open = openMap[nodeKey] ?? defaultOpen ?? false
+  // Read through the same helper the keyboard's flat row list uses — the two
+  // must never disagree about what is on screen.
+  const open = isNodeOpen(openMap, nodeKey, { defaultOpen })
   const setOpen = (next: boolean) => onToggle(nodeKey, next)
-  const isOpen = forceOpen || open
+  const isOpen = isNodeOpen(openMap, nodeKey, { defaultOpen, forceOpen })
   return (
     <Box>
       {/*
@@ -163,8 +196,13 @@ function TreeNode({
         making a click do both would have taken folding away from a tree whose
         whole job is navigation. Siblings, not nested buttons — a button inside
         a button is invalid and swallows the inner click.
+
+        For the keyboard the whole row is the target instead (role="treeitem",
+        the tab stop), with → / ← and Enter folding and Enter selecting; the two
+        buttons are taken out of the tab order so the row stays a single stop.
       */}
       <Group
+        {...rowProps}
         gap={4}
         wrap="nowrap"
         pl={8 + depth * 16}
@@ -175,7 +213,11 @@ function TreeNode({
         }}
       >
         <UnstyledButton
-          onClick={() => setOpen(!open)}
+          tabIndex={-1}
+          onClick={() => {
+            onPointerFocus(nodeKey)
+            setOpen(!open)
+          }}
           py={6}
           aria-label={isOpen ? 'Згорнути' : 'Розгорнути'}
           style={{ display: 'flex', alignItems: 'center' }}
@@ -186,7 +228,9 @@ function TreeNode({
           />
         </UnstyledButton>
         <UnstyledButton
+          tabIndex={-1}
           onClick={() => {
+            onPointerFocus(nodeKey)
             if (!onSelect) {
               setOpen(!open)
               return
@@ -219,13 +263,16 @@ function TreeNode({
           </Group>
         </UnstyledButton>
       </Group>
-      <Collapse expanded={isOpen}>{children}</Collapse>
+      <Collapse expanded={isOpen}>
+        <div role="group">{children}</div>
+      </Collapse>
     </Box>
   )
 }
 
 export function TreeView({ fill = false }: { fill?: boolean } = {}) {
   const { data, isLoading } = useTreeData()
+  const { t } = useLanguage()
   const [search, setSearch] = useState('')
   const q = search.trim().toLowerCase()
   const { lineId, lineMeta, selectLine, groupSel, selectGroup } = useSelectionStore()
@@ -233,7 +280,7 @@ export function TreeView({ fill = false }: { fill?: boolean } = {}) {
     groupSel?.kind === kind && groupSel.id === id
 
   // Which nodes are unfolded, kept across reloads and page changes.
-  const [openMap, setOpenMap] = useLocalStorage<Record<string, boolean>>({
+  const [openMap, setOpenMap] = useLocalStorage<OpenMap>({
     key: 'hlv-tree-open',
     defaultValue: {},
   })
@@ -297,12 +344,63 @@ export function TreeView({ fill = false }: { fill?: boolean } = {}) {
       .filter((b) => b.lumgs.length > 0 || b.name.toLowerCase().includes(q))
   }, [data, q])
 
+  // ——— Keyboard navigation ———————————————————————————————————————————————
+  // The rows as they appear on screen, in that order, from the same inputs the
+  // markup below renders — so the arrows can never reach a row nobody can see.
+  const rows = useMemo(() => flattenTree(filtered, openMap, !!q), [filtered, openMap, q])
+
+  const selectedKey = selectedLine ? lineKey(selectedLine) : null
+  const groupKey = groupSel
+    ? groupSel.kind === 'branch'
+      ? branchKey(groupSel.id)
+      : groupSel.kind === 'lumg'
+        ? lumgKey(groupSel.id)
+        : calcKey(groupSel.id)
+    : null
+
+  const searchRef = useRef<HTMLInputElement>(null)
+
+  const nav = useTreeNav<TreeRow>({
+    rows,
+    preferredKey: selectedKey ?? groupKey,
+    onToggle: toggleNode,
+    canFold: !q,
+    onEscape: search ? () => setSearch('') : undefined,
+    onExpandMany: (keys) =>
+      setOpenMap((prev) => {
+        const next = { ...prev }
+        for (const key of keys) next[key] = true
+        return next
+      }),
+    onActivate: (row) => {
+      if (row.line) {
+        selectLine(row.line.id, row.line.meta)
+        return
+      }
+      if (!row.group) return
+      selectGroup(row.group)
+      // Enter both selects the node and turns it over: an unfolded node folds,
+      // a folded one opens — otherwise the only way to fold from the keyboard
+      // would be ←, and Enter on an open node would do nothing visible.
+      toggleNode(row.key, !row.expanded)
+    },
+  })
+
+  useHotkeys([
+    // "/" puts the cursor in the tree's search box — the fastest way to a line
+    // when the tree holds three hundred of them.
+    { key: ['/'], run: () => searchRef.current?.focus() },
+    // Alt+T hands the keyboard to the tree itself, on the row it was last on,
+    // without tabbing past the toolbar first.
+    { alt: true, key: ['t', 'T'], code: ['KeyT'], run: () => nav.focusTree() },
+  ])
+
   const list = (
-    <>
+    <Box {...nav.containerProps} aria-label={t('nodeListTitle')}>
       {filtered.map((branch) => (
             <TreeNode
               key={branch.id}
-              nodeKey={`b${branch.id}`}
+              nodeKey={branchKey(branch.id)}
               openMap={openMap}
               onToggle={toggleNode}
               label={branch.name}
@@ -313,6 +411,8 @@ export function TreeView({ fill = false }: { fill?: boolean } = {}) {
                 selectGroup({ kind: 'branch', id: branch.id, name: branch.name })
               }
               selected={isGroup('branch', branch.id)}
+              rowProps={nav.propsFor(branchKey(branch.id), { level: 1, selected: isGroup('branch', branch.id) })}
+              onPointerFocus={nav.pointerFocus}
               icon={
                 <ThemeIcon size="sm" variant="transparent" color="petrol">
                   <IconBuildingCommunity size={15} />
@@ -323,7 +423,7 @@ export function TreeView({ fill = false }: { fill?: boolean } = {}) {
               {branch.lumgs.map((lumg) => (
                 <TreeNode
                   key={lumg.id}
-                  nodeKey={`l${lumg.id}`}
+                  nodeKey={lumgKey(lumg.id)}
                   openMap={openMap}
                   onToggle={toggleNode}
                   label={lumg.name}
@@ -331,12 +431,14 @@ export function TreeView({ fill = false }: { fill?: boolean } = {}) {
                   forceOpen={!!q}
                   onSelect={() => selectGroup({ kind: 'lumg', id: lumg.id, name: lumg.name })}
                   selected={isGroup('lumg', lumg.id)}
+                  rowProps={nav.propsFor(lumgKey(lumg.id), { level: 2, selected: isGroup('lumg', lumg.id) })}
+                  onPointerFocus={nav.pointerFocus}
                   icon={<IconFolder size={14} color="var(--mantine-color-amber-5)" />}
                 >
                   {lumg.calcs.map((calc) => (
                     <TreeNode
                       key={calc.id}
-                      nodeKey={`c${calc.id}`}
+                      nodeKey={calcKey(calc.id)}
                       openMap={openMap}
                       onToggle={toggleNode}
                       label={calc.typeName ? `${calc.name} · ${calc.typeName}` : calc.name}
@@ -346,34 +448,74 @@ export function TreeView({ fill = false }: { fill?: boolean } = {}) {
                         selectGroup({ kind: 'calc', id: calc.id, name: calc.name })
                       }
                       selected={isGroup('calc', calc.id)}
+                      rowProps={nav.propsFor(calcKey(calc.id), { level: 3, selected: isGroup('calc', calc.id) })}
+                      onPointerFocus={nav.pointerFocus}
                       icon={<IconCpu size={14} color="var(--mantine-color-steel-6)" />}
                     >
                       {calc.lines.map((line) => (
-                        <LineRow key={line.id} line={line} />
+                        <LineRow
+                          key={line.id}
+                          line={line}
+                          rowProps={nav.propsFor(lineKey(line), { level: 4, selected: lineId === line.id })}
+                          onPointerFocus={nav.pointerFocus}
+                        />
                       ))}
                     </TreeNode>
                   ))}
                   {lumg.virtualLines.map((line) => (
-                    <LineRow key={`v${line.id}`} line={line} />
+                    <LineRow
+                      key={`v${line.id}`}
+                      line={line}
+                      rowProps={nav.propsFor(lineKey(line), { level: 3, selected: lineId === line.id })}
+                      onPointerFocus={nav.pointerFocus}
+                    />
                   ))}
                   {lumg.dpdLines.map((line) => (
-                    <LineRow key={`d${line.id}`} line={line} />
+                    <LineRow
+                      key={`d${line.id}`}
+                      line={line}
+                      rowProps={nav.propsFor(lineKey(line), { level: 3, selected: lineId === line.id })}
+                      onPointerFocus={nav.pointerFocus}
+                    />
                   ))}
                 </TreeNode>
               ))}
             </TreeNode>
           ))}
-    </>
+    </Box>
   )
 
   const search_input = (
     <TextInput
-      placeholder="Пошук лінії..."
+      ref={searchRef}
+      placeholder={t('searchLinePlaceholder')}
       leftSection={<IconSearch size={15} />}
       value={search}
       onChange={(e) => setSearch(e.currentTarget.value)}
       size="sm"
       mb="xs"
+      // ↓ hands the keyboard to the list, Enter takes the first line it found,
+      // Esc clears the filter — so a search never has to end at the mouse.
+      onKeyDown={(e) => {
+        if (e.key === 'ArrowDown') {
+          e.preventDefault()
+          if (rows.length > 0) nav.focusRow(rows[0].key)
+          return
+        }
+        if (e.key === 'Enter') {
+          e.preventDefault()
+          const line = rows.find((r) => r.kind === 'line')
+          if (line?.line) {
+            nav.focusRow(line.key)
+            selectLine(line.line.id, line.line.meta)
+          }
+          return
+        }
+        if (e.key === 'Escape' && search) {
+          e.preventDefault()
+          setSearch('')
+        }
+      }}
     />
   )
 

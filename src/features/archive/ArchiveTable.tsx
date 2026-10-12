@@ -1,4 +1,4 @@
-import { memo, useMemo, useState } from 'react'
+import { memo, useMemo, useRef, useState } from 'react'
 import { Anchor, Table, Text, Group, Box, ScrollArea } from '@mantine/core'
 import { useLocalStorage } from '@mantine/hooks'
 import { IconArrowUp, IconArrowDown } from '@tabler/icons-react'
@@ -182,6 +182,59 @@ export const ArchiveTable = memo(function ArchiveTable({
       ? sortedRows
       : sortedRows.slice((page - 1) * pageSize, page * pageSize)
 
+  /*
+   * Keyboard reading of the rows. One tab stop for the whole table (the row
+   * last landed on), the arrows walk from there, and Enter on a daily row
+   * opens that day's hours — the keyboard equivalent of clicking its volume.
+   * The focused index is clamped on render, so a new page or a shorter period
+   * cannot leave the tab stop pointing past the end.
+   */
+  const bodyRef = useRef<HTMLTableSectionElement>(null)
+  const [focusIdx, setFocusIdx] = useState(0)
+  const focused = Math.min(focusIdx, Math.max(0, visibleRows.length - 1))
+
+  const focusAt = (i: number) => {
+    const next = Math.max(0, Math.min(i, visibleRows.length - 1))
+    setFocusIdx(next)
+    const el = bodyRef.current?.querySelector<HTMLElement>(`[data-row="${next}"]`)
+    el?.focus({ preventScroll: true })
+    el?.scrollIntoView({ block: 'nearest' })
+  }
+
+  const onRowsKeyDown = (e: React.KeyboardEvent) => {
+    if (visibleRows.length === 0) return
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault()
+        return focusAt(focused + 1)
+      case 'ArrowUp':
+        e.preventDefault()
+        return focusAt(focused - 1)
+      case 'PageDown':
+        e.preventDefault()
+        return focusAt(focused + 10)
+      case 'PageUp':
+        e.preventDefault()
+        return focusAt(focused - 10)
+      case 'Home':
+        e.preventDefault()
+        return focusAt(0)
+      case 'End':
+        e.preventDefault()
+        return focusAt(visibleRows.length - 1)
+      case 'Enter': {
+        if (type !== 'daily' || !drillHref) return
+        const row = visibleRows[focused]
+        if (!row) return
+        e.preventDefault()
+        // Same target as the link in the cell: a new tab, so the month stays
+        // on screen behind it.
+        window.open(drillHref(String(row.original.period).slice(0, 10)), '_blank', 'noopener')
+        return
+      }
+    }
+  }
+
   // Per column, and kept per archive type — the daily view and the hourly view
   // get read for different things. Absent key = that column's own default.
   const [aggregates, setAggregates] = useLocalStorage<Record<string, Aggregate>>({
@@ -276,9 +329,14 @@ export const ArchiveTable = memo(function ArchiveTable({
           the table expensive to rebuild. `.hlv-cell` reuses Mantine's own
           spacing variables, so the padding is identical to Table.Td.
         */}
-        <Table.Tbody>
-          {visibleRows.map((row) => (
-            <Table.Tr key={row.id}>
+        <Table.Tbody ref={bodyRef} onKeyDown={onRowsKeyDown}>
+          {visibleRows.map((row, i) => (
+            <Table.Tr
+              key={row.id}
+              data-row={i}
+              className="hlv-table-row"
+              tabIndex={i === focused ? 0 : -1}
+            >
               {row.getVisibleCells().map((cell) => (
                 <td
                   key={cell.id}

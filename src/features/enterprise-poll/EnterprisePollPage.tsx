@@ -1,4 +1,4 @@
-import { startTransition, useEffect, useMemo, useRef, useState } from 'react'
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Stack,
   Group,
@@ -79,6 +79,8 @@ import { PressureUnitPicker } from '@/components/PressureUnitPicker'
 import { useSearchParams } from 'react-router-dom'
 import { useLanguage } from '@/locales/LanguageContext'
 import { CheckboxFilter } from '@/components/CheckboxFilter'
+import { useHotkeys } from '@/lib/hotkeys'
+import { useTreeNav, type NavRow } from '@/lib/treeNav'
 import { useSelectionStore } from '@/store/selectionStore'
 import { numericStyle } from '@/theme/theme'
 import { ArchiveChart } from '@/features/archive/ArchiveChart'
@@ -100,6 +102,13 @@ const SPLIT_HEIGHT = 'calc(100dvh - 150px)'
 
 const NO_BRANCH = '__no_branch__'
 const NO_LINE = '__no_line__'
+
+/** One row of the left pane's tree, as the keyboard walks it. */
+interface PollNavRow extends NavRow {
+  kind: 'branch' | 'line' | 'site'
+  /** Enterprise rows only. */
+  siteId?: number
+}
 
 /** Numeric cell: '—' when there is nothing to show. */
 const fmtNum = (v: number | null | undefined, digits = 2) =>
@@ -183,6 +192,16 @@ export function EnterprisePollPage() {
     defaultValue: {},
   })
   const toggleGroup = (key: string) => setCollapsed((p) => ({ ...p, [key]: !p[key] }))
+  /**
+   * Whether a group shows its children. One definition, read by the markup and
+   * by the flat row list the keyboard walks — the two must never disagree about
+   * what is on screen. A search in progress forces every group open: a hit
+   * hidden inside a collapsed branch reads as "nothing found".
+   */
+  const groupOpen = useCallback(
+    (key: string) => !!search.trim() || !collapsed[key],
+    [search, collapsed],
+  )
   /**
    * Which report owns the right pane.
    *
@@ -375,6 +394,85 @@ export function EnterprisePollPage() {
   )
   const collapseAll = () => setCollapsed(Object.fromEntries(allGroupKeys.map((k) => [k, true])))
   const expandAll = () => setCollapsed({})
+
+  /**
+   * The same tree, flattened for the keyboard: branch → line → enterprise in
+   * the order it is drawn, carrying only what is on screen. The archive's tree
+   * works this way too — see lib/treeNav, which both share.
+   *
+   * `collapsed` is stored the other way round from `expanded` (an absent key
+   * means open), so the hook's open/closed is inverted on the way in and out.
+   */
+  const navRows = useMemo<PollNavRow[]>(() => {
+    const out: PollNavRow[] = []
+    for (const branch of tree) {
+      const bOpen = groupOpen(branch.key)
+      out.push({
+        key: branch.key,
+        parentKey: null,
+        label: branch.name,
+        expandable: branch.lines.length > 0,
+        expanded: bOpen,
+        kind: 'branch',
+      })
+      if (!bOpen) continue
+      for (const line of branch.lines) {
+        const lKey = `${branch.key}/${line.key}`
+        const lOpen = groupOpen(lKey)
+        out.push({
+          key: lKey,
+          parentKey: branch.key,
+          label: line.name,
+          expandable: line.items.length > 0,
+          expanded: lOpen,
+          kind: 'line',
+        })
+        if (!lOpen) continue
+        for (const m of line.items) {
+          out.push({
+            key: `s${m.id}`,
+            parentKey: lKey,
+            label: enterpriseLabel(m),
+            expandable: false,
+            expanded: false,
+            kind: 'site',
+            siteId: m.id,
+          })
+        }
+      }
+    }
+    return out
+  }, [tree, groupOpen])
+
+  const searchRef = useRef<HTMLInputElement>(null)
+  const nav = useTreeNav<PollNavRow>({
+    rows: navRows,
+    preferredKey: selected != null ? `s${selected}` : null,
+    onToggle: (key, open) => setCollapsed((p) => ({ ...p, [key]: !open })),
+    onExpandMany: (keys) =>
+      setCollapsed((p) => {
+        const next = { ...p }
+        for (const key of keys) next[key] = false
+        return next
+      }),
+    // A search forces every group open; folding would then change nothing on
+    // screen, so the left arrow climbs to the parent instead.
+    canFold: !search.trim(),
+    onEscape: search ? () => setSearch('') : undefined,
+    onActivate: (row) => {
+      if (row.kind === 'site' && row.siteId != null) {
+        setSelected(row.siteId)
+        return
+      }
+      // Enter turns a group over: open folds, folded opens.
+      setCollapsed((p) => ({ ...p, [row.key]: row.expanded }))
+    },
+  })
+
+  useHotkeys([
+    { key: ['/'], run: () => searchRef.current?.focus() },
+    { alt: true, key: ['t', 'T'], code: ['KeyT'], run: () => nav.focusTree() },
+  ])
 
   // Picked up once the list is there, and only once: the branch is widened to
   // the one the site belongs to, or the filter would hide what the link asked
@@ -934,12 +1032,35 @@ export function EnterprisePollPage() {
           <Box p="sm" pb={4}>
             <Group gap={4} wrap="nowrap">
               <TextInput
+                ref={searchRef}
                 placeholder={t('searchEnterprise')}
                 leftSection={<IconSearch size={15} />}
                 value={search}
                 onChange={(e) => setSearch(e.currentTarget.value)}
                 size="xs"
                 style={{ flex: 1 }}
+                /* Down hands the keyboard to the tree, Enter takes the first
+                   enterprise found, Esc clears the filter. */
+                onKeyDown={(e) => {
+                  if (e.key === 'ArrowDown') {
+                    e.preventDefault()
+                    if (navRows.length > 0) nav.focusRow(navRows[0].key)
+                    return
+                  }
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    const site = navRows.find((r) => r.kind === 'site')
+                    if (site?.siteId != null) {
+                      nav.focusRow(site.key)
+                      setSelected(site.siteId)
+                    }
+                    return
+                  }
+                  if (e.key === 'Escape' && search) {
+                    e.preventDefault()
+                    setSearch('')
+                  }
+                }}
               />
               {/* A few hundred devices across a dozen branches: opening or
                   closing them one at a time is the slow part of finding one. */}
@@ -981,20 +1102,21 @@ export function EnterprisePollPage() {
                 <Loader size="sm" color="petrol" />
               </Center>
             ) : (
-              <Stack gap={2} p="xs">
+              <Stack gap={2} p="xs" {...nav.containerProps} aria-label={t('enterpriseList')}>
                 {tree.map((branch) => {
-                  // While searching, every group is forced open: a hit hidden
-                  // inside a collapsed branch reads as "nothing found".
-                  const bOpen = !!search.trim() || !collapsed[branch.key]
+                  const bOpen = groupOpen(branch.key)
                   return (
                     <Box key={branch.key}>
                       <UnstyledButton
-                        onClick={() => toggleGroup(branch.key)}
+                        {...nav.propsFor(branch.key, { level: 1, className: 'hlv-picker-row' })}
+                        onClick={() => {
+                          nav.pointerFocus(branch.key)
+                          toggleGroup(branch.key)
+                        }}
                         px={6}
                         py={5}
                         w="100%"
                         style={{ borderRadius: 6 }}
-                        className="hlv-picker-row"
                       >
                         <Group gap={6} wrap="nowrap">
                           <IconChevronRight
@@ -1018,17 +1140,20 @@ export function EnterprisePollPage() {
                       <Collapse expanded={bOpen}>
                         {branch.lines.map((line) => {
                           const lKey = `${branch.key}/${line.key}`
-                          const lOpen = !!search.trim() || !collapsed[lKey]
+                          const lOpen = groupOpen(lKey)
                           return (
                             <Box key={lKey}>
                               <UnstyledButton
-                                onClick={() => toggleGroup(lKey)}
+                                {...nav.propsFor(lKey, { level: 2, className: 'hlv-picker-row' })}
+                                onClick={() => {
+                                  nav.pointerFocus(lKey)
+                                  toggleGroup(lKey)
+                                }}
                                 pl={20}
                                 pr={6}
                                 py={4}
                                 w="100%"
                                 style={{ borderRadius: 6 }}
-                                className="hlv-picker-row"
                               >
                                 <Group gap={6} wrap="nowrap">
                                   <IconChevronRight
@@ -1061,7 +1186,15 @@ export function EnterprisePollPage() {
                                   return (
                                     <UnstyledButton
                                       key={m.id}
-                                      onClick={() => setSelected(m.id)}
+                                      {...nav.propsFor(`s${m.id}`, {
+                                        level: 3,
+                                        selected: on,
+                                        className: on ? undefined : 'hlv-picker-row',
+                                      })}
+                                      onClick={() => {
+                                        nav.pointerFocus(`s${m.id}`)
+                                        setSelected(m.id)
+                                      }}
                                       pl={38}
                                       pr={6}
                                       py={4}
@@ -1072,7 +1205,6 @@ export function EnterprisePollPage() {
                                           ? 'var(--mantine-color-petrol-light)'
                                           : undefined,
                                       }}
-                                      className={on ? undefined : 'hlv-picker-row'}
                                     >
                                       <Group gap={6} wrap="nowrap">
                                         <Text
