@@ -4,8 +4,8 @@
  * Both ends are optional, and that is the point: the stretch somebody wants
  * gone is usually described as "everything before we noticed" or "everything
  * since the swap", so demanding two dates would have people type one they do
- * not mean. The three readings — from a day on, up to a day, between two days
- * — are told apart by which fields are filled, and the sentence this builds is
+ * not mean. The four readings — from a day on, up to a day, between two days,
+ * and with neither the whole archive — are told apart by which fields are filled, and the sentence this builds is
  * what saves anybody from having to work that out for themselves.
  */
 
@@ -55,10 +55,12 @@ export function describeRange(
     const since = extent?.first ? `, від початку архіву (${humanDate(extent.first)})` : ''
     return { kind: 'to', text: `Буде видалено все до ${humanDate(to)} включно${since}` }
   }
+  const whole =
+    extent?.first ? ` — з ${humanDate(extent.first)} по ${humanDate(extent.last)}` : ''
   return {
     kind: 'none',
     text:
-      'Лишіть початок порожнім, щоб видалити все до кінцевої дати; ' +
-      'лишіть кінець порожнім, щоб видалити все від початкової і новіше',
+      `Дати не вказано — буде видалено ВЕСЬ архів${whole}. ` +
+      'Вкажіть лише початок, щоб видалити все від нього і новіше, або лише кінець — все до нього',
   }
 }

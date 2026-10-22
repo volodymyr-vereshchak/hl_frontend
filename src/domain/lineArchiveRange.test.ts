@@ -4,10 +4,10 @@ import { daysBetween, describeRange, humanDate } from './lineArchiveRange'
 const extent = { first: '2024-01-01', last: '2026-09-23' }
 
 describe('describeRange', () => {
-  it('says what to do when neither end is filled', () => {
+  it('reads neither end as the whole archive', () => {
     const verdict = describeRange(null, null, extent)
     expect(verdict.kind).toBe('none')
-    expect(verdict.text).toContain('Лишіть початок порожнім')
+    expect(verdict.text).toContain('ВЕСЬ архів — з 01.01.2024 по 23.09.2026')
   })
 
   it('reads a start on its own as everything after it', () => {

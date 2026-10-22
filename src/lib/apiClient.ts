@@ -25,6 +25,10 @@ function timeoutForEndpoint(endpoint: string): number {
   if (/^\/get_report/.test(endpoint)) return TIMEOUT_HEAVY
   // Звірка ФХП rebuilds a step function per line per parameter over the range.
   if (/^\/gas_routes\/\d+\/fhp_report/.test(endpoint)) return TIMEOUT_HEAVY
+  // Counting or clearing an archive range scans the archive tables — for a
+  // whole branch or all of them, every line's — so it must not inherit the
+  // /lines budget.
+  if (/^\/(dpd_)?lines\/(.*\/)?archive(\/|\?|$)/.test(endpoint)) return TIMEOUT_HEAVY
   if (/^\/(auth|config|lines|virtual_lines)/.test(endpoint)) return TIMEOUT_LIGHT
   return TIMEOUT_DEFAULT
 }

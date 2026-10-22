@@ -168,11 +168,35 @@ export const lineAdminApi = {
     api.delete<{ removed: LineArchiveCounts }>(
       `/lines/${id}/archive${queryOf(range)}`,
     ),
+  /** The same, summed over every line of a branch — or of all, with null. */
+  previewBulkArchive: (branchId: number | null, range: LineArchiveRange = {}) =>
+    api.get<BulkArchivePreview<LineArchiveCounts>>(
+      '/lines/archive/bulk/preview',
+      { ...range, ...branchParam(branchId) },
+    ),
+  purgeBulkArchive: (branchId: number | null, range: LineArchiveRange) =>
+    api.delete<{ removed: LineArchiveCounts }>(
+      `/lines/archive/bulk${queryOf({ ...range, ...branchParam(branchId) })}`,
+    ),
 }
+
+/** A range cleared on every line of one branch, or of all branches, at once. */
+export interface BulkArchivePreview<C> {
+  branch_id: number | null
+  /** How many lines that is — all of them are cleared. */
+  lines: number
+  counts: C
+  extent: { first: string | null; last: string | null }
+}
+
+/** No branch is every branch: the parameter is then left out altogether. */
+const branchParam = (branchId: number | null): LineArchiveRange =>
+  branchId == null ? {} : { branch_id: String(branchId) }
 
 /** `api.delete` takes a whole URL, so the range is spelled out here. */
 function queryOf(range: LineArchiveRange): string {
   const sp = new URLSearchParams()
+  if (range.branch_id) sp.append('branch_id', range.branch_id)
   if (range.from_date) sp.append('from_date', range.from_date)
   if (range.to_date) sp.append('to_date', range.to_date)
   const qs = sp.toString()
@@ -253,6 +277,31 @@ export const dpdLineAdminApi = {
   remove: (id: number) => api.delete<true>(`/dpd_lines/${id}`),
   init: (id: number) => api.post<unknown>(`/dpd_lines/${id}/init`),
   initStatus: (id: number) => api.get<DpdJobStatus>(`/dpd_lines/${id}/init/status`),
+  previewArchive: (id: number, range: LineArchiveRange = {}) =>
+    api.get<{ line_id: number; name: string; counts: DpdLineArchiveCounts;
+              extent: { first: string | null; last: string | null } }>(
+      `/dpd_lines/${id}/archive/preview`,
+      range,
+    ),
+  purgeArchive: (id: number, range: LineArchiveRange) =>
+    api.delete<{ removed: DpdLineArchiveCounts }>(
+      `/dpd_lines/${id}/archive${queryOf(range)}`,
+    ),
+  previewBulkArchive: (branchId: number | null, range: LineArchiveRange = {}) =>
+    api.get<BulkArchivePreview<DpdLineArchiveCounts>>(
+      '/dpd_lines/archive/bulk/preview',
+      { ...range, ...branchParam(branchId) },
+    ),
+  purgeBulkArchive: (branchId: number | null, range: LineArchiveRange) =>
+    api.delete<{ removed: DpdLineArchiveCounts }>(
+      `/dpd_lines/archive/bulk${queryOf({ ...range, ...branchParam(branchId) })}`,
+    ),
+}
+
+/** A DPD line keeps two archives; the dates are commercial days. */
+export interface DpdLineArchiveCounts {
+  daily: number
+  hourly: number
 }
 
 /** Init/refresh job of one DPD line. */

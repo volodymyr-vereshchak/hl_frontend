@@ -32,6 +32,7 @@ import {
   IconPlayerPlay,
   IconPlus,
   IconTrash,
+  IconEraser,
   IconX,
 } from '@tabler/icons-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -44,6 +45,7 @@ import type { DpdLine } from '@/types'
 import { invalidateTopology } from '@/lib/invalidateTopology'
 import { numericStyle } from '@/theme/theme'
 import { useAdminTopology, toOptions } from '../useAdminTopology'
+import { BulkDpdArchivePurgeModal, DpdLineArchivePurgeModal } from './DpdArchivePurgeModal'
 import { useAdminNavigation } from '../adminNavigation'
 import { LoadingState } from '@/components/LoadingState'
 import { AdminTabHeader } from '../AdminTableShell'
@@ -143,6 +145,8 @@ export function DpdLinesTab() {
   // form while the table it belongs to scrolls underneath never worked.
   const [editing, setEditing] = useState(false)
   const [branchFilter, setBranchFilter] = useState<string | null>(null)
+  const [clearingLine, setClearingLine] = useState<DpdLine | null>(null)
+  const [clearingBranch, setClearingBranch] = useState(false)
   const [jobs, setJobs] = useState<Record<number, DpdJobStatus>>({})
   const timers = useRef<Record<number, ReturnType<typeof setInterval>>>({})
 
@@ -465,6 +469,9 @@ export function DpdLinesTab() {
     () => (lines ?? []).filter((l) => !branchFilter || String(l.branch_id) === branchFilter),
     [lines, branchFilter],
   )
+  const pickedBranch = branchFilter
+    ? (branches.find((b) => String(b.id) === branchFilter) ?? null)
+    : null
 
   const renderJob = (lineId: number) => {
     const job = jobs[lineId]
@@ -853,16 +860,36 @@ export function DpdLinesTab() {
             Ліній: {visibleLines.length}
           </Text>
         </Group>
-        <Select
-          size="xs"
-          w={220}
-          placeholder="Всі філії"
-          data={toOptions(branches)}
-          value={branchFilter}
-          onChange={setBranchFilter}
-          clearable
-          searchable
-        />
+        <Group gap="sm">
+          <Select
+            size="xs"
+            w={220}
+            placeholder="Всі філії"
+            data={toOptions(branches)}
+            value={branchFilter}
+            onChange={setBranchFilter}
+            clearable
+            searchable
+          />
+          <Tooltip
+            label={
+              pickedBranch
+                ? `Видалити за період архіви всіх ліній ДПД філії «${pickedBranch.name}»`
+                : 'Видалити за період архіви всіх ліній ДПД УСІХ філій'
+            }
+            withArrow
+          >
+            <Button
+              size="xs"
+              variant="light"
+              color="red"
+              leftSection={<IconTrash size={13} />}
+              onClick={() => setClearingBranch(true)}
+            >
+              {pickedBranch ? 'Архіви філії' : 'Архіви всіх філій'}
+            </Button>
+          </Tooltip>
+        </Group>
       </Group>
 
       {isLoading ? (
@@ -992,6 +1019,23 @@ export function DpdLinesTab() {
                               <IconPlayerPlay size={15} />
                             </ActionIcon>
                           </Tooltip>
+                          <Tooltip
+                            label={
+                              running
+                                ? 'Лінія оновлюється — дочекайтеся кінця'
+                                : 'Видалити архіви лінії за період — добові та годинні'
+                            }
+                            withArrow
+                          >
+                            <ActionIcon
+                              variant="subtle"
+                              color="red"
+                              disabled={running}
+                              onClick={() => setClearingLine(line)}
+                            >
+                              <IconEraser size={15} />
+                            </ActionIcon>
+                          </Tooltip>
                           <ActionIcon variant="subtle" onClick={() => startEdit(line)}>
                             <IconPencil size={16} />
                           </ActionIcon>
@@ -1031,6 +1075,13 @@ export function DpdLinesTab() {
           </ScrollArea>
         </Paper>
       )}
+      <DpdLineArchivePurgeModal line={clearingLine} onClose={() => setClearingLine(null)} />
+      <BulkDpdArchivePurgeModal
+        opened={clearingBranch}
+        branch={pickedBranch}
+        lineCount={visibleLines.length}
+        onClose={() => setClearingBranch(false)}
+      />
     </Stack>
   )
 }

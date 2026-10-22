@@ -5,7 +5,7 @@ import { notifications } from '@mantine/notifications'
 import { IconDeviceFloppy, IconDownload, IconTrash } from '@tabler/icons-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CrudTable, type CrudField } from '../CrudTable'
-import { LineArchivePurgeModal } from './LineArchivePurgeModal'
+import { BulkLinesArchivePurgeModal, LineArchivePurgeModal } from './LineArchivePurgeModal'
 import { useAdminTopology, toOptions } from '../useAdminTopology'
 import { UNIT_LABELS } from '@/domain/pressureUnits'
 import {
@@ -98,12 +98,16 @@ export function LinesConfigTab() {
   const [calcFilter, setCalcFilter] = useState<string | null>(null)
   //: The line whose archive is being cleared, or null while nobody is.
   const [clearing, setClearing] = useState<Line | null>(null)
+  const [clearingBranch, setClearingBranch] = useState(false)
 
   // The calc list depends on the branch, so switching branch drops a stale calc.
   const branchCalcIds = useMemo(
     () => (branchFilter ? new Set(calcIdsOfBranch(Number(branchFilter))) : null),
     [branchFilter, calcIdsOfBranch],
   )
+  const pickedBranch = branchFilter
+    ? (branches.find((b) => String(b.id) === branchFilter) ?? null)
+    : null
   const calcOptions = useMemo(
     () => toOptions(branchCalcIds ? calcs.filter((c) => branchCalcIds.has(c.id)) : calcs),
     [calcs, branchCalcIds],
@@ -217,10 +221,40 @@ export function LinesConfigTab() {
             clearable
             searchable
           />
+          <Tooltip
+            label={
+              pickedBranch
+                ? `Видалити за період архіви всіх ліній філії «${pickedBranch.name}» — фільтр обчислювача не враховується`
+                : 'Видалити за період архіви всіх ліній УСІХ філій — фільтр обчислювача не враховується'
+            }
+            withArrow
+          >
+            <Button
+              size="xs"
+              variant="light"
+              color="red"
+              leftSection={<IconTrash size={13} />}
+              onClick={() => setClearingBranch(true)}
+            >
+              {pickedBranch ? 'Архіви філії' : 'Архіви всіх філій'}
+            </Button>
+          </Tooltip>
         </>
       }
     />
     <LineArchivePurgeModal line={clearing} onClose={() => setClearing(null)} />
+    <BulkLinesArchivePurgeModal
+      opened={clearingBranch}
+      branch={pickedBranch}
+      lineCount={
+        branchCalcIds
+          ? (lines ?? []).filter(
+              (l) => l.gas_volume_calc_id != null && branchCalcIds.has(l.gas_volume_calc_id),
+            ).length
+          : (lines ?? []).length
+      }
+      onClose={() => setClearingBranch(false)}
+    />
     </>
   )
 }
