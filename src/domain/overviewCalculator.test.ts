@@ -63,3 +63,102 @@ describe('getLastPressures — pressure unit', () => {
     expect(out[4].pressureUnit).toBe('кгс/см²')
   })
 })
+
+/**
+ * An idle line can store float noise like 1e-19 instead of 0. As the previous
+ * hour it used to be the divisor, and the card showed a ~1e23 % change.
+ */
+describe('change percent over a near-zero previous value', () => {
+  it('last-hour flow treats float noise as zero', () => {
+    const [out] = OverviewCalculator.calculateLastHourFlow(
+      [
+        record({ line_id: 1, period: '2026-08-22T10:00:00', volume: 6.76 }),
+        record({ line_id: 1, period: '2026-08-22T09:00:00', volume: 1e-19 }),
+      ],
+      [1],
+    )
+    expect(out.previousHour).toBe(0)
+    expect(out.change).toBe(6.76)
+    expect(out.changePercent).toBe(0)
+  })
+
+  it('noise on both hours is no change at all', () => {
+    const [out] = OverviewCalculator.calculateLastHourFlow(
+      [
+        record({ line_id: 1, period: '2026-08-22T10:00:00', volume: 3e-18 }),
+        record({ line_id: 1, period: '2026-08-22T09:00:00', volume: 1e-19 }),
+      ],
+      [1],
+    )
+    expect(out.change).toBe(0)
+    expect(out.isIncrease).toBe(false)
+    expect(out.isDecrease).toBe(false)
+  })
+
+  it('24h volume treats float noise as zero', () => {
+    const [out] = OverviewCalculator.calculate24hVolumeByLine(
+      [record({ line_id: 1, volume: 120 })],
+      [record({ line_id: 1, volume: 1e-19 })],
+      [1],
+    )
+    expect(out.changePercent).toBe(0)
+  })
+})
+
+/**
+ * An idle line can store float noise like 1e-19 instead of 0. As the previous
+ * hour it used to be the divisor, and the card showed a ~1e23 % change.
+ */
+describe('change percent over a near-zero previous value', () => {
+  it('last-hour flow treats float noise as zero', () => {
+    const [out] = OverviewCalculator.calculateLastHourFlow(
+      [
+        record({ line_id: 1, period: '2026-08-22T10:00:00', volume: 6.76 }),
+        record({ line_id: 1, period: '2026-08-22T09:00:00', volume: 1e-19 }),
+      ],
+      [1],
+    )
+    expect(out.previousHour).toBe(0)
+    expect(out.change).toBe(6.76)
+    expect(out.changePercent).toBe(0)
+  })
+
+  it('noise on both hours is no change at all', () => {
+    const [out] = OverviewCalculator.calculateLastHourFlow(
+      [
+        record({ line_id: 1, period: '2026-08-22T10:00:00', volume: 3e-18 }),
+        record({ line_id: 1, period: '2026-08-22T09:00:00', volume: 1e-19 }),
+      ],
+      [1],
+    )
+    expect(out.change).toBe(0)
+    expect(out.isIncrease).toBe(false)
+    expect(out.isDecrease).toBe(false)
+  })
+
+  it('a real small previous value still gives a percentage', () => {
+    const [out] = OverviewCalculator.calculateLastHourFlow(
+      [
+        record({ line_id: 1, period: '2026-08-22T10:00:00', volume: 0.2 }),
+        record({ line_id: 1, period: '2026-08-22T09:00:00', volume: 0.1 }),
+      ],
+      [1],
+    )
+    expect(out.changePercent).toBeCloseTo(100)
+  })
+
+  it('24h volume treats float noise as zero', () => {
+    const [out] = OverviewCalculator.calculate24hVolumeByLine(
+      [record({ line_id: 1, volume: 120 })],
+      [record({ line_id: 1, volume: 1e-19 })],
+      [1],
+    )
+    expect(out.changePercent).toBe(0)
+  })
+
+  it('total comparison treats float noise as zero', () => {
+    const out = OverviewCalculator.calculateComparison(500, 1e-19)
+    expect(out.changePercent).toBe(0)
+    expect(out.previous).toBe(0)
+  })
+})

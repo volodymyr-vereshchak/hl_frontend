@@ -77,6 +77,24 @@ export type ParamsMap = Record<number, { min_dp: number; max_dp: number }>
 
 const round3 = (n: number) => Math.round(n * 1000) / 1000
 
+/**
+ * Archive volumes below this are float noise (e.g. 1e-19 stored for an idle
+ * line), not gas. Dividing by such a "previous" value blew the percentage up
+ * to ~1e23, so anything under it counts as zero.
+ */
+const VOLUME_EPSILON = 0.001
+
+const clean = (n: number) => (Math.abs(n) < VOLUME_EPSILON ? 0 : n)
+
+/** Change vs the previous value; percent is 0 when there is nothing to compare to. */
+function compare(current: number, previous: number) {
+  const cur = clean(current)
+  const prev = clean(previous)
+  const change = clean(cur - prev)
+  const changePercent = prev !== 0 ? (change / prev) * 100 : 0
+  return { cur, prev, change, changePercent }
+}
+
 export class OverviewCalculator {
   static calculate24hTotal(data: HourlyRecord[], lineIds: number[]): number {
     if (!Array.isArray(data)) return 0
@@ -87,11 +105,10 @@ export class OverviewCalculator {
   }
 
   static calculateComparison(current: number, previous: number): VolumeComparison {
-    const change = current - previous
-    const changePercent = previous !== 0 ? (change / previous) * 100 : 0
+    const { cur, prev, change, changePercent } = compare(current, previous)
     return {
-      current: round3(current),
-      previous: round3(previous),
+      current: round3(cur),
+      previous: round3(prev),
       change: round3(change),
       changePercent: Math.round(changePercent * 10) / 10,
       isIncrease: change > 0,
@@ -110,10 +127,12 @@ export class OverviewCalculator {
         .filter((r) => !isNaN(r.periodDate.getTime()))
         .sort((a, b) => b.periodDate.getTime() - a.periodDate.getTime())
       if (lineRecords.length < 2) continue
-      const lastHour = lineRecords[0].volume || 0
-      const previousHour = lineRecords[1].volume || 0
-      const change = lastHour - previousHour
-      const changePercent = previousHour !== 0 ? (change / previousHour) * 100 : 0
+      const {
+        cur: lastHour,
+        prev: previousHour,
+        change,
+        changePercent,
+      } = compare(lineRecords[0].volume || 0, lineRecords[1].volume || 0)
       results.push({
         lineId,
         lastHour,
@@ -137,14 +156,15 @@ export class OverviewCalculator {
     }
     const results: LineVolumeComparison[] = []
     for (const lineId of lineIds) {
-      const current24h = currentData
-        .filter((r) => r.line_id === lineId)
-        .reduce((sum, r) => sum + (r.volume || 0), 0)
-      const previous24h = previousData
-        .filter((r) => r.line_id === lineId)
-        .reduce((sum, r) => sum + (r.volume || 0), 0)
-      const change = current24h - previous24h
-      const changePercent = previous24h !== 0 ? (change / previous24h) * 100 : 0
+      const {
+        cur: current24h,
+        prev: previous24h,
+        change,
+        changePercent,
+      } = compare(
+        currentData.filter((r) => r.line_id === lineId).reduce((sum, r) => sum + (r.volume || 0), 0),
+        previousData.filter((r) => r.line_id === lineId).reduce((sum, r) => sum + (r.volume || 0), 0),
+      )
       results.push({
         lineId,
         current24h,
