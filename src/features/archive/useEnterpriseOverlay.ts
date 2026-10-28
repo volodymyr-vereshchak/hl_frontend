@@ -8,6 +8,7 @@ import {
   type PeriodType,
 } from '@/domain/enterpriseVolumes'
 import { enterpriseDayWindow } from '@/domain/commercialDay'
+import { buildEnterpriseFixByPeriod, type FixCounts } from '@/domain/volumeFix'
 import type { ArchiveRow } from '@/api/entities'
 
 export interface OverlayState {
@@ -18,6 +19,8 @@ export interface OverlayState {
   error: string | null
   /** periodKey → total enterprise volume across the selected lines. */
   byPeriod: Record<string, number> | null
+  /** periodKey → devices with a set-back totaliser, for the periods with any. */
+  fixByPeriod: Record<string, FixCounts> | null
 }
 
 /**
@@ -40,6 +43,7 @@ export function useEnterpriseOverlay(
   const [progress, setProgress] = useState<OverlayState['progress']>(null)
   const [error, setError] = useState<string | null>(null)
   const [byPeriod, setByPeriod] = useState<Record<string, number> | null>(null)
+  const [fixByPeriod, setFixByPeriod] = useState<Record<string, FixCounts> | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
   const periodType: PeriodType = type === 'hourly' ? 'hourly' : 'daily'
@@ -47,6 +51,7 @@ export function useEnterpriseOverlay(
   useEffect(() => {
     if (!enabled || !lineId || !meta) {
       setByPeriod(null)
+      setFixByPeriod(null)
       setError(null)
       return
     }
@@ -76,11 +81,13 @@ export function useEnterpriseOverlay(
       .then((records) => {
         if (cancelled) return
         setByPeriod(buildEnterpriseByPeriod(records, periodType))
+        setFixByPeriod(buildEnterpriseFixByPeriod(records, periodType))
       })
       .catch((e: Error) => {
         if (cancelled || e.name === 'AbortError') return
         setError(e.message)
         setByPeriod(null)
+        setFixByPeriod(null)
       })
       .finally(() => !cancelled && setLoading(false))
 
@@ -90,17 +97,19 @@ export function useEnterpriseOverlay(
     }
   }, [enabled, lineId, meta, type, periodType, range.fromDate, range.toDate])
 
-  return { enabled, setEnabled, loading, progress, error, byPeriod }
+  return { enabled, setEnabled, loading, progress, error, byPeriod, fixByPeriod }
 }
 
 /**
  * Join archive rows with the enterprise overlay: adds `totalEnterprise` and
- * `netVolume` (line volume − enterprise) to each row.
+ * `netVolume` (line volume − enterprise) to each row, and the set-back counts
+ * of the periods that have any (`enterprise_fix_*`, see domain/volumeFix).
  */
 export function applyOverlay(
   rows: ArchiveRow[],
   byPeriod: Record<string, number> | null,
   type: ArchiveType,
+  fixByPeriod: Record<string, FixCounts> | null = null,
 ): ArchiveRow[] {
   if (!byPeriod) return rows
   const periodType: PeriodType = type === 'hourly' ? 'hourly' : 'daily'
@@ -108,7 +117,13 @@ export function applyOverlay(
     const key = enterprisePeriodKey(r.period, periodType)
     const ent = byPeriod[key] ?? 0
     const vol = Number(r.volume) || 0
-    return { ...r, totalEnterprise: ent, netVolume: vol - ent }
+    const fix = fixByPeriod?.[key]
+    const row: ArchiveRow = { ...r, totalEnterprise: ent, netVolume: vol - ent }
+    if (fix) {
+      row.enterprise_fix_hours = fix.hours
+      row.enterprise_fix_zeroed = fix.zeroed
+    }
+    return row
   })
 }
 

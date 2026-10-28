@@ -129,6 +129,11 @@ export interface ArchiveRow {
   temperature?: number
   /** DPD lines only: the pressure unit the device reported, no line config. */
   press_unit?: string | null
+  /** DPD lines only: the totaliser was set back in this period (domain/volumeFix). */
+  volume_fix?: 'zeroed' | 'hours' | null
+  /** Enterprise overlay: devices with a set-back totaliser in this period. */
+  enterprise_fix_hours?: number
+  enterprise_fix_zeroed?: number
   density?: number
   edit_counts?: number
   sys_counts?: number

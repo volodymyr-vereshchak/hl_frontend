@@ -253,13 +253,14 @@ export function ArchivePage() {
   const rows = useMemo(() => {
     const base =
       canOverlay && overlay.enabled && rawRows
-        ? applyOverlay(rawRows, overlay.byPeriod, archiveType)
+        ? applyOverlay(rawRows, overlay.byPeriod, archiveType, overlay.fixByPeriod)
         : rawRows
     return base ? inOneUnit(base, displayUnit, storedUnit) : base
   }, [
     canOverlay,
     overlay.enabled,
     overlay.byPeriod,
+    overlay.fixByPeriod,
     rawRows,
     archiveType,
     displayUnit,

@@ -19,6 +19,8 @@ export interface EnterpriseDeviceVolume {
   temperature?: number | null
   pressure?: number | null
   pressure_unit?: string | null
+  /** Set when the totaliser was set back in this period — see domain/volumeFix. */
+  volume_fix?: 'zeroed' | 'hours' | null
 }
 
 /**
@@ -33,6 +35,9 @@ export interface EnterpriseRecord {
   total_volume?: number | null
   device_count?: number
   devices?: EnterpriseDeviceVolume[]
+  /** Devices whose totaliser was set back: day summed from hours / stored as 0. */
+  volume_fix_hours?: number
+  volume_fix_zeroed?: number
 }
 
 /**

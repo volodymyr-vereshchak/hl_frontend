@@ -11,6 +11,7 @@ import {
   type SortingState,
 } from '@tanstack/react-table'
 import { AggregateCell } from '@/components/AggregateCell'
+import { VolumeFixMark } from '@/components/VolumeFixMark'
 import { useStickyRowHeights } from '@/components/useMeasuredHeight'
 import { numericStyle } from '@/theme/theme'
 import { useLanguage } from '@/locales/LanguageContext'
@@ -19,6 +20,7 @@ import { getArchiveColumns, resolveEditName } from '@/domain/archiveColumns'
 import { PressureUnitPicker } from '@/components/PressureUnitPicker'
 import { DP_UNIT_DEFAULT, PRESSURE_UNIT_DEFAULT } from '@/domain/pressureUnits'
 import { formatEditValue } from '@/domain/valueConverter'
+import { cellFixMark } from '@/domain/volumeFix'
 import type { ArchiveType } from '@/types'
 import type { LineMeta } from '@/store/selectionStore'
 import type { ArchiveRow } from '@/api/entities'
@@ -137,13 +139,18 @@ export const ArchiveTable = memo(function ArchiveTable({
               return formatEditValue(raw == null ? null : Number(raw))
             }
             if (spec.key === 'sys_name' || spec.key === 'edit_name') return String(raw ?? '—')
+            // A volume that stands in for a set-back totaliser keeps its number
+            // and gains the reason (domain/volumeFix).
+            const mark = cellFixMark(spec.key, info.row.original, type === 'hourly' ? 'hourly' : 'daily')
+            const withMark = (content: React.ReactNode) =>
+              mark ? <VolumeFixMark mark={mark}>{content}</VolumeFixMark> : content
             // Daily volume drills down into that commercial day's hourly archive.
             if (spec.key === 'volume' && type === 'daily' && drillHref) {
               const day = String(info.row.original.period).slice(0, 10)
               // A real link, not an onClick: it opens in a new tab either way,
               // but this also gives middle-click, Ctrl+click and "copy link
               // address" for free, and reads as a link to a screen reader.
-              return (
+              return withMark(
                 <Anchor
                   href={drillHref(day)}
                   target="_blank"
@@ -153,10 +160,10 @@ export const ArchiveTable = memo(function ArchiveTable({
                   title="Відкрити годинний архів за цю добу в новій вкладці"
                 >
                   {fmtNumber(raw, decimalsFor(spec.key))}
-                </Anchor>
+                </Anchor>,
               )
             }
-            return fmtNumber(raw, decimalsFor(spec.key))
+            return withMark(fmtNumber(raw, decimalsFor(spec.key)))
           },
         }),
       ),
