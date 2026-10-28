@@ -145,7 +145,10 @@ export function SystemUpdateTab() {
   })
 
   const data = status.data
-  const lastCheck = check.data ?? data?.check ?? null
+  // Only the server's copy: it drops a check made before the installed commit
+  // or the branch moved, and a result kept here would outlive that — offering
+  // an update to what is already running.
+  const lastCheck = data?.check ?? null
   const busy = !!data?.busy || !!watch
   const blocker = updateBlocker(lastCheck, busy)
 
