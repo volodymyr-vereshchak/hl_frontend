@@ -17,12 +17,14 @@ const DEFAULT_API_URL = '/api'
 // ── Per-endpoint request timeouts ──────────────────────────────────────────
 const TIMEOUT_DPD = 610_000 // enterprise DPD polls — just above nginx's 600s
 const TIMEOUT_HEAVY = 120_000 // report generation
+const TIMEOUT_UPDATE_CHECK = 180_000 // fetching both repositories — above nginx's 170s
 const TIMEOUT_LIGHT = 12_000 // instant, high-frequency metadata/config
 const TIMEOUT_DEFAULT = 30_000 // archive data queries (daily/hourly/counts/…)
 
 function timeoutForEndpoint(endpoint: string): number {
   if (/^\/enterprise\/volumes/.test(endpoint)) return TIMEOUT_DPD
   if (/^\/get_report/.test(endpoint)) return TIMEOUT_HEAVY
+  if (/^\/system-update\/check/.test(endpoint)) return TIMEOUT_UPDATE_CHECK
   // Звірка ФХП rebuilds a step function per line per parameter over the range.
   if (/^\/gas_routes\/\d+\/fhp_report/.test(endpoint)) return TIMEOUT_HEAVY
   // Counting or clearing an archive range scans the archive tables — for a

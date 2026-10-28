@@ -20,8 +20,11 @@ import {
   IconPackageExport,
   IconAntennaBars5,
   IconDeviceLaptop,
+  IconCloudDownload,
 } from '@tabler/icons-react'
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { systemUpdateApi } from '@/api/systemUpdate'
 import { useAdminNavigation } from './adminNavigation'
 import { useUser } from '@/features/auth/UserContext'
 import {
@@ -45,6 +48,7 @@ import { UsersTab } from './tabs/UsersTab'
 import { BranchTransferTab } from './tabs/BranchTransferTab'
 import { PollAgentsTab } from './tabs/PollAgentsTab'
 import { PollDevicesTab } from './tabs/PollDevicesTab'
+import { SystemUpdateTab } from './tabs/SystemUpdateTab'
 
 interface TabDef {
   id: string
@@ -123,7 +127,22 @@ const GROUPS: GroupDef[] = [
   },
 ]
 
-const ALL_TABS = GROUPS.flatMap((g) => g.tabs)
+// Only where the backend says the updater is set up (UPDATER_ENABLED): the
+// Windows server runs without Docker and is updated by hand, and a tab there
+// would be a button that can only fail.
+const SYSTEM_UPDATE_TAB: TabDef = {
+  id: 'system-update',
+  label: 'Версія програми',
+  icon: <IconCloudDownload size={16} />,
+  element: <SystemUpdateTab />,
+}
+
+function withSystemUpdate(groups: GroupDef[], enabled: boolean): GroupDef[] {
+  if (!enabled) return groups
+  return groups.map((g) =>
+    g.label === 'Система' ? { ...g, tabs: [...g.tabs, SYSTEM_UPDATE_TAB] } : g,
+  )
+}
 
 export function AdminPage() {
   const { user } = useUser()
@@ -137,7 +156,18 @@ export function AdminPage() {
     if (wanted && wanted !== activeTab) setActiveTab(wanted)
   }, [wanted, activeTab, setActiveTab])
 
-  if (user?.role !== 'admin') {
+  const isAdmin = user?.role === 'admin'
+  const { data: updater } = useQuery({
+    queryKey: ['admin', 'system-update', 'enabled'],
+    queryFn: systemUpdateApi.enabled,
+    enabled: isAdmin,
+    staleTime: Infinity,
+    retry: false,
+  })
+  const groups = useMemo(() => withSystemUpdate(GROUPS, !!updater?.enabled), [updater?.enabled])
+  const allTabs = useMemo(() => groups.flatMap((g) => g.tabs), [groups])
+
+  if (!isAdmin) {
     return (
       <Alert color="red" variant="light" icon={<IconAlertTriangle size={16} />}>
         Доступ лише для адміністраторів
@@ -145,7 +175,7 @@ export function AdminPage() {
     )
   }
 
-  const active = ALL_TABS.find((t) => t.id === activeTab) ?? ALL_TABS[0]
+  const active = allTabs.find((t) => t.id === activeTab) ?? allTabs[0]
 
   return (
     <Box
@@ -163,7 +193,7 @@ export function AdminPage() {
       >
         <ScrollArea style={{ flex: 1 }} type="hover">
           <Box p={6}>
-            {GROUPS.map((group) => (
+            {groups.map((group) => (
               <Box key={group.label} mb={4}>
                 <Text size="xs" fw={700} tt="uppercase" c="dimmed" px="xs" py={6}>
                   {group.label}
