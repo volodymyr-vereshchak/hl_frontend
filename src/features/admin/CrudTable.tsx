@@ -474,6 +474,7 @@ export function CrudTable<T extends { id: number }, C = unknown>({
                 <NumberInput
                   key={f.key}
                   label={f.label}
+                  placeholder={f.placeholder}
                   value={value == null ? '' : Number(value)}
                   onChange={(v) => setForm({ ...form, [f.key]: v === '' ? null : Number(v) })}
                   required={f.required}

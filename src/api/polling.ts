@@ -120,6 +120,9 @@ export interface PollAgent {
   last_seen_at: string | null
   version: string | null
   host: string | null
+  /** How long this machine waits for a call to connect; null = the server's
+   *  default (90 s). A card can lengthen it for one site, never shorten. */
+  modem_connect_timeout_sec: number | null
   device_count: number
   /** Heard from within the last minute — decided by the server, by the same
    *  rule that refuses an immediate poll when no modem is free. */

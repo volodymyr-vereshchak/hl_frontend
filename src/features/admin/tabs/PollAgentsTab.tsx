@@ -26,6 +26,10 @@ const notifyErr = (e: Error) => notifications.show({ message: e.message, color: 
 
 const AGENTS_KEY = ['admin', 'poll-agents']
 
+/** What the server uses when an agent has no timeout of its own
+ *  (DEFAULT_CONNECT_TIMEOUT_SEC in polling_agent_ep.py). */
+const DEFAULT_CONNECT_TIMEOUT_SEC = 90
+
 /**
  * Агенти опитування — the machines allowed to dial meters.
  *
@@ -145,6 +149,7 @@ export function PollAgentsTab() {
             name: String(v.name ?? '').trim(),
             branch_id: v.branch_id ?? null,
             active: !!v.active,
+            modem_connect_timeout_sec: v.modem_connect_timeout_sec ?? null,
           })
         }
         remove={(id) => pollingApi.removeAgent(id)}
@@ -175,6 +180,23 @@ export function PollAgentsTab() {
             render: (a) => branchName(a.branch_id),
           },
           { key: 'active', label: 'Активний', type: 'checkbox' },
+          {
+            // On the agent, not on the site: how long a call takes to connect
+            // is decided by the calling modem and the operator of its SIM.
+            // Within one operator ~20 s; through another one's modem pool
+            // it takes longer.
+            key: 'modem_connect_timeout_sec',
+            label: 'Очікування з’єднання, с',
+            type: 'number',
+            numeric: true,
+            onlyOn: 'edit',
+            placeholder: `${DEFAULT_CONNECT_TIMEOUT_SEC} (типово)`,
+            render: (a) => (
+              <Text size="xs" c={a.modem_connect_timeout_sec == null ? 'dimmed' : undefined}>
+                {a.modem_connect_timeout_sec ?? DEFAULT_CONNECT_TIMEOUT_SEC}
+              </Text>
+            ),
+          },
           {
             key: 'device_count',
             label: 'Приладів',
