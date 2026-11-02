@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import {
+  ActionIcon,
   Alert,
   Badge,
   Box,
@@ -16,12 +17,14 @@ import {
   Table,
   Text,
   TextInput,
+  Tooltip,
 } from '@mantine/core'
 import {
   IconAlertTriangle,
   IconArrowLeft,
   IconChevronRight,
   IconCircleCheck,
+  IconEdit,
   IconFileSpreadsheet,
   IconPlayerStop,
   IconPlugConnectedX,
@@ -33,6 +36,8 @@ import { CheckboxFilter } from '@/components/CheckboxFilter'
 import { TablePagination } from '@/components/TablePagination'
 import { useStickyRowHeights } from '@/components/useMeasuredHeight'
 import { currentDevice, enterpriseLabel, type EnterpriseMappingRow } from '@/api/enterprise'
+import { useUser } from '@/features/auth/UserContext'
+import { enterpriseEditHref } from '@/features/admin/adminNavigation'
 import { useLanguage } from '@/locales/LanguageContext'
 import { numericStyle } from '@/theme/theme'
 import type { UnpolledFilters } from './unpolledFilters'
@@ -140,6 +145,7 @@ export function UnpolledReport({
   onRefresh,
 }: UnpolledReportProps) {
   const { t, getLocale } = useLanguage()
+  const isAdmin = useUser().user?.role === 'admin'
   // Everything below counts, filters and sorts rows; with no result yet there
   // is nothing to count, and an empty list says that without a second branch
   // through each of the eight memos.
@@ -515,7 +521,7 @@ export function UnpolledReport({
                     <Table.Th ta="center">{t('channelNumber')}</Table.Th>
                     <Table.Th>{t('lineName')}</Table.Th>
                     <Table.Th ta="center">{t('status')}</Table.Th>
-                    <Table.Th w={28} />
+                    <Table.Th w={isAdmin ? 56 : 28} />
                   </Table.Tr>
                 </Table.Thead>
                 <Table.Tbody>
@@ -562,7 +568,29 @@ export function UnpolledReport({
                           </Badge>
                         </td>
                         <td className="hlv-cell" style={{ paddingLeft: 0, paddingRight: 6 }}>
-                          <IconChevronRight size={13} color="var(--mantine-color-steel-6)" />
+                          <Group gap={4} wrap="nowrap" justify="flex-end">
+                            {/* In a tab of its own, so the report — which took
+                                a while to check — stays where it is while the
+                                card is fixed. The row itself still selects the
+                                enterprise for polling. */}
+                            {isAdmin && (
+                              <Tooltip label={t('editInAdmin')} withArrow>
+                                <ActionIcon
+                                  component="a"
+                                  href={enterpriseEditHref(m.id)}
+                                  target="_blank"
+                                  rel="noopener"
+                                  size="sm"
+                                  variant="subtle"
+                                  aria-label={t('editInAdmin')}
+                                  onClick={(e: React.MouseEvent) => e.stopPropagation()}
+                                >
+                                  <IconEdit size={14} />
+                                </ActionIcon>
+                              </Tooltip>
+                            )}
+                            <IconChevronRight size={13} color="var(--mantine-color-steel-6)" />
+                          </Group>
                         </td>
                       </Table.Tr>
                     )

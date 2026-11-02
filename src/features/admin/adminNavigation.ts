@@ -24,6 +24,16 @@ interface AdminNavigation {
   taken: () => void
 }
 
+/**
+ * The same request from another browser tab, where the store is empty: the
+ * admin page reads this parameter once, hands it to the store and drops it
+ * from the address, so a reload does not reopen the form.
+ */
+export const EDIT_ENTERPRISE_PARAM = 'edit-enterprise'
+
+/** A link that opens the enterprise's card for editing in the admin. */
+export const enterpriseEditHref = (id: number) => `/admin?${EDIT_ENTERPRISE_PARAM}=${id}`
+
 export const useAdminNavigation = create<AdminNavigation>((set) => ({
   tab: null,
   enterpriseId: null,

@@ -25,7 +25,8 @@ import {
 import { useEffect, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { systemUpdateApi } from '@/api/systemUpdate'
-import { useAdminNavigation } from './adminNavigation'
+import { useSearchParams } from 'react-router-dom'
+import { EDIT_ENTERPRISE_PARAM, useAdminNavigation } from './adminNavigation'
 import { useUser } from '@/features/auth/UserContext'
 import {
   BranchesTab,
@@ -155,6 +156,18 @@ export function AdminPage() {
   useEffect(() => {
     if (wanted && wanted !== activeTab) setActiveTab(wanted)
   }, [wanted, activeTab, setActiveTab])
+
+  // The same, arriving by link from another browser tab (enterpriseEditHref).
+  const [params, setParams] = useSearchParams()
+  const openEnterprise = useAdminNavigation((s) => s.openEnterprise)
+  useEffect(() => {
+    const id = Number(params.get(EDIT_ENTERPRISE_PARAM))
+    if (!params.has(EDIT_ENTERPRISE_PARAM)) return
+    if (Number.isInteger(id) && id > 0) openEnterprise(id)
+    const next = new URLSearchParams(params)
+    next.delete(EDIT_ENTERPRISE_PARAM)
+    setParams(next, { replace: true })
+  }, [params, setParams, openEnterprise])
 
   const isAdmin = user?.role === 'admin'
   const { data: updater } = useQuery({
