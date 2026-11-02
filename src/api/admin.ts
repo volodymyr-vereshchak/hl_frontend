@@ -496,9 +496,11 @@ export interface EnterpriseGsm {
    *  set up in every other respect and is never polled. Several mean a shared
    *  queue: whichever agent asks first takes it, the rest skip it. */
   agent_ids: number[]
-  /** What a Floutek ТМ-2 asks for in its archive requests — the vendor's
-   *  default "11" unless the corrector was set otherwise. */
+  /** Ask2's «Код користувача»: what a Floutek ПК-В or ВР-2 asks for in its
+   *  archive requests — the vendor's default "11" unless set otherwise. */
   password: string
+  /** Ask2's «Пароль на запис», sent with the code; empty when none is set. */
+  write_password: string
 }
 
 /** What ДПД says the modem number of a site is. */

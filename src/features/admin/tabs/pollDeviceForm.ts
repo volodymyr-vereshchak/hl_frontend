@@ -50,6 +50,19 @@ export function phoneError(raw: unknown): string | null {
     : 'Очікується український номер: +380XXXXXXXXX'
 }
 
+/**
+ * Any Floutek, by the model on the card. Which of them wants a user code —
+ * ПК-В and ВР-2, by the vendor's drivers — is told only by the platform byte
+ * the corrector sends on the call, so the card asks every Floutek.
+ */
+export const FLOUTEK_MODEL = /ФЛОУТЕК|FLOUTEK|FLOUTEC|ПК-В/i
+
+/** Four bytes in the request; the server refuses a longer code. */
+export const USER_CODE_MAX = 4
+
+/** The twelve bytes in front of the code. */
+export const WRITE_PASSWORD_MAX = 12
+
 /** "HH:MM" slots, sorted and without duplicates; null = the global hours. */
 export function normalisePollTimes(raw: unknown): string[] | null {
   if (raw == null) return null

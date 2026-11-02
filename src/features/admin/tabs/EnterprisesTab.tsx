@@ -60,7 +60,9 @@ import { LoadingState } from '@/components/LoadingState'
 import { DeviceHistoryEditor, DeviceHistoryModal } from '../DeviceHistoryModal'
 import { describeCron } from '@/domain/cronSchedule'
 import { PollCronField } from '../PollCronField'
-import { phoneError } from './pollDeviceForm'
+import {
+  FLOUTEK_MODEL, USER_CODE_MAX, WRITE_PASSWORD_MAX, phoneError,
+} from './pollDeviceForm'
 import { useAdminNavigation } from '../adminNavigation'
 import { CheckboxFilter } from '@/components/CheckboxFilter'
 import { pollingApi } from '@/api/polling'
@@ -90,6 +92,7 @@ type FormState = {
    *  stays. Empty means there is none and the site is not dialled. */
   gsm_phone: string
   gsm_password: string
+  gsm_write_password: string
   gsm_agent_ids: string[]
   gsm_auto_poll: boolean
   /** "HH:MM" slots. Empty means the hours set globally. */
@@ -106,6 +109,7 @@ const EMPTY: FormState = {
   enabled: true,
   gsm_phone: '',
   gsm_password: '11',
+  gsm_write_password: '',
   gsm_agent_ids: [],
   gsm_auto_poll: false,
   gsm_poll_cron: '',
@@ -368,6 +372,7 @@ export function EnterprisesTab() {
     gsm: {
       phone: f.gsm_phone.trim() || null,
       password: f.gsm_password.trim() || '11',
+      write_password: f.gsm_write_password.trim(),
       agent_ids: f.gsm_agent_ids.map(Number),
       auto_poll: f.gsm_auto_poll,
       poll_cron: f.gsm_poll_cron.trim() || null,
@@ -409,16 +414,15 @@ export function EnterprisesTab() {
     setForm(EMPTY)
   }
 
-  /** Whether the corrector fitted now speaks ПК-В — a Floutek ТМ-2, or a
-   *  ПК-В itself — the only protocol here that carries a password. A ТМ-1
-   *  has none, so its card does not ask for one. Hidden for the rest, like
-   *  the timeouts: a field nobody needs collects typos. */
+  /** Whether the corrector fitted now is a Floutek, the only family here
+   *  whose requests carry a user code. Hidden for the rest, like the
+   *  timeouts: a field nobody needs collects typos. */
   const fittedSpeaksPkv = useMemo(() => {
     const fitted = [...form.devices].reverse().find((d) => !d.removed_date)
     const type = (corectorTypes ?? []).find(
       (c) => String(c.id) === String(fitted?.corector_type_id ?? ''),
     )
-    return /ФЛОУТЕК-ТМ-2|FLOUTEK-TM-2|ПК-В/i.test(type?.model_name ?? '')
+    return FLOUTEK_MODEL.test(type?.model_name ?? '')
   }, [form.devices, corectorTypes])
 
   /** ДПД's modem number for the site being edited, put into the field. */
@@ -469,6 +473,7 @@ export function EnterprisesTab() {
       enabled: e.enabled,
       gsm_phone: e.gsm?.phone ?? '',
       gsm_password: e.gsm?.password ?? '11',
+      gsm_write_password: e.gsm?.write_password ?? '',
       gsm_agent_ids: (e.gsm?.agent_ids ?? []).map(String),
       gsm_auto_poll: e.gsm?.auto_poll ?? false,
       gsm_poll_cron: e.gsm?.poll_cron ?? '',
@@ -707,15 +712,25 @@ export function EnterprisesTab() {
           />
           {fittedSpeaksPkv && (
             <TextInput
-              label="Пароль приладу"
+              label="Код користувача"
               size="xs"
-              w={130}
+              w={150}
               value={form.gsm_password}
               onChange={(e) => setForm({ ...form, gsm_password: e.currentTarget.value })}
-              // A Floutek ТМ-2 asks for it in every archive request. The fleet
-              // keeps the vendor's default, which is why it starts filled in.
-              description="ПК-В (Флоутек ТМ-2); типово 11"
-              maxLength={14}
+              maxLength={USER_CODE_MAX}
+              disabled={!form.gsm_phone.trim()}
+            />
+          )}
+          {fittedSpeaksPkv && (
+            // Ask2 sends both in every ПК-В and ВР-2 archive request: the
+            // write password first, then the code.
+            <TextInput
+              label="Пароль на запис"
+              size="xs"
+              w={150}
+              value={form.gsm_write_password}
+              onChange={(e) => setForm({ ...form, gsm_write_password: e.currentTarget.value })}
+              maxLength={WRITE_PASSWORD_MAX}
               disabled={!form.gsm_phone.trim()}
             />
           )}

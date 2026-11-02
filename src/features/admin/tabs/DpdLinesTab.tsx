@@ -40,7 +40,9 @@ import { deviceCatalogApi, dpdLineAdminApi, type DpdJobStatus } from '@/api/admi
 import { pollingApi, type PollDevice } from '@/api/polling'
 import { CheckboxFilter } from '@/components/CheckboxFilter'
 import { PollCronField } from '../PollCronField'
-import { phoneError } from './pollDeviceForm'
+import {
+  FLOUTEK_MODEL, USER_CODE_MAX, WRITE_PASSWORD_MAX, phoneError,
+} from './pollDeviceForm'
 import type { DpdLine } from '@/types'
 import { invalidateTopology } from '@/lib/invalidateTopology'
 import { numericStyle } from '@/theme/theme'
@@ -96,6 +98,7 @@ interface FormState {
    *  number belongs to the thing being metered, not to the machine dialling. */
   gsm_phone: string
   gsm_password: string
+  gsm_write_password: string
   gsm_agent_ids: string[]
   gsm_auto_poll: boolean
   gsm_poll_cron: string
@@ -110,6 +113,7 @@ const EMPTY: FormState = {
   devices: [],
   gsm_phone: '',
   gsm_password: '11',
+  gsm_write_password: '',
   gsm_agent_ids: [],
   gsm_auto_poll: false,
   gsm_poll_cron: '',
@@ -352,13 +356,13 @@ export function DpdLinesTab() {
     [agents],
   )
 
-  //: A password is asked for only where it is asked of the corrector: the
-  //: ПК-В dialect of a Флоутек ТМ-2. Every other family ignores it.
+  //: A user code is asked for only where the corrector is a Floutek; every
+  //: other family ignores it.
   const speaksPkv = useMemo(
     () =>
       form.devices.some((d) => {
         const model = ctById.get(Number(d.corector_type_id))?.model_name ?? ''
-        return /ФЛОУТЕК-ТМ-2|FLOUTEK-TM-2|ПК-В/i.test(model)
+        return FLOUTEK_MODEL.test(model)
       }),
     [form.devices, ctById],
   )
@@ -374,6 +378,7 @@ export function DpdLinesTab() {
       pressure_unit: line.pressure_unit || PRESSURE_UNIT_DEFAULT,
       gsm_phone: line.gsm?.phone ?? '',
       gsm_password: line.gsm?.password || '11',
+      gsm_write_password: line.gsm?.write_password ?? '',
       gsm_agent_ids: (line.gsm?.agent_ids ?? []).map(String),
       gsm_auto_poll: line.gsm?.auto_poll ?? false,
       gsm_poll_cron: line.gsm?.poll_cron ?? '',
@@ -427,6 +432,7 @@ export function DpdLinesTab() {
       gsm: {
         phone: form.gsm_phone.trim() || null,
         password: form.gsm_password.trim() || '11',
+        write_password: form.gsm_write_password.trim(),
         agent_ids: form.gsm_agent_ids.map(Number),
         auto_poll: form.gsm_auto_poll,
         poll_cron: form.gsm_poll_cron.trim() || null,
@@ -651,13 +657,23 @@ export function DpdLinesTab() {
               />
               {speaksPkv && (
                 <TextInput
-                  label="Пароль приладу"
+                  label="Код користувача"
                   size="xs"
-                  w={130}
+                  w={150}
                   value={form.gsm_password}
                   onChange={(e) => setForm({ ...form, gsm_password: e.currentTarget.value })}
-                  description="ПК-В (Флоутек ТМ-2); типово 11"
-                  maxLength={14}
+                  maxLength={USER_CODE_MAX}
+                  disabled={!form.gsm_phone.trim()}
+                />
+              )}
+              {speaksPkv && (
+                <TextInput
+                  label="Пароль на запис"
+                  size="xs"
+                  w={150}
+                  value={form.gsm_write_password}
+                  onChange={(e) => setForm({ ...form, gsm_write_password: e.currentTarget.value })}
+                  maxLength={WRITE_PASSWORD_MAX}
                   disabled={!form.gsm_phone.trim()}
                 />
               )}

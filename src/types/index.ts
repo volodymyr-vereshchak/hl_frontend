@@ -108,6 +108,7 @@ export interface DpdLine {
     poll_cron: string | null
     agent_ids: number[]
     password: string
+    write_password: string
   } | null
   /** The newest hour and day this line's archive holds, from whichever source
    *  wrote them. What «is this line up to date» is answered by — the refresh
