@@ -75,6 +75,10 @@ export function GsmPollPanel({ enterpriseId, enterpriseName, runKey }: Props) {
 
     let alive = true
     let seq = 0
+    // The session the lines on screen belong to. Lines are numbered by their
+    // place in the session's file, so the next call numbers from one again,
+    // and "after 40" would hide its first forty lines until a reload.
+    let session: string | null = null
     // One request at a time.
     //
     // The tick fires every second; on a slow link a request takes longer than
@@ -88,16 +92,26 @@ export function GsmPollPanel({ enterpriseId, enterpriseName, runKey }: Props) {
       if (inFlight) return
       inFlight = true
       try {
-        const next = await enterprisePollApi.watch(enterpriseId, seq)
+        let next = await enterprisePollApi.watch(enterpriseId, seq)
         if (!alive) return
+        if (next.session && next.session !== session) {
+          if (session !== null || seq > 0) {
+            seq = 0
+            setLines([])
+            next = await enterprisePollApi.watch(enterpriseId, 0)
+            if (!alive) return
+          }
+          session = next.session
+        }
         setWatch(next)
         if (next.lines.length) {
           seq = next.lines[next.lines.length - 1].seq
           // And belt as well as braces: a line already on the screen is
           // dropped by its sequence number, whatever asked for it.
+          const arrived = next.lines
           setLines((have) => {
             const known = new Set(have.map((line) => line.seq))
-            const fresh = next.lines.filter((line) => !known.has(line.seq))
+            const fresh = arrived.filter((line) => !known.has(line.seq))
             return fresh.length ? [...have, ...fresh] : have
           })
         }
@@ -124,6 +138,9 @@ export function GsmPollPanel({ enterpriseId, enterpriseName, runKey }: Props) {
   }, [lines.length])
 
   const running = watch?.status === 'waiting' || watch?.status === 'polling'
+  // The journal of a call that is over, not of one under way: said, so that
+  // opening the site does not read as a poll already running.
+  const history = !running && (watch?.status === 'ok' || watch?.status === 'error')
   const done = watch?.done ?? 0
   const total = watch?.total ?? 0
 
@@ -249,12 +266,23 @@ export function GsmPollPanel({ enterpriseId, enterpriseName, runKey }: Props) {
         </Text>
       )}
 
+      {history && lines.length > 0 && (
+        <Text size="xs" c="dimmed">
+          Журнал останнього опитування
+          {watch?.finished_at
+            ? ` · ${new Date(watch.finished_at).toLocaleString('uk-UA')}`
+            : ''}
+        </Text>
+      )}
+
       <Paper withBorder p="xs" style={{ flex: 1, minHeight: 0 }}>
         <ScrollArea h="100%" type="auto">
           <Stack gap={2}>
             {lines.length === 0 && (
               <Text size="xs" c="dimmed">
-                Журнал сеансу з'явиться, щойно агент почне дзвонити.
+                {watch?.status === 'idle'
+                  ? 'Ще не опитувалось.'
+                  : "Журнал сеансу з'явиться, щойно агент почне дзвонити."}
               </Text>
             )}
             {lines.map((line) => (
@@ -301,6 +329,13 @@ function StatusBadge({
     return (
       <Badge size="xs" color="red" variant="light">
         помилка
+      </Badge>
+    )
+  }
+  if (status === 'idle') {
+    return (
+      <Badge size="xs" color="gray" variant="light">
+        не опитувалось
       </Badge>
     )
   }

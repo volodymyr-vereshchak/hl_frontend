@@ -255,10 +255,11 @@ export interface PollLogLine {
 
 export interface PollWatch {
   poll_device_id: number
-  /** waiting — the request is in, nobody has picked it up yet;
+  /** idle — never polled and nothing asked for;
+   *  waiting — the request is in, nobody has picked it up yet;
    *  polling — an agent holds the device and is on the phone;
    *  ok / error — how the last session ended. */
-  status: 'waiting' | 'polling' | 'ok' | 'error'
+  status: 'idle' | 'waiting' | 'polling' | 'ok' | 'error'
   /** Who is on the line now, or who made the call that just ended. Null while
    *  the request is still queued — nobody has taken it yet. */
   agent_name: string | null
@@ -279,6 +280,8 @@ export interface PollWatch {
   phase: 'hourly' | 'daily' | null
   /** Somebody asked this call to stop and the agent has not hung up yet. */
   cancelling: boolean
+  /** Which session `lines` belong to; a new one starts the journal over. */
+  session: string | null
   lines: PollLogLine[]
 }
 
