@@ -29,7 +29,12 @@ export interface RepoCheck {
   remote?: CommitInfo
   ahead?: number
   commits?: CommitInfo[]
+  /** Tracked files edited on the server: reset only when asked, copies kept. */
   dirty?: string[]
+  /** Added to the index on the server, never committed: unstaged by the update itself. */
+  unstage?: string[]
+  /** Untracked files where the update brings its own: moved aside when asked. */
+  collisions?: string[]
   diverged?: boolean
   migrations?: boolean
   image_rebuild?: boolean
@@ -41,6 +46,11 @@ export interface UpdateCheck {
   repos: Partial<Record<RepoKind, RepoCheck>>
   /** Each blocks the update until it is dealt with on the server. */
   problems: string[]
+  /**
+   * Blocks the plain update, but the updater can clear it itself: reset the
+   * files edited on the server after saving copies. Absent in old checks.
+   */
+  resolvable?: string[]
   /** Worth knowing before pressing «Оновити», blocks nothing. */
   notes: string[]
 }
@@ -108,8 +118,8 @@ export const systemUpdateApi = {
   enabled: () => api.get<{ enabled: boolean }>('/system-update/enabled'),
   status: () => api.get<UpdaterStatus>('/system-update/status'),
   check: () => api.post<UpdateCheck>('/system-update/check'),
-  start: (target: Partial<Record<RepoKind, string>>) =>
-    api.post<StartedUpdate>('/system-update/start', { target }),
+  start: (target: Partial<Record<RepoKind, string>>, discardLocal = false) =>
+    api.post<StartedUpdate>('/system-update/start', { target, discard_local: discardLocal }),
   saveConfig: (repos: Record<RepoKind, RepoConfig>, token: string | null) =>
     api.put<UpdaterConfig>('/system-update/config', { repos, token }),
   history: () => api.get<UpdateJobSummary[]>('/system-update/history'),

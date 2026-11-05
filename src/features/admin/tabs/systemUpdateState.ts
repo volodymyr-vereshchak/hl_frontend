@@ -34,18 +34,29 @@ export function updateTarget(check: UpdateCheck): Partial<Record<RepoKind, strin
 /** A check older than this is asked again before it is acted on. */
 export const CHECK_STALE_MS = 30 * 60 * 1000
 
-/** Why «Оновити» is greyed out, or null when it may be pressed. */
+/**
+ * Why «Оновити» is greyed out, or null when it may be pressed. With
+ * `discardLocal` it answers for «Скинути зміни та оновити»: files edited on
+ * the server are then no obstacle.
+ */
 export function updateBlocker(
   check: UpdateCheck | null | undefined,
   busy: boolean,
   now = Date.now(),
+  discardLocal = false,
 ): string | null {
   if (busy) return 'Оновлення вже виконується'
   if (!check) return 'Спершу перевірте, чи є оновлення'
   if (check.problems.length) return 'Є перешкоди — див. вище'
+  if (!discardLocal && hasLocalChanges(check)) return 'На сервері змінено файли — див. вище'
   if (pendingCommits(check) === 0) return 'Нових змін немає'
   if (checkIsStale(check, now)) return 'Перевірка застаріла — перевірте ще раз'
   return null
+}
+
+/** Edits on the server that only «Скинути зміни та оновити» gets past. */
+export function hasLocalChanges(check: UpdateCheck | null | undefined): boolean {
+  return !!check?.resolvable?.length
 }
 
 export function checkIsStale(check: UpdateCheck | null | undefined, now = Date.now()): boolean {

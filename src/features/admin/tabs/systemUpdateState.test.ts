@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { CommitInfo, UpdateCheck } from '@/api/systemUpdate'
-import { checkIsStale, pendingCommits, updateBlocker, updateTarget } from './systemUpdateState'
+import { checkIsStale, hasLocalChanges, pendingCommits, updateBlocker, updateTarget } from './systemUpdateState'
 
 const commit = (sha: string): CommitInfo => ({
   sha,
@@ -58,6 +58,17 @@ describe('updateBlocker', () => {
     const nothing = check()
     nothing.repos.backend!.ahead = 0
     expect(updateBlocker(nothing, false, NOW)).toMatch(/Нових змін немає/)
+  })
+
+  it('lets edits on the server through only when they are to be reset', () => {
+    const edited = check({ resolvable: ['Бекенд: на сервері змінено файли проєкту: a.CFG'] })
+    expect(hasLocalChanges(edited)).toBe(true)
+    expect(updateBlocker(edited, false, NOW)).toMatch(/змінено файли/)
+    expect(updateBlocker(edited, false, NOW, true)).toBeNull()
+    // A problem the updater cannot clear blocks either way.
+    expect(updateBlocker({ ...edited, problems: ['diverged'] }, false, NOW, true)).toMatch(/перешкоди/)
+    // Checks stored before the field existed.
+    expect(hasLocalChanges(check())).toBe(false)
   })
 
   it('asks for a new check when the last one is old', () => {

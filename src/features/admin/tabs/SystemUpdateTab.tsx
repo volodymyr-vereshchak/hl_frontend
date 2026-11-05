@@ -52,6 +52,7 @@ import {
   REPO_LABEL,
   RESULT_META,
   formatDate,
+  hasLocalChanges,
   pendingCommits,
   updateBlocker,
   updateTarget,
@@ -139,7 +140,8 @@ export function SystemUpdateTab() {
   })
 
   const start = useMutation({
-    mutationFn: (c: UpdateCheck) => systemUpdateApi.start(updateTarget(c)),
+    mutationFn: ({ check: c, discardLocal }: { check: UpdateCheck; discardLocal: boolean }) =>
+      systemUpdateApi.start(updateTarget(c), discardLocal),
     onSuccess: (started) => setWatch({ jobId: started.job_id, token: started.watch_token }),
     onError: notifyErr,
   })
@@ -151,13 +153,15 @@ export function SystemUpdateTab() {
   const lastCheck = data?.check ?? null
   const busy = !!data?.busy || !!watch
   const blocker = updateBlocker(lastCheck, busy)
+  const discardBlocker = updateBlocker(lastCheck, busy, Date.now(), true)
 
-  const confirmStart = (c: UpdateCheck) =>
+  const confirmStart = (c: UpdateCheck, discardLocal = false) =>
     modals.openConfirmModal({
-      title: 'Оновити програму?',
-      children: <ConfirmText check={c} />,
-      labels: { confirm: 'Оновити', cancel: 'Скасувати' },
-      onConfirm: () => start.mutate(c),
+      title: discardLocal ? 'Скинути зміни на сервері та оновити?' : 'Оновити програму?',
+      children: <ConfirmText check={c} discardLocal={discardLocal} />,
+      labels: { confirm: discardLocal ? 'Скинути та оновити' : 'Оновити', cancel: 'Скасувати' },
+      confirmProps: discardLocal ? { color: 'orange' } : undefined,
+      onConfirm: () => start.mutate({ check: c, discardLocal }),
     })
 
   return (
@@ -219,7 +223,14 @@ export function SystemUpdateTab() {
             ))}
           </SimpleGrid>
 
-          {lastCheck && <CheckFindings check={lastCheck} />}
+          {lastCheck && (
+            <CheckFindings
+              check={lastCheck}
+              discardBlocker={discardBlocker}
+              discarding={start.isPending}
+              onDiscard={() => confirmStart(lastCheck, true)}
+            />
+          )}
           {lastCheck && pendingCommits(lastCheck) > 0 && <WhatsNew check={lastCheck} />}
 
           <RepoSettings status={data} disabled={busy} onSaved={refresh} />
@@ -234,13 +245,31 @@ export function SystemUpdateTab() {
   )
 }
 
-function ConfirmText({ check }: { check: UpdateCheck }) {
+function ConfirmText({ check, discardLocal }: { check: UpdateCheck; discardLocal: boolean }) {
   const parts = REPO_KINDS.filter((k) => (check.repos[k]?.ahead ?? 0) > 0).map(
     (k) => `${REPO_LABEL[k].toLowerCase()} — ${check.repos[k]!.ahead} змін`,
   )
+  const discarded = discardLocal
+    ? REPO_KINDS.flatMap((k) => [...(check.repos[k]?.dirty ?? []), ...(check.repos[k]?.collisions ?? [])])
+    : []
   return (
     <Stack gap={6}>
       <Text size="sm">Буде встановлено: {parts.join(', ')}.</Text>
+      {discarded.length > 0 && (
+        <>
+          <Text size="sm" c="orange.7">
+            Змінені на сервері файли буде повернуто до версії з git, файли, що заважають, —
+            прибрано. Їх копії збережуться в каталозі update/local-changes на сервері.
+          </Text>
+          <ScrollArea.Autosize mah={140}>
+            <Stack gap={2}>
+              {discarded.map((f) => (
+                <Code key={f}>{f}</Code>
+              ))}
+            </Stack>
+          </ScrollArea.Autosize>
+        </>
+      )}
       {check.repos.backend?.ahead ? (
         <Text size="sm">
           Перед заміною буде зроблено копію бази, планувальник зупиниться на час оновлення.
@@ -361,8 +390,20 @@ function CommitLine({
   )
 }
 
-function CheckFindings({ check }: { check: UpdateCheck }) {
-  if (!check.problems.length && !check.notes.length) return null
+function CheckFindings({
+  check,
+  discardBlocker,
+  discarding,
+  onDiscard,
+}: {
+  check: UpdateCheck
+  /** Why «Скинути зміни та оновити» cannot be pressed now, or null. */
+  discardBlocker: string | null
+  discarding: boolean
+  onDiscard: () => void
+}) {
+  const resolvable = check.resolvable ?? []
+  if (!check.problems.length && !resolvable.length && !check.notes.length) return null
   return (
     <Stack gap="xs">
       {check.problems.map((p) => (
@@ -370,6 +411,35 @@ function CheckFindings({ check }: { check: UpdateCheck }) {
           {p}
         </Alert>
       ))}
+      {hasLocalChanges(check) && (
+        <Alert color="orange" variant="light" icon={<IconAlertTriangle size={16} />}>
+          <Stack gap="xs">
+            {resolvable.map((p) => (
+              <Text key={p} size="sm">
+                {p}
+              </Text>
+            ))}
+            <Text size="xs" c="dimmed">
+              Оновлення може скинути ці зміни саме — перед цим копії файлів буде збережено на
+              сервері (update/local-changes).
+            </Text>
+            <Group>
+              <Tooltip label={discardBlocker} disabled={!discardBlocker}>
+                <Button
+                  size="xs"
+                  color="orange"
+                  leftSection={<IconCloudDownload size={16} />}
+                  onClick={onDiscard}
+                  loading={discarding}
+                  disabled={!!discardBlocker}
+                >
+                  Скинути зміни на сервері та оновити
+                </Button>
+              </Tooltip>
+            </Group>
+          </Stack>
+        </Alert>
+      )}
       {check.notes.map((n) => (
         <Alert key={n} color="blue" variant="light" icon={<IconInfoCircle size={16} />}>
           {n}
