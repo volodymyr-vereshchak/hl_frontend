@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { nightRowsFromMap, type NetMap } from './nightConsumption'
-import { calculateTrendPercentages } from './grsTrends'
+import { calculateTrends } from './grsTrends'
 import type { ArchiveRow } from '@/api/entities'
 
 /**
@@ -25,7 +25,7 @@ describe('period ordering', () => {
       { line_id: 1, period: '2026-05-01', volume: 10 },
       { line_id: 1, period: '2026-05-02', volume: 20 },
     ]
-    const points = calculateTrendPercentages(rows, [], 'daily')
+    const { points } = calculateTrends(rows, [], 'daily')
     expect(points.map((p) => p.period)).toEqual(['2026-05-01', '2026-05-02', '2026-05-03'])
   })
 
@@ -35,7 +35,7 @@ describe('period ordering', () => {
       { line_id: 1, period: '2026-05-01T09:00:00', volume: 1 },
       { line_id: 1, period: '2026-05-02T07:00:00', volume: 2 },
     ]
-    const points = calculateTrendPercentages(rows, [], 'hourly')
+    const { points } = calculateTrends(rows, [], 'hourly')
     expect(points.map((p) => p.period)).toEqual([
       '2026-05-01T09',
       '2026-05-01T21',
