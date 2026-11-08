@@ -67,6 +67,27 @@ describe('grs trends', () => {
     expect(isOutside(twenty[4], 9)).toBe(false)
   })
 
+  it('a line total is taken only over the days every GRS has', () => {
+    // Line 9 lost its archive for the last 4 of 20 days (Новомиколаївка
+    // after 03.11). Counted on its own 16 days it sat above everybody.
+    const rows = [...branch(4, 20), ...series(9, 16, () => 100)]
+    const points = calculateTrendPercentages(rows, [], 'daily')
+    const stats = trendLineStats(points, [1, 2, 3, 4, 9])
+    for (const lid of [1, 2, 3, 4, 9]) expect(stats.get(lid)!.outside).toBe(0)
+    expect(points[0].line_9).toBeCloseTo(points[0].line_1 as number)
+    expect(points[0].line_1).toBeCloseTo(100 / 16)
+    // The median still covers the last days, over the lines that have them.
+    expect(points[19].median).toBeCloseTo(points[19].line_1 as number)
+  })
+
+  it('a line with data for under half the range does not wipe out the rest', () => {
+    const rows = [...branch(4, 20), ...series(9, 5, () => 100)]
+    const points = calculateTrendPercentages(rows, [], 'daily')
+    // The four full lines keep all 20 days in their totals.
+    expect(points[0].line_1).toBeCloseTo(5)
+    expect(points[19].line_1).toBeCloseTo(5)
+  })
+
   it('no corridor with fewer than three lines', () => {
     const points = calculateTrendPercentages(branch(2, 5), [], 'daily')
     expect(points[0].band).toBeUndefined()

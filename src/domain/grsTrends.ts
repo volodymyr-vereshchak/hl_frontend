@@ -16,6 +16,8 @@
  * - One corridor for the whole branch: in every period, the median share of
  *   all GRS and a band of normal spread around it. A GRS outside the band
  *   behaves unlike the rest of the branch in that period.
+ * - A line's total is taken over the periods every GRS has data for, so a
+ *   GRS missing days is not lifted above the others on the days it has.
  */
 import { buildEnterpriseByLinePeriod, enterprisePeriodKey, type PeriodType } from './enterpriseVolumes'
 import type { EnterpriseRecord } from '@/api/enterprise'
@@ -48,6 +50,8 @@ const SIGMAS = 3
 const MAD_SIGMA = 1.4826
 /** Floor of the auto half-width, % of the median: identical lines give MAD 0. */
 const MIN_HALF_WIDTH_PCT = 5
+/** A line with data for less than this share of the range's periods is 'partial'. */
+const MIN_COVERAGE = 0.5
 
 export const shareKey = (lid: number) => `line_${lid}`
 
@@ -112,6 +116,21 @@ export function calculateTrendPercentages(
     m.set(key, (m.get(key) ?? 0) + Math.max(0, gs - ent))
   }
 
+  // Which periods a line's TOTAL is taken over: only those every line has
+  // data for. A line missing days would otherwise divide by a smaller total
+  // and sit above the branch on all its other days (Новомиколаївка with no
+  // archive after 03.11). A line covering under half of the range would wipe
+  // out most periods for everybody, so it keeps its own total and stays out
+  // of the median and the corridor.
+  const allPeriods = new Set<string>()
+  for (const values of byLine.values()) for (const k of values.keys()) allPeriods.add(k)
+  const core = [...byLine.keys()].filter(
+    (lid) => byLine.get(lid)!.size >= allPeriods.size * MIN_COVERAGE,
+  )
+  const complete = new Set(
+    [...allPeriods].filter((k) => core.every((lid) => byLine.get(lid)!.has(k))),
+  )
+
   const points = new Map<string, TrendPoint>()
   const used: number[] = []
   for (const [lid, values] of byLine) {
@@ -122,9 +141,11 @@ export function calculateTrendPercentages(
       const b = level.get(k)!
       return b > 0 && (v > b * OUTLIER_FACTOR || v < b / OUTLIER_FACTOR)
     }
-    const total = keys.reduce((s, k) => s + (isOutlier(k) ? level.get(k)! : values.get(k)!), 0)
+    const inCore = core.includes(lid) && complete.size > 0
+    const counted = inCore ? keys.filter((k) => complete.has(k)) : keys
+    const total = counted.reduce((s, k) => s + (isOutlier(k) ? level.get(k)! : values.get(k)!), 0)
     if (total <= 0) continue
-    used.push(lid)
+    if (inCore) used.push(lid)
 
     const key = shareKey(lid)
     for (const k of keys) {
@@ -138,7 +159,7 @@ export function calculateTrendPercentages(
     }
   }
 
-  // The branch corridor, period by period.
+  // The branch corridor, period by period, over the lines that have it.
   for (const p of points.values()) {
     const vals: [number, number][] = []
     for (const lid of used) {

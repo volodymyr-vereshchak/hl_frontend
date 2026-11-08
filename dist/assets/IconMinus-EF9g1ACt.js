@@ -1,1 +1,0 @@
-import{m as e}from"./index-B3H34pZ_.js";var t=e(`outline`,`minus`,`Minus`,[[`path`,{d:`M5 12l14 0`,key:`svg-0`}]]);export{t};
