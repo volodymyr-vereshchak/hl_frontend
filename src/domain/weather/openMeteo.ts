@@ -18,6 +18,13 @@ import { distanceKm, type LatLon } from './coords'
 
 export const ARCHIVE_URL = 'https://archive-api.open-meteo.com/v1/archive'
 export const POINTS_PER_REQUEST = 10
+export const FORECAST_URL = 'https://api.open-meteo.com/v1/forecast'
+/** The forecast API's maximum horizon; the first days are the reliable ones. */
+export const FORECAST_DAYS = 16
+/** Past days taken with the forecast: the week the archive has not published. */
+export const FORECAST_PAST_DAYS = 7
+/** Gaps closer than this join one request (see planRequests). */
+export const MERGE_GAP_DAYS = 30
 /**
  * The reanalysis is published with a delay of several days and the archive
  * API refuses an end date past what it has, so requests stop this many days
@@ -88,12 +95,18 @@ export function archiveUrl(points: LatLon[], kind: WeatherKind, start: string, e
   return `${ARCHIVE_URL}?${p.toString().replace(/%2C/g, ',').replace(/%2F/g, '/')}`
 }
 
+const dayNum = (iso: string) => Date.parse(`${iso}T00:00:00Z`) / 86_400_000
+
 /**
- * The requests that close the given gaps. Points go in fixed groups of
- * POINTS_PER_REQUEST by their position in the id-sorted list — the same
- * grouping every time, which is what lets an uploaded file be matched back.
- * Each group asks for the span from its earliest to its latest gap, cut into
- * calendar years; days it already has are simply overwritten.
+ * The requests that close the given gaps — the same plan the server builds
+ * (plan_requests in backend/services/weather_refresh.py).
+ *
+ * Points go in fixed groups of POINTS_PER_REQUEST by their position in the
+ * id-sorted list. Within a group the gaps of all its points are merged into
+ * segments (runs closer than MERGE_GAP_DAYS join one), and a segment is asked
+ * for only for the points that have a gap in it — one old missing day costs a
+ * request for that day, not a re-download of everything since. Segments are
+ * cut into calendar years and clipped to lastDay.
  */
 export function planRequests(
   gaps: { daily: { first: string; last: string }[]; hourly: { first: string; last: string }[] }[],
@@ -102,21 +115,55 @@ export function planRequests(
   const out: WeatherRequest[] = []
   for (const kind of ['daily', 'hourly'] as const) {
     for (let g = 0; g < gaps.length; g += POINTS_PER_REQUEST) {
-      const idx = Array.from({ length: Math.min(POINTS_PER_REQUEST, gaps.length - g) }, (_, i) => g + i)
-      const runs = idx.flatMap((i) => gaps[i][kind])
-      if (runs.length === 0) continue
-      const start = runs.map((r) => r.first).sort()[0]
-      let end = runs.map((r) => r.last).sort().at(-1)!
-      if (end > lastDay) end = lastDay
-      if (start > end) continue
-      for (let y = Number(start.slice(0, 4)); y <= Number(end.slice(0, 4)); y++) {
-        const s = y === Number(start.slice(0, 4)) ? start : `${y}-01-01`
-        const e = y === Number(end.slice(0, 4)) ? end : `${y}-12-31`
-        out.push({ kind, pointIndexes: idx, start: s, end: e })
+      const runs: { first: string; last: string; i: number }[] = []
+      for (let i = g; i < Math.min(g + POINTS_PER_REQUEST, gaps.length); i++) {
+        for (const r of gaps[i][kind]) {
+          if (r.first <= lastDay) runs.push({ first: r.first, last: r.last > lastDay ? lastDay : r.last, i })
+        }
+      }
+      runs.sort((a, b) => (a.first < b.first ? -1 : a.first > b.first ? 1 : a.i - b.i))
+      const segments: { first: string; last: string; idx: Set<number> }[] = []
+      for (const r of runs) {
+        const seg = segments.at(-1)
+        if (seg && dayNum(r.first) - dayNum(seg.last) <= MERGE_GAP_DAYS) {
+          if (r.last > seg.last) seg.last = r.last
+          seg.idx.add(r.i)
+        } else {
+          segments.push({ first: r.first, last: r.last, idx: new Set([r.i]) })
+        }
+      }
+      for (const seg of segments) {
+        const idx = [...seg.idx].sort((a, b) => a - b)
+        const y0 = Number(seg.first.slice(0, 4))
+        const y1 = Number(seg.last.slice(0, 4))
+        for (let y = y0; y <= y1; y++) {
+          out.push({
+            kind,
+            pointIndexes: idx,
+            start: y === y0 ? seg.first : `${y}-01-01`,
+            end: y === y1 ? seg.last : `${y}-12-31`,
+          })
+        }
       }
     }
   }
   return out
+}
+
+/** Forecast for a group of points: the past week (until the archive has it)
+ *  and FORECAST_DAYS ahead, daily and hourly in one request. */
+export function forecastUrl(points: LatLon[]): string {
+  const p = new URLSearchParams({
+    latitude: points.map((x) => x.lat.toFixed(5)).join(','),
+    longitude: points.map((x) => x.lon.toFixed(5)).join(','),
+    daily: Object.keys(DAILY_VARS).join(','),
+    hourly: Object.keys(HOURLY_VARS).join(','),
+    timezone: 'Europe/Kyiv',
+    wind_speed_unit: 'ms',
+    past_days: String(FORECAST_PAST_DAYS),
+    forecast_days: String(FORECAST_DAYS),
+  })
+  return `${FORECAST_URL}?${p.toString().replace(/%2C/g, ',').replace(/%2F/g, '/')}`
 }
 
 // ── parsing ────────────────────────────────────────────────────────────────
@@ -256,25 +303,28 @@ export function parseWeatherFile(text: string): ParsedLocation[] {
 }
 
 /**
- * Which point each location of a file belongs to. First by order: the file
- * came from one of our requests, so its locations are a run of the id-sorted
- * points, starting at a group boundary — accepted when every location lies
- * within MATCH_TOLERANCE_KM of its point. Failing that (a file from somewhere
- * else, or the point list changed since), each location goes to the nearest
- * point within tolerance. null = no point is close enough.
+ * Which point each location of a file belongs to. First by order: a file from
+ * one of our requests lists its locations in the order of that request's
+ * points. `candidates` are the index lists of the requests on offer now (the
+ * current plan); the first one whose points all lie within
+ * MATCH_TOLERANCE_KM of the locations wins — coordinates alone cannot tell
+ * two GRS in one grid cell apart. Failing that (an older plan, a file from
+ * elsewhere), each location goes to the nearest point within tolerance.
+ * null = no point is close enough.
  */
-export function matchLocations(locations: LatLon[], points: LatLon[]): (number | null)[] {
+export function matchLocations(
+  locations: LatLon[],
+  points: LatLon[],
+  candidates: number[][] = [],
+): (number | null)[] {
   const n = locations.length
-  const fits = (start: number) =>
-    locations.every((l, i) => distanceKm(l, points[start + i]) <= MATCH_TOLERANCE_KM)
-  const starts = Array.from({ length: Math.max(0, points.length - n + 1) }, (_, i) => i)
   // A single location says nothing by its order: it goes to the nearest point.
-  const start =
-    n > 1
-      ? (starts.find((s) => s % POINTS_PER_REQUEST === 0 && fits(s)) ?? starts.find(fits))
-      : undefined
-  if (start !== undefined) return locations.map((_, i) => start + i)
-
+  if (n > 1) {
+    const fits = (idx: number[]) =>
+      idx.length === n && idx.every((pi, i) => points[pi] && distanceKm(locations[i], points[pi]) <= MATCH_TOLERANCE_KM)
+    const hit = candidates.find(fits)
+    if (hit) return [...hit]
+  }
   return locations.map((l) => {
     let best: number | null = null
     let bestD = MATCH_TOLERANCE_KM

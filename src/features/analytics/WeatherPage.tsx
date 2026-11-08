@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useLocalStorage } from '@mantine/hooks'
 import {
+  Badge,
   Box,
   Group,
   Paper,
@@ -24,6 +25,7 @@ import {
   YAxis,
 } from 'recharts'
 import { weatherApi, type WeatherPoint } from '@/api/weather'
+import { FORECAST_DAYS } from '@/domain/weather/openMeteo'
 import type { PeriodType } from '@/domain/enterpriseVolumes'
 import { TablePagination } from '@/components/TablePagination'
 import { PeriodPicker } from '@/features/archive/PeriodPicker'
@@ -42,12 +44,44 @@ type WeatherChart = 'temp' | 'humid' | 'precip' | 'sun'
 /** Heating degree-days base, °C — the usual one for gas. */
 const HDD_BASE = 18
 
+const isoDay = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+
+/** Two months back and the forecast horizon ahead, so the forecast shows at once. */
 function defaultRange() {
   const now = new Date()
   const from = new Date(now)
   from.setDate(from.getDate() - 60)
-  const iso = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
-  return { from: iso(from), to: iso(now) }
+  const to = new Date(now)
+  to.setDate(to.getDate() + FORECAST_DAYS - 1)
+  return { from: isoDay(from), to: isoDay(to) }
+}
+
+/** Series the charts draw, each split into a history and a forecast half. */
+const SERIES = ['t_mean', 'temperature', 'tBand', 'humidity', 'cloud_cover', 'precipitation', 'wind_max', 'wind_speed', 'radiation']
+
+/**
+ * Chart rows: every value also lands under `<key>_h` (history) or `<key>_fc`
+ * (forecast), so the forecast can be drawn dashed. The last history row
+ * repeats into the forecast half — otherwise the dashed line would start a
+ * step after the solid one ends and leave a hole between them. The plain keys
+ * stay for the tooltip.
+ */
+function splitBySource(rows: Row[]): Row[] {
+  const out = rows.map((r) => {
+    const fc = r.source === 'forecast'
+    const x: Row = { ...r }
+    for (const k of SERIES) {
+      if (r[k] === undefined || r[k] === null) continue
+      x[`${k}_${fc ? 'fc' : 'h'}`] = r[k]
+    }
+    return x
+  })
+  const firstFc = out.findIndex((r) => r.source === 'forecast')
+  if (firstFc > 0) {
+    const bridge = out[firstFc - 1]
+    for (const k of SERIES) if (bridge[`${k}_h`] !== undefined) bridge[`${k}_fc`] = bridge[`${k}_h`]
+  }
+  return out
 }
 
 interface Row {
@@ -144,21 +178,30 @@ export function WeatherPage() {
   const tempKey = type === 'daily' ? 't_mean' : 'temperature'
   const hasWeather = !!rows?.some((r) => typeof r[tempKey] === 'number')
 
+  const chartRows = useMemo(() => (rows ? splitBySource(rows) : []), [rows])
   const summary = useMemo(() => {
     if (!rows) return null
-    const temps = rows.map((r) => r[tempKey]).filter((v): v is number => typeof v === 'number')
-    const mins = rows.map((r) => r[type === 'daily' ? 't_min' : 'temperature']).filter((v): v is number => typeof v === 'number')
-    const maxs = rows.map((r) => r[type === 'daily' ? 't_max' : 'temperature']).filter((v): v is number => typeof v === 'number')
-    const precip = rows.reduce((s, r) => s + (typeof r.precipitation === 'number' ? r.precipitation : 0), 0)
+    // What happened only: a forecast in the means would pass for fact.
+    const hist = rows.filter((r) => r.source !== 'forecast')
+    const fcTemps = rows
+      .filter((r) => r.source === 'forecast')
+      .map((r) => r[tempKey])
+      .filter((v): v is number => typeof v === 'number')
+    const temps = hist.map((r) => r[tempKey]).filter((v): v is number => typeof v === 'number')
+    const mins = hist.map((r) => r[type === 'daily' ? 't_min' : 'temperature']).filter((v): v is number => typeof v === 'number')
+    const maxs = hist.map((r) => r[type === 'daily' ? 't_max' : 'temperature']).filter((v): v is number => typeof v === 'number')
+    const precip = hist.reduce((s, r) => s + (typeof r.precipitation === 'number' ? r.precipitation : 0), 0)
     // Degree-days from daily means; hourly ones from the hours, /24.
-    const hdd =
-      temps.reduce((s, v) => s + Math.max(HDD_BASE - v, 0), 0) / (type === 'daily' ? 1 : 24)
+    const degreeDays = (vs: number[]) =>
+      vs.reduce((s, v) => s + Math.max(HDD_BASE - v, 0), 0) / (type === 'daily' ? 1 : 24)
+    const hdd = degreeDays(temps)
     return {
       mean: temps.length ? temps.reduce((a, b) => a + b, 0) / temps.length : null,
       min: mins.length ? Math.min(...mins) : null,
       max: maxs.length ? Math.max(...maxs) : null,
       precip,
       hdd,
+      hddForecast: fcTemps.length ? degreeDays(fcTemps) : null,
       days: type === 'daily' ? temps.length : temps.length / 24,
     }
   }, [rows, tempKey, type])
@@ -174,9 +217,10 @@ export function WeatherPage() {
 
   const exportExcel = () => {
     if (!rows || !shown) return
-    const header = [t('weatherRange'), ...columns.map((c) => `${t(c.label)}, ${c.unit}`)]
+    const header = [t('weatherRange'), t('weatherSource'), ...columns.map((c) => `${t(c.label)}, ${c.unit}`)]
     const body = rows.map((r) => [
       fmtLabel(r.period),
+      t(r.source === 'forecast' ? 'weatherSourceForecast' : 'weatherSourceArchive'),
       ...columns.map((c) => (typeof r[c.key] === 'number' ? Number((r[c.key] as number).toFixed(c.digits)) : '')),
     ])
     void writeSheet(`weather_${shown.point.name}_${from}_${to}`, 'Погода', [header, ...body])
@@ -192,7 +236,14 @@ export function WeatherPage() {
     sun: dark ? '#ffd43b' : '#f2b705',
     humid: dark ? '#63e6be' : '#12b886',
     cloud: dark ? '#868e96' : '#868e96',
+    today: dark ? '#e6edf0' : '#22313a',
   }
+  // The "today" mark: the day, or the current hour, if the period holds it.
+  const now = new Date()
+  const todayKey = type === 'daily' ? isoDay(now) : `${isoDay(now)}T${pad(now.getHours())}`
+  const showToday = !!rows?.some((r) => r.period === todayKey)
+  const FC_DASH = '5 4'
+
   const tickInterval = rows ? Math.max(0, Math.ceil(rows.length / 20) - 1) : 0
   const xAxis = (withTicks: boolean) => (
     <XAxis
@@ -297,12 +348,15 @@ export function WeatherPage() {
 
       {rows && rows.length > 0 && summary && (
         <>
-          <SimpleGrid cols={{ base: 2, sm: 3, md: 5 }} spacing="sm">
+          <SimpleGrid cols={{ base: 2, sm: 3, md: summary.hddForecast != null ? 6 : 5 }} spacing="sm">
             <Stat label={t('weatherTMean')} value={summary.mean} unit="°C" digits={1} color={c.temp} />
             <Stat label={t('weatherTMin')} value={summary.min} unit="°C" digits={1} />
             <Stat label={t('weatherTMax')} value={summary.max} unit="°C" digits={1} />
             <Stat label={t('weatherHdd')} value={summary.hdd} unit="" digits={0} />
             <Stat label={t('weatherPrecipitation')} value={summary.precip} unit=" мм" digits={1} color={c.rain} />
+            {summary.hddForecast != null && (
+              <Stat label={t('weatherHddForecast')} value={summary.hddForecast} unit="" digits={0} />
+            )}
           </SimpleGrid>
 
           <Paper withBorder radius="md" p="md">
@@ -330,7 +384,7 @@ export function WeatherPage() {
 
             {view === 'chart' ? (
               <ResponsiveContainer width="100%" height={480}>
-                <ComposedChart data={rows} margin={chartMargin}>
+                <ComposedChart data={chartRows} margin={chartMargin}>
                   <CartesianGrid stroke={c.grid} strokeDasharray="3 3" />
                   {xAxis(true)}
                   {tooltip}
@@ -338,10 +392,19 @@ export function WeatherPage() {
                   {activeChart === 'temp' && (
                     <ReferenceLine yAxisId="t" y={0} stroke={c.axis} strokeDasharray="4 4" />
                   )}
+                  {showToday && (
+                    <ReferenceLine
+                      yAxisId={{ temp: 't', humid: 'p', precip: 'mm', sun: 'r' }[activeChart]}
+                      x={todayKey}
+                      stroke={c.today}
+                      strokeWidth={1.5}
+                      label={{ value: t('weatherToday'), position: 'insideTopLeft', fill: c.today, fontSize: 11 }}
+                    />
+                  )}
                   {activeChart === 'temp' && type === 'daily' && (
                     <Area
                       yAxisId="t"
-                      dataKey="tBand"
+                      dataKey="tBand_h"
                       stroke="none"
                       fill={c.band}
                       fillOpacity={1}
@@ -349,12 +412,36 @@ export function WeatherPage() {
                       isAnimationActive={false}
                     />
                   )}
+                  {activeChart === 'temp' && type === 'daily' && (
+                    <Area
+                      yAxisId="t"
+                      dataKey="tBand_fc"
+                      stroke="none"
+                      fill={c.band}
+                      fillOpacity={0.5}
+                      activeDot={false}
+                      isAnimationActive={false}
+                    />
+                  )}
                   {activeChart === 'temp' && (
                     <Line
                       yAxisId="t"
-                      dataKey={tempKey}
+                      dataKey={`${tempKey}_h`}
                       stroke={c.temp}
                       strokeWidth={2}
+                      dot={false}
+                      connectNulls={false}
+                      isAnimationActive={false}
+                    />
+                  )}
+                  {activeChart === 'temp' && (
+                    <Line
+                      yAxisId="t"
+                      dataKey={`${tempKey}_fc`}
+                      stroke={c.temp}
+                      strokeWidth={2}
+                      strokeDasharray={FC_DASH}
+                      strokeOpacity={0.8}
                       dot={false}
                       connectNulls={false}
                       isAnimationActive={false}
@@ -365,7 +452,7 @@ export function WeatherPage() {
                   {activeChart === 'humid' && (
                     <Area
                       yAxisId="p"
-                      dataKey="cloud_cover"
+                      dataKey="cloud_cover_h"
                       stroke="none"
                       fill={c.cloud}
                       fillOpacity={0.25}
@@ -373,11 +460,32 @@ export function WeatherPage() {
                     />
                   )}
                   {activeChart === 'humid' && (
+                    <Area
+                      yAxisId="p"
+                      dataKey="cloud_cover_fc"
+                      stroke="none"
+                      fill={c.cloud}
+                      fillOpacity={0.12}
+                      isAnimationActive={false}
+                    />
+                  )}
+                  {activeChart === 'humid' && (
                     <Line
                       yAxisId="p"
-                      dataKey="humidity"
+                      dataKey="humidity_h"
                       stroke={c.humid}
                       strokeWidth={1.5}
+                      dot={false}
+                      isAnimationActive={false}
+                    />
+                  )}
+                  {activeChart === 'humid' && (
+                    <Line
+                      yAxisId="p"
+                      dataKey="humidity_fc"
+                      stroke={c.humid}
+                      strokeWidth={1.5}
+                      strokeDasharray={FC_DASH}
                       dot={false}
                       isAnimationActive={false}
                     />
@@ -386,14 +494,34 @@ export function WeatherPage() {
                   {activeChart === 'precip' && yAxis('mm', '')}
                   {activeChart === 'precip' && yAxis('ms', '', 'right')}
                   {activeChart === 'precip' && (
-                    <Bar yAxisId="mm" dataKey="precipitation" fill={c.rain} isAnimationActive={false} />
+                    <Bar yAxisId="mm" dataKey="precipitation_h" fill={c.rain} isAnimationActive={false} />
+                  )}
+                  {activeChart === 'precip' && (
+                    <Bar
+                      yAxisId="mm"
+                      dataKey="precipitation_fc"
+                      fill={c.rain}
+                      fillOpacity={0.4}
+                      isAnimationActive={false}
+                    />
                   )}
                   {activeChart === 'precip' && (
                     <Line
                       yAxisId="ms"
-                      dataKey={type === 'daily' ? 'wind_max' : 'wind_speed'}
+                      dataKey={type === 'daily' ? 'wind_max_h' : 'wind_speed_h'}
                       stroke={c.wind}
                       strokeWidth={1.5}
+                      dot={false}
+                      isAnimationActive={false}
+                    />
+                  )}
+                  {activeChart === 'precip' && (
+                    <Line
+                      yAxisId="ms"
+                      dataKey={type === 'daily' ? 'wind_max_fc' : 'wind_speed_fc'}
+                      stroke={c.wind}
+                      strokeWidth={1.5}
+                      strokeDasharray={FC_DASH}
                       dot={false}
                       isAnimationActive={false}
                     />
@@ -403,10 +531,21 @@ export function WeatherPage() {
                   {activeChart === 'sun' && (
                     <Area
                       yAxisId="r"
-                      dataKey="radiation"
+                      dataKey="radiation_h"
                       stroke={c.sun}
                       fill={c.sun}
                       fillOpacity={0.3}
+                      isAnimationActive={false}
+                    />
+                  )}
+                  {activeChart === 'sun' && (
+                    <Area
+                      yAxisId="r"
+                      dataKey="radiation_fc"
+                      stroke={c.sun}
+                      strokeDasharray={FC_DASH}
+                      fill={c.sun}
+                      fillOpacity={0.12}
                       isAnimationActive={false}
                     />
                   )}
@@ -419,6 +558,7 @@ export function WeatherPage() {
                     <Table.Thead>
                       <Table.Tr>
                         <Table.Th>{t('weatherRange')}</Table.Th>
+                        <Table.Th>{t('weatherSource')}</Table.Th>
                         {columns.map((col) => (
                           <Table.Th key={col.key} ta="right">
                             {t(col.label)}, {col.unit}
@@ -428,11 +568,26 @@ export function WeatherPage() {
                     </Table.Thead>
                     <Table.Tbody>
                       {pageRows.map((r) => (
-                        <Table.Tr key={r.period}>
+                        <Table.Tr
+                          key={r.period}
+                          // A forecast row reads as provisional at a glance.
+                          style={r.source === 'forecast' ? { opacity: 0.7, fontStyle: 'italic' } : undefined}
+                        >
                           <Table.Td>
                             <Text size="xs" ff="monospace">
                               {fmtLabel(r.period)}
                             </Text>
+                          </Table.Td>
+                          <Table.Td>
+                            {r.source === 'forecast' ? (
+                              <Badge size="xs" color="grape" variant="light">
+                                {t('weatherSourceForecast')}
+                              </Badge>
+                            ) : (
+                              <Text size="xs" c="dimmed">
+                                {t('weatherSourceArchive')}
+                              </Text>
+                            )}
                           </Table.Td>
                           {columns.map((col) => (
                             <Table.Td key={col.key} ta="right">
@@ -510,9 +665,16 @@ function WeatherTooltip({ row, columns, label }: { row: Row; columns: Column[]; 
         minWidth: 200,
       }}
     >
-      <Text size="xs" fw={600} mb={4}>
-        {label}
-      </Text>
+      <Group gap="xs" mb={4} justify="space-between" wrap="nowrap">
+        <Text size="xs" fw={600}>
+          {label}
+        </Text>
+        {row.source === 'forecast' && (
+          <Badge size="xs" color="grape" variant="light">
+            {t('weatherSourceForecast')}
+          </Badge>
+        )}
+      </Group>
       {columns.map((col) =>
         typeof row[col.key] === 'number' ? (
           <Group key={col.key} gap="md" justify="space-between" wrap="nowrap">

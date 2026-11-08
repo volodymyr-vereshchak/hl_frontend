@@ -22,8 +22,21 @@ export interface WeatherPoint {
   latitude: number
   longitude: number
   lines: WeatherLineRef[]
+  /** Archive coverage only — a forecast does not make a day "have weather". */
   daily: WeatherCoverage
   hourly: WeatherCoverage
+  /** Last day the stored forecast reaches, and when it was fetched. */
+  forecast_until: string | null
+  forecast_updated_at: string | null
+}
+
+/** 'archive' — ERA5 reanalysis (what happened); 'forecast' — replaced by the
+ *  archive once the day is published. */
+export type WeatherSource = 'archive' | 'forecast'
+export interface WeatherStored {
+  point_id: number
+  source: WeatherSource
+  updated_at: string | null
 }
 
 export interface WeatherPointInput {
@@ -75,20 +88,26 @@ export const weatherApi = {
   remove: (id: number) => api.delete<void>(`/weather/points/${id}`),
   plan: (branchId: number, from?: string, to?: string) =>
     api.get<WeatherPlan>('/weather/plan', { branch_id: branchId, date_from: from, date_to: to }),
-  import: (pointId: number, daily: WeatherDailyRow[], hourly: WeatherHourlyRow[]) =>
+  import: (
+    pointId: number,
+    daily: WeatherDailyRow[],
+    hourly: WeatherHourlyRow[],
+    source: WeatherSource = 'archive',
+  ) =>
     api.post<{ daily: number; hourly: number }>('/weather/import', {
       point_id: pointId,
+      source,
       daily,
       hourly,
     }),
   daily: (pointIds: number[], from: string, to: string) =>
-    api.get<(WeatherDailyRow & { point_id: number })[]>('/weather/daily', {
+    api.get<(WeatherDailyRow & WeatherStored)[]>('/weather/daily', {
       point_id: pointIds,
       date_from: from,
       date_to: to,
     }),
   hourly: (pointIds: number[], from: string, to: string) =>
-    api.get<(WeatherHourlyRow & { point_id: number })[]>('/weather/hourly', {
+    api.get<(WeatherHourlyRow & WeatherStored)[]>('/weather/hourly', {
       point_id: pointIds,
       date_from: from,
       date_to: to,

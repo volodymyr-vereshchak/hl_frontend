@@ -168,6 +168,7 @@ export function WeatherPointsPage() {
                   <Table.Th>{t('weatherLines')}</Table.Th>
                   <Table.Th>{t('weatherCoverageDaily')}</Table.Th>
                   <Table.Th>{t('weatherCoverageHourly')}</Table.Th>
+                  <Table.Th>{t('weatherForecastUntil')}</Table.Th>
                   {isAdmin && <Table.Th />}
                 </Table.Tr>
               </Table.Thead>
@@ -207,6 +208,21 @@ export function WeatherPointsPage() {
                     </Table.Td>
                     <Table.Td>{coverage(p.daily)}</Table.Td>
                     <Table.Td>{coverage(p.hourly)}</Table.Td>
+                    <Table.Td>
+                      {p.forecast_until ? (
+                        <Text
+                          size="xs"
+                          ff="monospace"
+                          title={p.forecast_updated_at ? new Date(p.forecast_updated_at).toLocaleString() : undefined}
+                        >
+                          {p.forecast_until}
+                        </Text>
+                      ) : (
+                        <Text size="xs" c="dimmed">
+                          {t('weatherNone')}
+                        </Text>
+                      )}
+                    </Table.Td>
                     {isAdmin && (
                       <Table.Td>
                         <Group gap={4} wrap="nowrap" justify="flex-end">

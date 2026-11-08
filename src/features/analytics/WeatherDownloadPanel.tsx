@@ -31,11 +31,14 @@ import {
   type WeatherDailyRow,
   type WeatherHourlyRow,
   type WeatherPoint,
+  type WeatherSource,
 } from '@/api/weather'
 import {
   archiveLastDay,
   archiveUrl,
+  forecastUrl,
   matchLocations,
+  POINTS_PER_REQUEST,
   parseOpenMeteoJson,
   parseWeatherFile,
   planRequests,
@@ -52,14 +55,19 @@ const IMPORT_CHUNK = 2000
 const days = (r: DateRange[]) =>
   r.reduce((s, x) => s + (Date.parse(x.last) - Date.parse(x.first)) / 86_400_000 + 1, 0)
 
-async function importRows(pointId: number, daily: WeatherDailyRow[], hourly: WeatherHourlyRow[]) {
+async function importRows(
+  pointId: number,
+  daily: WeatherDailyRow[],
+  hourly: WeatherHourlyRow[],
+  source: WeatherSource = 'archive',
+) {
   let nd = 0
   let nh = 0
   for (let i = 0; i < daily.length; i += IMPORT_CHUNK) {
-    nd += (await weatherApi.import(pointId, daily.slice(i, i + IMPORT_CHUNK), [])).daily
+    nd += (await weatherApi.import(pointId, daily.slice(i, i + IMPORT_CHUNK), [], source)).daily
   }
   for (let i = 0; i < hourly.length; i += IMPORT_CHUNK) {
-    nh += (await weatherApi.import(pointId, [], hourly.slice(i, i + IMPORT_CHUNK))).hourly
+    nh += (await weatherApi.import(pointId, [], hourly.slice(i, i + IMPORT_CHUNK), source)).hourly
   }
   return { nd, nh }
 }
@@ -111,6 +119,50 @@ export function WeatherDownloadPanel({ branchId, points }: { branchId: number; p
       r.pointIndexes[0] + 1
     }–${r.pointIndexes.at(-1)! + 1}`
 
+  /** GET from Open-Meteo, its refusal reason or "no internet" as the error. */
+  const fetchLocations = async (url: string) => {
+    let text: string
+    try {
+      const resp = await fetch(url)
+      text = await resp.text()
+      if (!resp.ok) {
+        parseOpenMeteoJson(text) // throws with Open-Meteo's own reason
+        throw new Error(`Open-Meteo: HTTP ${resp.status}`)
+      }
+    } catch (e) {
+      if (e instanceof TypeError) throw new Error(t('weatherNoInternet'))
+      throw e
+    }
+    return parseOpenMeteoJson(text)
+  }
+
+  const downloadForecast = async () => {
+    setError(null)
+    const groups = Math.ceil(points.length / POINTS_PER_REQUEST)
+    setBusy({ done: 0, total: groups })
+    let nd = 0
+    let nh = 0
+    try {
+      for (let g = 0; g < groups; g++) {
+        const group = points.slice(g * POINTS_PER_REQUEST, (g + 1) * POINTS_PER_REQUEST)
+        const locs = await fetchLocations(forecastUrl(group.map((p) => ({ lat: p.latitude, lon: p.longitude }))))
+        for (const [i, loc] of locs.entries()) {
+          if (!group[i]) continue
+          const res = await importRows(group[i].id, loc.daily, loc.hourly, 'forecast')
+          nd += res.nd
+          nh += res.nh
+        }
+        setBusy({ done: g + 1, total: groups })
+      }
+      notifications.show({ color: 'teal', message: `${t('weatherForecastImported')}: ${nd} / ${nh}` })
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setBusy(null)
+      refresh()
+    }
+  }
+
   const downloadOnline = async () => {
     setError(null)
     setBusy({ done: 0, total: requests.length })
@@ -118,20 +170,7 @@ export function WeatherDownloadPanel({ branchId, points }: { branchId: number; p
     let nh = 0
     try {
       for (const [k, r] of requests.entries()) {
-        let text: string
-        try {
-          const resp = await fetch(urlOf(r, 'json'))
-          text = await resp.text()
-          if (!resp.ok) {
-            // Open-Meteo explains a refusal in the body: {"error":true,"reason":…}
-            parseOpenMeteoJson(text)
-            throw new Error(`Open-Meteo: HTTP ${resp.status}`)
-          }
-        } catch (e) {
-          if (e instanceof TypeError) throw new Error(t('weatherNoInternet'))
-          throw e
-        }
-        const locs = parseOpenMeteoJson(text)
+        const locs = await fetchLocations(urlOf(r, 'json'))
         // Online the order is ours: location i is the i-th point of the request.
         for (const [i, loc] of locs.entries()) {
           const point = points[r.pointIndexes[i]]
@@ -160,6 +199,7 @@ export function WeatherDownloadPanel({ branchId, points }: { branchId: number; p
         const idx = matchLocations(
           locations.map((l) => ({ lat: l.latitude, lon: l.longitude })),
           coords,
+          requests.map((r) => r.pointIndexes),
         )
         next.push({ file: f.name, locations, target: idx.map((i) => (i == null ? null : points[i].id)) })
       } catch (e) {
@@ -304,6 +344,16 @@ export function WeatherDownloadPanel({ branchId, points }: { branchId: number; p
             disabled={requests.length === 0}
           >
             {t('weatherOffline')}
+          </Button>
+          <Button
+            size="sm"
+            variant="light"
+            color="grape"
+            leftSection={<IconCloudDownload size={16} />}
+            onClick={downloadForecast}
+            loading={!!busy}
+          >
+            {t('weatherForecastDownload')}
           </Button>
           <FileButton onChange={(f) => void onFiles(f)} accept=".csv,.json,text/csv,application/json" multiple>
             {(props) => (

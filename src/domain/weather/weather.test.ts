@@ -3,6 +3,7 @@ import { parseCoordinates } from './coords'
 import {
   archiveLastDay,
   archiveUrl,
+  forecastUrl,
   matchLocations,
   parseOpenMeteoCsv,
   parseOpenMeteoJson,
@@ -105,17 +106,38 @@ describe('requests and matching', () => {
     expect(archiveLastDay(new Date(2026, 10, 8))).toBe('2026-11-01')
   })
 
-  it('groups points by ten, cuts by calendar year, clips to the archive end', () => {
+  it('asks only for the points with a gap, cut by calendar year, clipped to the archive end', () => {
     const gaps = Array.from({ length: 12 }, (_, i) => ({
       daily: i === 11 ? [{ first: '2026-03-01', last: '2026-03-05' }] : [],
       hourly: i === 0 ? [{ first: '2025-11-01', last: '2026-12-31' }] : [],
     }))
     const reqs = planRequests(gaps, '2026-11-01')
     expect(reqs).toEqual([
-      { kind: 'daily', pointIndexes: [10, 11], start: '2026-03-01', end: '2026-03-05' },
-      { kind: 'hourly', pointIndexes: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], start: '2025-11-01', end: '2025-12-31' },
-      { kind: 'hourly', pointIndexes: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], start: '2026-01-01', end: '2026-11-01' },
+      { kind: 'daily', pointIndexes: [11], start: '2026-03-01', end: '2026-03-05' },
+      { kind: 'hourly', pointIndexes: [0], start: '2025-11-01', end: '2025-12-31' },
+      { kind: 'hourly', pointIndexes: [0], start: '2026-01-01', end: '2026-11-01' },
     ])
+  })
+
+  it('one old gap is its own small request; near gaps of a group merge', () => {
+    const gaps = [
+      { daily: [{ first: '2025-03-10', last: '2025-03-10' }], hourly: [] },
+      { daily: [{ first: '2026-10-30', last: '2026-11-01' }], hourly: [] },
+      { daily: [{ first: '2026-10-31', last: '2026-11-01' }], hourly: [] },
+    ]
+    expect(planRequests(gaps, '2026-11-01')).toEqual([
+      { kind: 'daily', pointIndexes: [0], start: '2025-03-10', end: '2025-03-10' },
+      { kind: 'daily', pointIndexes: [1, 2], start: '2026-10-30', end: '2026-11-01' },
+    ])
+  })
+
+  it('builds a forecast URL for the past week and 16 days ahead', () => {
+    const url = forecastUrl([{ lat: 47.8, lon: 35.1 }])
+    expect(url).toContain('api.open-meteo.com/v1/forecast')
+    expect(url).toContain('past_days=7')
+    expect(url).toContain('forecast_days=16')
+    expect(url).toContain('daily=temperature_2m_mean')
+    expect(url).toContain('hourly=temperature_2m')
   })
 
   it('matches by order even when two points share one grid cell', () => {
@@ -129,7 +151,7 @@ describe('requests and matching', () => {
       { lat: 48.0, lon: 35.3 },
       { lat: 48.0, lon: 35.3 },
     ]
-    expect(matchLocations(cells, points)).toEqual([0, 1, 2])
+    expect(matchLocations(cells, points, [[0, 1, 2]])).toEqual([0, 1, 2])
   })
 
   it('falls back to the nearest point, and to nothing when too far', () => {
@@ -145,5 +167,21 @@ describe('requests and matching', () => {
     ]
     expect(matchLocations([{ lat: 47.849, lon: 35.149 }], close)).toEqual([1])
     expect(matchLocations([{ lat: 50, lon: 30 }], points)).toEqual([null])
+  })
+})
+
+describe('matching a file to a planned request', () => {
+  it('takes the request whose points fit, even a non-contiguous one', () => {
+    const points = [
+      { lat: 47.0, lon: 35.0 },
+      { lat: 48.0, lon: 35.3 },
+      { lat: 47.5, lon: 35.6 },
+      { lat: 48.0, lon: 35.3 }, // same cell as point 1
+    ]
+    const cells = [
+      { lat: 48.0, lon: 35.3 },
+      { lat: 48.0, lon: 35.3 },
+    ]
+    expect(matchLocations(cells, points, [[0, 2], [1, 3]])).toEqual([1, 3])
   })
 })
