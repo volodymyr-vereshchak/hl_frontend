@@ -1,1 +1,0 @@
-import{r as e}from"./rolldown-runtime-QTnfLwEv.js";import{pt as t}from"./vendor-mantine-CeJuMNPY.js";import{h as n,q as r}from"./TimeAxisTick-BY5BhWUd.js";var i=e(t()),a=[`axis`],o=(0,i.forwardRef)((e,t)=>i.createElement(n,{chartName:`LineChart`,defaultTooltipEventType:`axis`,validateTooltipEventTypes:a,tooltipPayloadSearcher:r,categoricalChartProps:e,ref:t}));export{o as t};
