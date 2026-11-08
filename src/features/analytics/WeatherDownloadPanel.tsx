@@ -5,6 +5,7 @@ import {
   Anchor,
   Badge,
   Button,
+  CloseButton,
   FileButton,
   Group,
   Paper,
@@ -315,9 +316,12 @@ export function WeatherDownloadPanel({ branchId, points }: { branchId: number; p
 
         {showLinks && requests.length > 0 && (
           <Paper withBorder radius="sm" p="sm" bg="var(--hlv-surface-2, transparent)">
-            <Text size="xs" c="dimmed" mb="xs">
-              {t('weatherOfflineHint')}
-            </Text>
+            <Group justify="space-between" align="flex-start" wrap="nowrap" gap="xs" mb="xs">
+              <Text size="xs" c="dimmed">
+                {t('weatherOfflineHint')}
+              </Text>
+              <CloseButton size="sm" onClick={() => setShowLinks(false)} aria-label={t('close')} />
+            </Group>
             <ScrollArea.Autosize mah={240}>
               <Stack gap={4}>
                 {requests.map((r, i) => (
