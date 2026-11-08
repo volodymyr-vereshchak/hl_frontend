@@ -28,6 +28,7 @@ import { useBranches, useBranchLines, useEnsureValidBranch, type ReportLine } fr
 import { useLanguage } from '@/locales/LanguageContext'
 import { useSelectionStore } from '@/store/selectionStore'
 import { WeatherDownloadPanel } from './WeatherDownloadPanel'
+import { WeatherAutoPanel } from './WeatherAutoPanel'
 
 export const weatherPointsKey = (branchId: number | null) => ['weather-points', branchId] as const
 
@@ -225,6 +226,8 @@ export function WeatherPointsPage() {
           </Table.ScrollContainer>
         )}
       </Paper>
+
+      {isAdmin && <WeatherAutoPanel />}
 
       {isAdmin && branchId != null && (points ?? []).length > 0 && (
         <WeatherDownloadPanel branchId={branchId} points={points!} />

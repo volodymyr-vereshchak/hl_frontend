@@ -94,3 +94,22 @@ export const weatherApi = {
       date_to: to,
     }),
 }
+
+/** The server-side daily download (backend/services/weather_refresh.py). */
+export interface WeatherAuto {
+  auto_enabled: boolean
+  refresh_time: string
+  status: 'idle' | 'running' | 'done' | 'error'
+  started_at: string | null
+  finished_at: string | null
+  error: string | null
+  /** "daily / hourly" rows the last run wrote. */
+  result: string | null
+}
+
+export const weatherAutoApi = {
+  get: () => api.get<WeatherAuto>('/weather/auto'),
+  save: (data: Partial<Pick<WeatherAuto, 'auto_enabled' | 'refresh_time'>>) =>
+    api.put<WeatherAuto>('/weather/auto', data),
+  runNow: () => api.post<WeatherAuto>('/weather/auto/run'),
+}
