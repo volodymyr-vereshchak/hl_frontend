@@ -2,6 +2,7 @@ import { AppShell, Group, Text, Button, Menu, Box, ScrollArea, ActionIcon, Toolt
 import {
   IconGauge,
   IconReportAnalytics,
+  IconChartDots3,
   IconSettings,
   IconChevronDown,
   IconKeyboard,
@@ -9,7 +10,7 @@ import {
 import { Suspense, useState } from 'react'
 import { NavLink as RouterNavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useRememberRoute } from '@/app/router'
-import { MAIN_NAV, REPORTS_NAV, type NavItem } from '@/app/navItems'
+import { ANALYTICS_NAV, MAIN_NAV, REPORTS_NAV, type NavItem } from '@/app/navItems'
 import { useHotkeys } from '@/lib/hotkeys'
 import { useLanguage } from '@/locales/LanguageContext'
 import { useUser } from '@/features/auth/UserContext'
@@ -72,6 +73,7 @@ export function AppShellLayout() {
   const reportsActive = REPORTS_NAV.some((item) => location.pathname === item.to)
   // Controlled so Alt+8 can open it; from there the arrows walk the items.
   const [reportsOpen, setReportsOpen] = useState(false)
+  const analyticsActive = ANALYTICS_NAV.some((item) => location.pathname === item.to)
   const [helpOpen, setHelpOpen] = useState(false)
   const isAdmin = user?.role === 'admin'
 
@@ -141,6 +143,36 @@ export function AppShellLayout() {
                   {/* Which report you are on is invisible once the menu closes,
                       so the open dropdown has to say it. */}
                   {REPORTS_NAV.map((item) => (
+                    <Menu.Item
+                      key={item.to}
+                      leftSection={item.icon}
+                      onClick={() => navigate(item.to)}
+                      c={location.pathname === item.to ? 'petrol' : undefined}
+                      fw={location.pathname === item.to ? 700 : undefined}
+                      bg={
+                        location.pathname === item.to
+                          ? 'var(--mantine-color-petrol-light)'
+                          : undefined
+                      }
+                    >
+                      {t(item.labelKey)}
+                    </Menu.Item>
+                  ))}
+                </Menu.Dropdown>
+              </Menu>
+
+              <Menu shadow="md" width={220} position="bottom-start">
+                <Menu.Target>
+                  <Button
+                    leftSection={<IconChartDots3 size={16} />}
+                    rightSection={<IconChevronDown size={14} />}
+                    {...navButtonProps(analyticsActive)}
+                  >
+                    {t('navAnalytics')}
+                  </Button>
+                </Menu.Target>
+                <Menu.Dropdown>
+                  {ANALYTICS_NAV.map((item) => (
                     <Menu.Item
                       key={item.to}
                       leftSection={item.icon}

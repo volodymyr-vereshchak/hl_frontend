@@ -12,6 +12,8 @@ import {
   IconCalculator,
   IconCalendar,
   IconChartHistogram,
+  IconCloud,
+  IconMapPin,
   IconClockHour4,
   IconFlask,
   IconGauge,
@@ -46,4 +48,10 @@ export const REPORTS_NAV: NavItem[] = [
   { to: '/reports/fhp-comparison', labelKey: 'fhpComparison', icon: <IconFlask size={16} /> },
   { to: '/reports/line-comparison', labelKey: 'lineComparison', icon: <IconGitCompare size={16} /> },
   { to: '/flow-calc', labelKey: 'navFlowCalc', icon: <IconCalculator size={16} /> },
+]
+
+/** The "Аналітика" dropdown: weather now, consumption models later. */
+export const ANALYTICS_NAV: NavItem[] = [
+  { to: '/analytics/weather', labelKey: 'navWeather', icon: <IconCloud size={16} /> },
+  { to: '/analytics/weather-points', labelKey: 'navWeatherPoints', icon: <IconMapPin size={16} /> },
 ]

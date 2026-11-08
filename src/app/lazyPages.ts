@@ -49,3 +49,9 @@ export const LineComparisonPage = lazy(() =>
 export const FlowCalcPage = lazy(() =>
   import('@/features/flow-calc/FlowCalcPage').then((m) => ({ default: m.FlowCalcPage })),
 )
+export const WeatherPage = lazy(() =>
+  import('@/features/analytics/WeatherPage').then((m) => ({ default: m.WeatherPage })),
+)
+export const WeatherPointsPage = lazy(() =>
+  import('@/features/analytics/WeatherPointsPage').then((m) => ({ default: m.WeatherPointsPage })),
+)

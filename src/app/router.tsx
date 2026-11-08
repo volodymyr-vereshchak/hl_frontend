@@ -5,6 +5,8 @@ import {
   AccidentsPage,
   AdminPage,
   ArchivePage,
+  WeatherPage,
+  WeatherPointsPage,
   EnterprisePollPage,
   FhpComparisonPage,
   FlowCalcPage,
@@ -43,6 +45,8 @@ const KNOWN_ROUTES = [
   '/reports/fhp-comparison',
   '/reports/line-comparison',
   '/flow-calc',
+  '/analytics/weather',
+  '/analytics/weather-points',
   '/admin',
 ]
 const isKnownRoute = (p: string) =>
@@ -89,6 +93,8 @@ export const router = createBrowserRouter([
       { path: 'reports/fhp-comparison', element: <FhpComparisonPage /> },
       { path: 'reports/line-comparison', element: <LineComparisonPage /> },
       { path: 'flow-calc', element: <FlowCalcPage /> },
+      { path: 'analytics/weather', element: <WeatherPage /> },
+      { path: 'analytics/weather-points', element: <WeatherPointsPage /> },
       { path: 'admin', element: <AdminPage /> },
       { path: '*', element: <Navigate to="/overview" replace /> },
     ],

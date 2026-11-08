@@ -278,3 +278,12 @@ table:has(.hlv-table-filler) {
   gap: 6px 14px;
   align-items: center;
 }
+
+/* Clicking a line in a recharts chart focuses its wrapper, and the browser's
+   focus ring then frames the whole chart in white. The chart is driven by the
+   pointer, not by Tab, so the ring only ever shows up as a glitch. */
+.recharts-wrapper:focus,
+.recharts-wrapper:focus-visible,
+.recharts-surface:focus {
+  outline: none;
+}
