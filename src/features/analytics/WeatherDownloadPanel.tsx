@@ -51,6 +51,9 @@ import { useLanguage } from '@/locales/LanguageContext'
 
 /** Rows per POST: nginx caps a request body at 1 MB by default. */
 const IMPORT_CHUNK = 2000
+/** Waits before each retry of an overloaded Open-Meteo, seconds. */
+const RETRY_DELAYS_SEC = [10, 30, 60, 120]
+const TRANSIENT_STATUS = new Set([429, 500, 502, 503, 504])
 
 const days = (r: DateRange[]) =>
   r.reduce((s, x) => s + (Date.parse(x.last) - Date.parse(x.first)) / 86_400_000 + 1, 0)
@@ -120,20 +123,31 @@ export function WeatherDownloadPanel({ branchId, points }: { branchId: number; p
     }–${r.pointIndexes.at(-1)! + 1}`
 
   /** GET from Open-Meteo, its refusal reason or "no internet" as the error. */
+  /** GET from Open-Meteo. An overload or rate limit is retried after a pause
+   *  (RETRY_DELAYS_SEC, the same as the server's); anything else is final. */
   const fetchLocations = async (url: string) => {
-    let text: string
-    try {
-      const resp = await fetch(url)
-      text = await resp.text()
-      if (!resp.ok) {
-        parseOpenMeteoJson(text) // throws with Open-Meteo's own reason
-        throw new Error(`Open-Meteo: HTTP ${resp.status}`)
+    for (let attempt = 0; ; attempt++) {
+      let resp: Response
+      try {
+        resp = await fetch(url)
+      } catch (e) {
+        if (e instanceof TypeError) throw new Error(t('weatherNoInternet'))
+        throw e
       }
-    } catch (e) {
-      if (e instanceof TypeError) throw new Error(t('weatherNoInternet'))
-      throw e
+      const text = await resp.text()
+      if (resp.ok) return parseOpenMeteoJson(text)
+      let reason = ''
+      try {
+        reason = String((JSON.parse(text) as { reason?: string }).reason ?? '')
+      } catch {
+        // not JSON — the status says it all
+      }
+      const transient = TRANSIENT_STATUS.has(resp.status) || /overload|too many|limit exceeded|try again/i.test(reason)
+      if (!transient || attempt >= RETRY_DELAYS_SEC.length) {
+        throw new Error(`Open-Meteo: ${reason || `HTTP ${resp.status}`}`)
+      }
+      await new Promise((r) => setTimeout(r, RETRY_DELAYS_SEC[attempt] * 1000))
     }
-    return parseOpenMeteoJson(text)
   }
 
   const downloadForecast = async () => {

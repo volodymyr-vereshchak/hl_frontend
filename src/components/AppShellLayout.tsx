@@ -172,7 +172,7 @@ export function AppShellLayout() {
                   </Button>
                 </Menu.Target>
                 <Menu.Dropdown>
-                  {ANALYTICS_NAV.map((item) => (
+                  {ANALYTICS_NAV.filter((item) => isAdmin || !item.adminOnly).map((item) => (
                     <Menu.Item
                       key={item.to}
                       leftSection={item.icon}

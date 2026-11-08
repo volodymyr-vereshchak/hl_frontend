@@ -27,6 +27,8 @@ export interface NavItem {
   to: string
   labelKey: TranslationKey
   icon: React.ReactNode
+  /** Shown to admins only. */
+  adminOnly?: boolean
 }
 
 export const MAIN_NAV: NavItem[] = [
@@ -53,5 +55,5 @@ export const REPORTS_NAV: NavItem[] = [
 /** The "Аналітика" dropdown: weather now, consumption models later. */
 export const ANALYTICS_NAV: NavItem[] = [
   { to: '/analytics/weather', labelKey: 'navWeather', icon: <IconCloud size={16} /> },
-  { to: '/analytics/weather-points', labelKey: 'navWeatherPoints', icon: <IconMapPin size={16} /> },
+  { to: '/analytics/weather-points', labelKey: 'navWeatherPoints', icon: <IconMapPin size={16} />, adminOnly: true },
 ]

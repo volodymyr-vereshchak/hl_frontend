@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react'
+import { Navigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ActionIcon,
-  Alert,
   Anchor,
   Badge,
   Button,
@@ -105,6 +105,9 @@ export function WeatherPointsPage() {
       </Text>
     )
 
+  // Points and downloads are an admin's job; others read the weather page.
+  if (user && !isAdmin) return <Navigate to="/analytics/weather" replace />
+
   return (
     <Stack gap="md">
       <Group justify="space-between" align="flex-end" wrap="wrap">
@@ -123,12 +126,6 @@ export function WeatherPointsPage() {
           w={260}
         />
       </Group>
-
-      {!isAdmin && (
-        <Alert color="gray" variant="light">
-          {t('weatherAdminOnly')}
-        </Alert>
-      )}
 
       <Paper withBorder radius="md" p="md">
         <Group justify="space-between" mb="sm">
