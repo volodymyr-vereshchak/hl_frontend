@@ -3,21 +3,31 @@
  *
  * For every line the NET volume of a period is the metered volume minus what
  * industry took (clamped at zero). Each period is then expressed as a share of
- * that line's total over the whole range, so every line sums to ~100% and
- * lines of very different sizes stay comparable on one chart.
+ * that line's total over the whole range, so lines of very different sizes
+ * stay comparable on one chart. The raw share is kept as `line_<id>_share`;
+ * the drawn value `line_<id>` is that share after the normalisation below.
  *
- * Two additions, both computed from the selected range alone (the database may
+ * On top of that, computed from the selected range alone (the database may
  * have no history before it):
  *
  * - Outlier-proof total. A period far from the line's LOCAL level (median of
  *   the neighbouring periods) is an outlier; the total counts the local level
  *   in its place. One failed or leaking day therefore no longer pushes every
  *   other day of the line down. The outlier itself is still drawn as it is.
- * - One corridor for the whole branch: in every period, the median share of
- *   all GRS and a band of normal spread around it. A GRS outside the band
+ * - Robust normalisation. A share of the range total puts any metering fault
+ *   INTO the total: a GRS that under-meters for the last third of the range
+ *   has a smaller total, so it sits above the branch before the fault and only
+ *   partly below after it (Вільнянськ, 03.11.2026). Each line is therefore
+ *   scaled so that its usual position against the branch median — the median
+ *   over the periods of its share / branch median — is 1. A fault covering
+ *   fewer than half of the periods does not move that median, so healthy days
+ *   lie on the branch and faulty ones are off by the size of the fault. The
+ *   branch median moves a little as the lines are rescaled, so this is
+ *   repeated a few times; it settles within three passes. Missing periods
+ *   need no special care: the ratio is taken over the periods a line has.
+ * - One corridor for the whole branch: in every period, the median of all
+ *   GRS and a band of normal spread around it. A GRS outside the band
  *   behaves unlike the rest of the branch in that period.
- * - A line's total is taken over the periods every GRS has data for, so a
- *   GRS missing days is not lifted above the others on the days it has.
  */
 import { buildEnterpriseByLinePeriod, enterprisePeriodKey, type PeriodType } from './enterpriseVolumes'
 import type { EnterpriseRecord } from '@/api/enterprise'
@@ -50,8 +60,14 @@ const SIGMAS = 3
 const MAD_SIGMA = 1.4826
 /** Floor of the auto half-width, % of the median: identical lines give MAD 0. */
 const MIN_HALF_WIDTH_PCT = 5
-/** A line with data for less than this share of the range's periods is 'partial'. */
+/**
+ * A line with data for less than this share of the range's periods is
+ * 'partial': it is scaled against the branch but stays out of the median and
+ * the corridor, so one dead meter cannot drag them.
+ */
 const MIN_COVERAGE = 0.5
+/** Rescaling passes; the branch median settles within three. */
+const NORMALISE_PASSES = 3
 
 export const shareKey = (lid: number) => `line_${lid}`
 
@@ -116,23 +132,12 @@ export function calculateTrendPercentages(
     m.set(key, (m.get(key) ?? 0) + Math.max(0, gs - ent))
   }
 
-  // Which periods a line's TOTAL is taken over: only those every line has
-  // data for. A line missing days would otherwise divide by a smaller total
-  // and sit above the branch on all its other days (Новомиколаївка with no
-  // archive after 03.11). A line covering under half of the range would wipe
-  // out most periods for everybody, so it keeps its own total and stays out
-  // of the median and the corridor.
   const allPeriods = new Set<string>()
   for (const values of byLine.values()) for (const k of values.keys()) allPeriods.add(k)
-  const core = [...byLine.keys()].filter(
-    (lid) => byLine.get(lid)!.size >= allPeriods.size * MIN_COVERAGE,
-  )
-  const complete = new Set(
-    [...allPeriods].filter((k) => core.every((lid) => byLine.get(lid)!.has(k))),
-  )
 
+  // Share of the line's own (outlier-proof) total, per line per period.
+  const shares = new Map<number, Map<string, number>>()
   const points = new Map<string, TrendPoint>()
-  const used: number[] = []
   for (const [lid, values] of byLine) {
     const keys = [...values.keys()].sort()
     const level = localLevels(keys, values, periodType)
@@ -141,22 +146,59 @@ export function calculateTrendPercentages(
       const b = level.get(k)!
       return b > 0 && (v > b * OUTLIER_FACTOR || v < b / OUTLIER_FACTOR)
     }
-    const inCore = core.includes(lid) && complete.size > 0
-    const counted = inCore ? keys.filter((k) => complete.has(k)) : keys
-    const total = counted.reduce((s, k) => s + (isOutlier(k) ? level.get(k)! : values.get(k)!), 0)
+    const total = keys.reduce((s, k) => s + (isOutlier(k) ? level.get(k)! : values.get(k)!), 0)
     if (total <= 0) continue
-    if (inCore) used.push(lid)
 
     const key = shareKey(lid)
+    const sh = new Map<string, number>()
     for (const k of keys) {
       const v = values.get(k)!
+      sh.set(k, (v / total) * 100)
       if (!points.has(k)) points.set(k, { period: k })
       const p = points.get(k)!
-      p[key] = (v / total) * 100
+      p[`${key}_share`] = (v / total) * 100
       p[`${key}_volume`] = v
       p[`${key}_enterprise`] = enterpriseMap[lid]?.[k] ?? 0
       if (isOutlier(k)) p[`${key}_outlier`] = 1
     }
+    shares.set(lid, sh)
+  }
+
+  // Lines that make up the branch median and corridor.
+  const used = [...shares.keys()].filter((lid) => shares.get(lid)!.size >= allPeriods.size * MIN_COVERAGE)
+
+  const branchMedian = () => {
+    const m = new Map<string, number>()
+    for (const k of allPeriods) {
+      const vals: number[] = []
+      for (const lid of used) {
+        const v = shares.get(lid)!.get(k)
+        if (v !== undefined) vals.push(v)
+      }
+      if (vals.length >= MIN_LINES_FOR_BAND) m.set(k, median(vals))
+    }
+    return m
+  }
+
+  if (used.length >= MIN_LINES_FOR_BAND) {
+    for (let pass = 0; pass < NORMALISE_PASSES; pass++) {
+      const m = branchMedian()
+      for (const sh of shares.values()) {
+        const ratios: number[] = []
+        for (const [k, v] of sh) {
+          const b = m.get(k)
+          if (b !== undefined && b > 0) ratios.push(v / b)
+        }
+        const scale = median(ratios)
+        if (!(scale > 0) || !Number.isFinite(scale)) continue
+        for (const [k, v] of sh) sh.set(k, v / scale)
+      }
+    }
+  }
+
+  for (const [lid, sh] of shares) {
+    const key = shareKey(lid)
+    for (const [k, v] of sh) points.get(k)![key] = v
   }
 
   // The branch corridor, period by period, over the lines that have it.

@@ -505,6 +505,12 @@ function TrendTooltip({
   const { t } = useLanguage()
   const fmt = (v: unknown) => (typeof v === 'number' ? `${v.toFixed(2)}%` : '—')
   const med = typeof point.median === 'number' ? point.median : null
+  /** Off the branch median, e.g. "−25%": the size of a metering fault. */
+  const deviation = (v: unknown) => {
+    if (typeof v !== 'number' || med == null || med <= 0) return null
+    const d = Math.round((v / med - 1) * 100)
+    return `${d > 0 ? '+' : d < 0 ? '−' : '±'}${Math.abs(d)}%`
+  }
   const out = lines
     .filter((l) => isOutside(point, l.id))
     .sort((a, b) => {
@@ -568,14 +574,18 @@ function TrendTooltip({
                   </Group>
                   <Text size="xs" ff="monospace" style={{ whiteSpace: 'nowrap' }}>
                     {fmt(point[k])}
-                    {typeof volume === 'number' && (
-                      <Text span size="xs" c="dimmed" ff="monospace">
+                    {deviation(point[k]) && (
+                      <Text span size="xs" ff="monospace" fw={600}>
                         {' '}
-                        ({Math.round(volume).toLocaleString()} м³)
+                        {deviation(point[k])}
                       </Text>
                     )}
                   </Text>
                 </Group>
+                <Text size="xs" c="dimmed" ff="monospace" ta="right" style={{ whiteSpace: 'nowrap' }}>
+                  {t('trendShareNote')} {fmt(point[`${k}_share`])}
+                  {typeof volume === 'number' && ` · ${Math.round(volume).toLocaleString()} м³`}
+                </Text>
                 {point[`${k}_outlier`] === 1 && (
                   <Text size="xs" c="orange" ta="right">
                     {t('trendOutlierNote')}
