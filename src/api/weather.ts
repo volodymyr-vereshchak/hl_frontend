@@ -76,6 +76,9 @@ export interface DateRange {
 export interface WeatherPlan {
   archive_first: string | null
   archive_last: string | null
+  /** Days the 1С figures of the GRS consumption models cover. */
+  grs_first: string | null
+  grs_last: string | null
   points: { point_id: number; daily: DateRange[]; hourly: DateRange[] }[]
 }
 

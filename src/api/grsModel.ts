@@ -85,6 +85,8 @@ export interface GrsModelFit {
   days: number
   weather_first: string
   weather_last: string
+  /** False: no consumption report was uploaded, the whole inflow is modelled. */
+  with_consumption?: boolean
 }
 
 export interface GrsModelStatus {
@@ -158,6 +160,12 @@ export const grsModelApi = {
   train: (branchId: number) => api.post<GrsModelFit>(`/grs-model/train?branch_id=${branchId}`),
   updateStation: (id: number, data: { enabled?: boolean; weather_point_id?: number }) =>
     api.patch<GrsModelStation>(`/grs-model/stations/${id}`, data),
+  /** A weather point per station, named after it and tied to it. */
+  createStationPoints: (items: { station_id: number; latitude: number; longitude: number }[]) =>
+    api.post<{ station_id: number; weather_point_id: number; created: boolean }[]>(
+      '/grs-model/stations/weather-points',
+      items,
+    ),
 
   /** Multipart, so it goes around the JSON client. */
   async upload(branchId: number, files: File[]): Promise<GrsUploadResult[]> {

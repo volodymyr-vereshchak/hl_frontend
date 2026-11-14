@@ -89,7 +89,11 @@ export function DataTab({
         <Tile
           label={t('gmKindConsumption')}
           value={span(status.consumption)}
-          hint={status.consumption ? `${status.consumption.days} ${t('gmDaysShort')}` : t('gmNotUploaded')}
+          hint={
+            status.consumption
+              ? `${status.consumption.days} ${t('gmDaysShort')}`
+              : `${t('gmNotUploaded')} — ${t('gmNoConsumptionHint')}`
+          }
         />
         <Tile
           label={t('gmWeather')}

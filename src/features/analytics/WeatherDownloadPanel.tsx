@@ -96,10 +96,23 @@ export function WeatherDownloadPanel({ branchId, points }: { branchId: number; p
     queryKey: ['weather-plan', branchId, from, to, points.map((p) => p.id).join(',')],
     queryFn: () => weatherApi.plan(branchId, from ?? undefined, to ?? undefined),
   })
-  // The period starts as the span the consumption archives cover.
+  // The period starts where the GRS figures from 1С do, up to yesterday —
+  // the model needs the weather of every day it has, and the forecast then
+  // carries on from today. Without them, the span the line archives cover.
+  // Either way it is only a default: the period can be changed.
   useEffect(() => {
-    if (from == null && plan.data?.archive_first) setFrom(plan.data.archive_first)
-    if (to == null && plan.data?.archive_last) setTo(plan.data.archive_last)
+    if (!plan.data) return
+    const grs = plan.data.grs_first
+    if (from == null && (grs ?? plan.data.archive_first)) setFrom(grs ?? plan.data.archive_first)
+    if (to == null) {
+      const yesterday = new Date()
+      yesterday.setDate(yesterday.getDate() - 1)
+      const pad = (n: number) => String(n).padStart(2, '0')
+      const last = grs
+        ? `${yesterday.getFullYear()}-${pad(yesterday.getMonth() + 1)}-${pad(yesterday.getDate())}`
+        : plan.data.archive_last
+      if (last) setTo(last)
+    }
   }, [plan.data, from, to])
 
   const gaps = useMemo(() => {
@@ -266,11 +279,18 @@ export function WeatherDownloadPanel({ branchId, points }: { branchId: number; p
       <Stack gap="sm">
         <Group justify="space-between" wrap="wrap">
           <Text fw={600}>{t('weatherDownload')}</Text>
-          {plan.data?.archive_first && (
-            <Text size="xs" c="dimmed">
-              {t('weatherArchiveSpan')}: {plan.data.archive_first} … {plan.data.archive_last}
-            </Text>
-          )}
+          <Group gap="md">
+            {plan.data?.grs_first && (
+              <Text size="xs" c="dimmed">
+                {t('weatherGrsSpan')}: {plan.data.grs_first} … {plan.data.grs_last}
+              </Text>
+            )}
+            {plan.data?.archive_first && (
+              <Text size="xs" c="dimmed">
+                {t('weatherArchiveSpan')}: {plan.data.archive_first} … {plan.data.archive_last}
+              </Text>
+            )}
+          </Group>
         </Group>
 
         <Group gap="sm" wrap="wrap" align="flex-end">

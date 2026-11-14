@@ -20,7 +20,8 @@ import {
 } from '@mantine/core'
 import { modals } from '@mantine/modals'
 import { notifications } from '@mantine/notifications'
-import { IconMapPin, IconPencil, IconPlus, IconTrash, IconWand } from '@tabler/icons-react'
+import { IconBuildingFactory, IconMapPin, IconPencil, IconPlus, IconTrash, IconWand } from '@tabler/icons-react'
+import { grsModelApi, type GrsModelStation } from '@/api/grsModel'
 import { weatherApi, type WeatherLineRef, type WeatherPoint, type WeatherPointInput } from '@/api/weather'
 import { formatCoordinates, parseCoordinates } from '@/domain/weather/coords'
 import { useUser } from '@/features/auth/UserContext'
@@ -62,6 +63,12 @@ export function WeatherPointsPage() {
   const { data: points, isLoading } = useWeatherPoints(branchId)
   const [editing, setEditing] = useState<WeatherPoint | 'new' | null>(null)
   const [bulkOpen, setBulkOpen] = useState(false)
+  const [grsOpen, setGrsOpen] = useState(false)
+  const grsStatus = useQuery({
+    queryKey: ['grs-model', 'status', branchId],
+    enabled: branchId != null && isAdmin,
+    queryFn: () => grsModelApi.status(branchId!),
+  })
 
   const lineName = useMemo(() => {
     const m = new Map<number, string>()
@@ -87,6 +94,16 @@ export function WeatherPointsPage() {
       confirmProps: { color: 'red' },
       onConfirm: () => remove.mutate(p.id),
     })
+
+  // GRS of the 1С balance report with no weather point yet — what «create
+  // from the GRS file» offers. Only stations the inflow report names: the
+  // consumption report alone does not make a station of the balance.
+  const grsUncovered = useMemo(() => {
+    const names = new Set((points ?? []).map((p) => p.name))
+    return (grsStatus.data?.stations ?? []).filter(
+      (s) => s.inflow_days > 0 && s.weather_point_id == null && !names.has(s.name),
+    )
+  }, [grsStatus.data, points])
 
   // Trend lines no point covers yet — what «create from trends» offers.
   const uncovered = useMemo(() => {
@@ -132,6 +149,18 @@ export function WeatherPointsPage() {
           <Text fw={600}>{t('weatherPointsTitle')}</Text>
           {isAdmin && (
             <Group gap="xs">
+              <Tooltip label={t('weatherFromGrsHint')} withArrow multiline w={300}>
+                <Button
+                  size="xs"
+                  variant="light"
+                  color="teal"
+                  leftSection={<IconBuildingFactory size={14} />}
+                  disabled={grsUncovered.length === 0}
+                  onClick={() => setGrsOpen(true)}
+                >
+                  {t('weatherFromGrs')} ({grsUncovered.length})
+                </Button>
+              </Tooltip>
               <Tooltip label={t('weatherFromTrendsHint')} withArrow multiline w={280}>
                 <Button
                   size="xs"
@@ -256,6 +285,16 @@ export function WeatherPointsPage() {
           onSaved={invalidate}
         />
       )}
+      {grsOpen && (
+        <GrsBulkModal
+          stations={grsUncovered}
+          onClose={() => setGrsOpen(false)}
+          onSaved={() => {
+            void invalidate()
+            void qc.invalidateQueries({ queryKey: ['grs-model'] })
+          }}
+        />
+      )}
       {bulkOpen && branchId != null && (
         <BulkModal
           branchId={branchId}
@@ -376,6 +415,73 @@ function PointModal({
           </Button>
           <Button onClick={() => save.mutate()} loading={save.isPending} disabled={!name.trim() || !parsed}>
             {t('weatherSave')}
+          </Button>
+        </Group>
+      </Stack>
+    </Modal>
+  )
+}
+
+/** One point per GRS of the 1С balance report, named after it and tied to
+ *  it in the consumption model; rows left without coordinates are skipped,
+ *  so the list can be filled in over several visits. */
+function GrsBulkModal({
+  stations,
+  onClose,
+  onSaved,
+}: {
+  stations: GrsModelStation[]
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const { t } = useLanguage()
+  const [coords, setCoords] = useState<Record<number, string>>({})
+  const ready = stations.filter((s) => parseCoordinates(coords[s.id] ?? ''))
+
+  const save = useMutation({
+    mutationFn: () =>
+      grsModelApi.createStationPoints(
+        ready.map((s) => {
+          const c = parseCoordinates(coords[s.id])!
+          return { station_id: s.id, latitude: c.lat, longitude: c.lon }
+        }),
+      ),
+    onSuccess: () => {
+      onSaved()
+      onClose()
+    },
+    onError: (e: Error) => {
+      onSaved()
+      notifications.show({ message: e.message, color: 'red' })
+    },
+  })
+
+  return (
+    <Modal opened onClose={onClose} title={t('weatherFromGrs')} size="xl">
+      <Stack gap="xs">
+        <Text size="xs" c="dimmed">
+          {t('weatherCoordinatesHint')}
+        </Text>
+        {stations.map((s) => (
+          <Group key={s.id} gap="sm" wrap="nowrap" align="flex-start">
+            <Text size="sm" w={260} pt={8} lineClamp={1} title={s.name}>
+              {s.name}
+            </Text>
+            <div style={{ flex: 1 }}>
+              <CoordinatesInput
+                compact
+                value={coords[s.id] ?? ''}
+                onChange={(v) => setCoords((c) => ({ ...c, [s.id]: v }))}
+              />
+            </div>
+          </Group>
+        ))}
+        <Group justify="flex-end" mt="sm">
+          <Button variant="default" onClick={onClose}>
+            {t('cancel')}
+          </Button>
+          <Button onClick={() => save.mutate()} loading={save.isPending} disabled={ready.length === 0}>
+            {t('weatherSave')} ({ready.length})
           </Button>
         </Group>
       </Stack>

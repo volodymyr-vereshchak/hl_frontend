@@ -1,6 +1,6 @@
-import { Badge, Button, Group, Paper, ScrollArea, SimpleGrid, Stack, Table, Text, Tooltip } from '@mantine/core'
+import { Alert, Badge, Button, Group, Paper, ScrollArea, SimpleGrid, Stack, Table, Text, Tooltip } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
-import { IconPlayerPlay } from '@tabler/icons-react'
+import { IconInfoCircle, IconPlayerPlay } from '@tabler/icons-react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { grsModelApi, type GrsModelQuality, type GrsModelStatus } from '@/api/grsModel'
 import { LoadingState } from '@/components/LoadingState'
@@ -100,6 +100,11 @@ export function ModelTab({
 
       {fit && !train.isPending && (
         <>
+          {fit.with_consumption === false && (
+            <Alert color="yellow" variant="light" icon={<IconInfoCircle size={16} />}>
+              {t('gmWithoutConsumption')}
+            </Alert>
+          )}
           <SimpleGrid cols={{ base: 2, sm: 4 }} spacing="sm">
             <Tile label={t('gmStationsTrained')} value={`${trained.length} / ${rows.length}`} />
             <Tile label={t('gmMonthError')} value={`${fmtNumber(mean((r) => r.month_error), 1, locale)} %`} />
