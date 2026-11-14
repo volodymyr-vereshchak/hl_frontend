@@ -11,11 +11,13 @@ import {
   Center,
   Collapse,
   Divider,
+  Grid,
   Group,
   Modal,
   Paper,
   ScrollArea,
   Select,
+  SimpleGrid,
   Stack,
   Switch,
   Table,
@@ -61,7 +63,11 @@ import { DeviceHistoryEditor, DeviceHistoryModal } from '../DeviceHistoryModal'
 import { describeCron } from '@/domain/cronSchedule'
 import { PollCronField } from '../PollCronField'
 import {
-  FLOUTEK_MODEL, IZODROM_MODEL, USER_CODE_MAX, WRITE_PASSWORD_MAX, phoneError,
+  FLOUTEK_MODEL,
+  IZODROM_MODEL,
+  USER_CODE_MAX,
+  WRITE_PASSWORD_MAX,
+  phoneError,
 } from './pollDeviceForm'
 import { useAdminNavigation } from '../adminNavigation'
 import { CheckboxFilter } from '@/components/CheckboxFilter'
@@ -129,8 +135,7 @@ export function EnterprisesTab() {
   // clearing it belongs beside is in the rows below.
   const clearAll = useMutation({
     mutationFn: enterpriseArchiveApi.clearAllArchives,
-    onSuccess: () =>
-      notifications.show({ message: 'Архіви підприємств очищено', color: 'teal' }),
+    onSuccess: () => notifications.show({ message: 'Архіви підприємств очищено', color: 'teal' }),
     onError: (e: Error) => notifications.show({ message: e.message, color: 'red' }),
   })
   const { branches, lumgs, calcs, lines, branchName, lumgName, calcIdsOfBranch } =
@@ -245,7 +250,8 @@ export function EnterprisesTab() {
     const branchCalcIds = branchId != null ? new Set(calcIdsOfBranch(branchId)) : null
     const phys = lines.filter((l) => {
       if (calcId != null) return l.gas_volume_calc_id === calcId
-      if (branchCalcIds) return l.gas_volume_calc_id != null && branchCalcIds.has(l.gas_volume_calc_id)
+      if (branchCalcIds)
+        return l.gas_volume_calc_id != null && branchCalcIds.has(l.gas_volume_calc_id)
       return true
     })
     // ДПД lines hang off the філія/ЛУМГ directly, not off an обчислювач, so
@@ -270,7 +276,9 @@ export function EnterprisesTab() {
   const effLumg = (e: EnterpriseMapping): number | null => {
     if (e.dpd_line_id) return dpdById.get(e.dpd_line_id)?.lumg_id ?? null
     const line = e.line_id != null ? lineById.get(e.line_id) : null
-    return line?.gas_volume_calc_id != null ? (calcToLumg.get(line.gas_volume_calc_id) ?? null) : null
+    return line?.gas_volume_calc_id != null
+      ? (calcToLumg.get(line.gas_volume_calc_id) ?? null)
+      : null
   }
 
   /** Branch: an explicit one wins, otherwise it follows line → calc → ЛУМГ. */
@@ -330,8 +338,19 @@ export function EnterprisesTab() {
       return true
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enterprises, search, fActive, fEnabled, fLine, fLumg, fBranch, fCorector, fGsm,
-      dpdById, lineById])
+  }, [
+    enterprises,
+    search,
+    fActive,
+    fEnabled,
+    fLine,
+    fLumg,
+    fBranch,
+    fCorector,
+    fGsm,
+    dpdById,
+    lineById,
+  ])
 
   const pageRows = useMemo(
     () => rows.slice((page - 1) * pageSize, page * pageSize),
@@ -553,8 +572,8 @@ export function EnterprisesTab() {
         />
       </Box>
     ) : (
-      <Group gap="sm" align="center">
-        <Box>
+      <Group gap="sm" align="center" wrap="nowrap">
+        <Box style={{ flex: 1, minWidth: 0 }}>
           <Text size="xs" fw={500}>
             Прилади
           </Text>
@@ -601,213 +620,236 @@ export function EnterprisesTab() {
       title={editingId == null ? 'Нове підприємство' : 'Редагування підприємства'}
       size="60rem"
     >
-      <Stack gap="sm">
-      <Group gap="sm" align="flex-end" wrap="wrap">
-        <TextInput
-          label="Підприємство"
-          size="xs"
-          w={240}
-          value={form.enterprise_name}
-          onChange={(e) => setForm({ ...form, enterprise_name: e.currentTarget.value })}
-          required
-        />
-        <Select
-          label="Філія"
-          size="xs"
-          w={180}
-          data={toOptions(branches)}
-          value={form.branch_id}
-          // Changing the філія invalidates whatever обчислювач/лінія was picked
-          // under the previous one.
-          onChange={(v) => setForm({ ...form, branch_id: v, calc_id: null, line_id: null })}
-          placeholder="— з лінії —"
-          clearable
-          searchable
-        />
-        <Select
-          label="Обчислювач"
-          size="xs"
-          w={200}
-          data={formCalcOptions}
-          value={form.calc_id}
-          onChange={(v) => setForm({ ...form, calc_id: v, line_id: null })}
-          placeholder={form.branch_id ? '— всі —' : '— спершу філія —'}
-          clearable
-          searchable
-        />
-        <Select
-          label="Лінія"
-          size="xs"
-          w={220}
-          data={formLineOptions}
-          value={form.line_id}
-          onChange={(v) => setForm({ ...form, line_id: v })}
-          placeholder="— не привʼязано —"
-          clearable
-          searchable
-        />
-        <Switch
-          size="xs"
-          label="Активний"
-          checked={form.active}
-          onChange={(e) => setForm({ ...form, active: e.currentTarget.checked })}
-          mb={6}
-        />
-        <Switch
-          size="xs"
-          label="Увімкнений"
-          checked={form.enabled}
-          onChange={(e) => setForm({ ...form, enabled: e.currentTarget.checked })}
-          mb={6}
-        />
-      </Group>
+      {/* A fixed grid, not a row that wraps: every field keeps its column
+          whatever its neighbours hold, so nothing moves when a description
+          is two lines, a model asks for a code or an agent is picked. */}
+      <Stack gap="md">
+        <SimpleGrid cols={{ base: 1, sm: 2, md: 4 }} spacing="sm" verticalSpacing="sm">
+          <TextInput
+            label="Підприємство"
+            size="xs"
+            value={form.enterprise_name}
+            onChange={(e) => setForm({ ...form, enterprise_name: e.currentTarget.value })}
+            required
+          />
+          <Select
+            label="Філія"
+            size="xs"
+            data={toOptions(branches)}
+            value={form.branch_id}
+            // Changing the філія invalidates whatever обчислювач/лінія was picked
+            // under the previous one.
+            onChange={(v) => setForm({ ...form, branch_id: v, calc_id: null, line_id: null })}
+            placeholder="— з лінії —"
+            clearable
+            searchable
+          />
+          <Select
+            label="Обчислювач"
+            size="xs"
+            data={formCalcOptions}
+            value={form.calc_id}
+            onChange={(v) => setForm({ ...form, calc_id: v, line_id: null })}
+            placeholder={form.branch_id ? '— всі —' : '— спершу філія —'}
+            clearable
+            searchable
+          />
+          <Select
+            label="Лінія"
+            size="xs"
+            data={formLineOptions}
+            value={form.line_id}
+            onChange={(v) => setForm({ ...form, line_id: v })}
+            placeholder="— не привʼязано —"
+            clearable
+            searchable
+          />
+        </SimpleGrid>
 
-      {/* The modem, and only what an operator sets. Timeouts and retry counts
+        {/* Under a heading of their own: two bare switches beside the line
+          picker read as settings of the line. */}
+        <Input.Wrapper label="Стан точки обліку" size="xs">
+          <Group gap="xl" mt={6} align="flex-start">
+            <Switch
+              size="xs"
+              label="Активний"
+              description="Враховується у звітах і графіках"
+              checked={form.active}
+              onChange={(e) => setForm({ ...form, active: e.currentTarget.checked })}
+            />
+            <Switch
+              size="xs"
+              label="Увімкнений"
+              description="Стан точки обліку в ДПД"
+              checked={form.enabled}
+              onChange={(e) => setForm({ ...form, enabled: e.currentTarget.checked })}
+            />
+          </Group>
+        </Input.Wrapper>
+
+        {/* The modem, and only what an operator sets. Timeouts and retry counts
           keep their defaults on the poll card: nobody has needed to change
           them, and a box nobody needs collects the typo that reads later as a
           dead meter. */}
-      {/* Framed, so the modem's settings read as one thing: the phone, who
-          dials it, when, and what the corrector wants to hear — rather than a
-          few more fields in a long form about the metering point. */}
-      <Fieldset
-        legend={
-          <Group gap={6} wrap="nowrap">
-            <IconPhone size={14} />
-            <Text size="sm" fw={600}>
-              GSM-модем
-            </Text>
-          </Group>
-        }
-        radius="md"
-        p="sm"
-        mt="xs"
-      >
-        <Group gap="sm" align="flex-start" wrap="wrap">
-          <TextInput
-            label="Телефон модема"
-            size="xs"
-            w={220}
-            value={form.gsm_phone}
-            onChange={(e) => setForm({ ...form, gsm_phone: e.currentTarget.value })}
-            placeholder="+380XXXXXXXXX"
-            // Caught here as well as on the server: a number saved as "050…"
-            // looks right on the screen and fails every night with "no
-            // dialtone", which reads exactly like a dead line.
-            error={phoneError(form.gsm_phone)}
-            description="Порожньо — модема немає, підприємство не дзвонимо"
-            rightSectionWidth={editingId != null ? 58 : undefined}
-            rightSection={
-              // ДПД keeps the number for most sites. Offered for an existing
-              // enterprise only: the lookup goes by the corrector already
-              // saved on it, and a new card has none yet.
-              editingId != null ? (
-                <Tooltip label="Підставити номер модема з ДПД" withArrow>
-                  <Button
-                    size="compact-xs"
-                    variant="subtle"
-                    loading={phoneLookup.isPending}
-                    onClick={() => phoneLookup.mutate(editingId)}
-                  >
-                    з ДПД
-                  </Button>
-                </Tooltip>
-              ) : undefined
-            }
-          />
-          {(fittedSpeaksPkv || fittedIsIzodrom) && (
-            <TextInput
-              label={fittedIsIzodrom ? 'Код доступу' : 'Код користувача'}
-              description={fittedIsIzodrom ? 'Число 1…255, без нього прилад мовчить' : undefined}
-              size="xs"
-              w={fittedIsIzodrom ? 230 : 150}
-              value={form.gsm_password}
-              onChange={(e) => setForm({ ...form, gsm_password: e.currentTarget.value })}
-              maxLength={USER_CODE_MAX}
-              disabled={!form.gsm_phone.trim()}
-            />
-          )}
-          {fittedSpeaksPkv && (
-            // Ask2 sends both in every ПК-В and ВР-2 archive request: the
-            // write password first, then the code.
-            <TextInput
-              label="Пароль на запис"
-              size="xs"
-              w={150}
-              value={form.gsm_write_password}
-              onChange={(e) => setForm({ ...form, gsm_write_password: e.currentTarget.value })}
-              maxLength={WRITE_PASSWORD_MAX}
-              disabled={!form.gsm_phone.trim()}
-            />
-          )}
-          <Switch
-            size="xs"
-            label="Опитувати за графіком"
-            checked={form.gsm_auto_poll}
-            onChange={(e) => setForm({ ...form, gsm_auto_poll: e.currentTarget.checked })}
-            disabled={!form.gsm_phone.trim()}
-            mt={22}
-          />
-          <PollCronField
-            value={form.gsm_poll_cron}
-            onChange={(next) => setForm({ ...form, gsm_poll_cron: next })}
-            // Off means "only by hand", and a schedule that cannot fire reads
-            // as one that is simply not working.
-            disabled={!form.gsm_auto_poll || !form.gsm_phone.trim()}
-          />
-          {/* Which machine dials this number, set here with the rest of the
-              modem's settings. It used to be chosen in the monitor, which made
-              setting a site up two screens — and the second one easy to forget,
-              leaving a number nobody ever calls. */}
-          <Input.Wrapper
-            label="Хто дзвонить"
-            size="xs"
-            description={
-              form.gsm_agent_ids.length > 1
-                ? 'Спільна черга: хто перший звільниться, той і подзвонить'
-                : 'Машина з модемом, якій доручено це підприємство'
-            }
-            // Not a warning about typing: a number with no machine behind it is
-            // a site that is never polled and looks, everywhere else, set up.
-            error={
-              !!form.gsm_phone.trim() && form.gsm_agent_ids.length === 0
-                ? 'Нікому не доручено — підприємство не опитуватиметься'
-                : undefined
-            }
-          >
-            {/* The same dropdown as the model filter on the industry screen,
-                but read back by names: this is a setting, and "2 / 5" does not
-                say which machines dial. */}
-            <div>
-              <CheckboxFilter
-                label="Агенти"
-                options={agentOptions}
-                value={form.gsm_agent_ids}
-                onChange={(ids) => setForm({ ...form, gsm_agent_ids: ids })}
-                disabled={!form.gsm_phone.trim()}
-                emptyLabel="нікому"
-                summary={(picked) =>
-                  picked.length <= 2
-                    ? picked.map((o) => o.label).join(', ')
-                    : `${picked.length} з ${agentOptions.length}`
+        <Fieldset
+          legend={
+            <Group gap={6} wrap="nowrap">
+              <IconPhone size={14} />
+              <Text size="sm" fw={600}>
+                GSM-модем
+              </Text>
+            </Group>
+          }
+          radius="md"
+          p="sm"
+        >
+          <Stack gap="md">
+            {/* Connection: three cells, always three. A model that asks for no
+              code leaves its cell empty rather than pulling the next field in. */}
+            <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="sm" verticalSpacing="sm">
+              <TextInput
+                label="Телефон модема"
+                size="xs"
+                value={form.gsm_phone}
+                onChange={(e) => setForm({ ...form, gsm_phone: e.currentTarget.value })}
+                placeholder="+380XXXXXXXXX"
+                // Caught here as well as on the server: a number saved as "050…"
+                // looks right on the screen and fails every night with "no
+                // dialtone", which reads exactly like a dead line.
+                error={phoneError(form.gsm_phone)}
+                description="Порожньо — модема немає, не дзвонимо"
+                rightSectionWidth={editingId != null ? 58 : undefined}
+                rightSection={
+                  // ДПД keeps the number for most sites. Offered for an existing
+                  // enterprise only: the lookup goes by the corrector already
+                  // saved on it, and a new card has none yet.
+                  editingId != null ? (
+                    <Tooltip label="Підставити номер модема з ДПД" withArrow>
+                      <Button
+                        size="compact-xs"
+                        variant="subtle"
+                        loading={phoneLookup.isPending}
+                        onClick={() => phoneLookup.mutate(editingId)}
+                      >
+                        з ДПД
+                      </Button>
+                    </Tooltip>
+                  ) : undefined
                 }
-                error={!!form.gsm_phone.trim() && form.gsm_agent_ids.length === 0}
-                width={260}
               />
-            </div>
-          </Input.Wrapper>
+              {fittedSpeaksPkv || fittedIsIzodrom ? (
+                <TextInput
+                  label={fittedIsIzodrom ? 'Код доступу' : 'Код користувача'}
+                  description={
+                    fittedIsIzodrom ? 'Число 1…255, без нього прилад мовчить' : 'Зазвичай 11'
+                  }
+                  size="xs"
+                  value={form.gsm_password}
+                  onChange={(e) => setForm({ ...form, gsm_password: e.currentTarget.value })}
+                  maxLength={USER_CODE_MAX}
+                  disabled={!form.gsm_phone.trim()}
+                />
+              ) : (
+                <div />
+              )}
+              {fittedSpeaksPkv ? (
+                // Ask2 sends both in every ПК-В and ВР-2 archive request: the
+                // write password first, then the code.
+                <TextInput
+                  label="Пароль на запис"
+                  description="Порожньо — пароля немає"
+                  size="xs"
+                  value={form.gsm_write_password}
+                  onChange={(e) => setForm({ ...form, gsm_write_password: e.currentTarget.value })}
+                  maxLength={WRITE_PASSWORD_MAX}
+                  disabled={!form.gsm_phone.trim()}
+                />
+              ) : (
+                <div />
+              )}
+            </SimpleGrid>
+
+            <Divider />
+
+            {/* Polling: when (two columns) and who (one). The switch heads the
+              schedule it turns on, instead of floating between the phone
+              and the code. */}
+            <Grid gap="sm" align="flex-start">
+              <Grid.Col span={{ base: 12, sm: 8 }}>
+                <Stack gap="xs">
+                  <Switch
+                    size="xs"
+                    label="Опитувати за графіком"
+                    description="Вимкнено — лише вручну, кнопкою «Опитати»"
+                    checked={form.gsm_auto_poll}
+                    onChange={(e) => setForm({ ...form, gsm_auto_poll: e.currentTarget.checked })}
+                    disabled={!form.gsm_phone.trim()}
+                  />
+                  <PollCronField
+                    value={form.gsm_poll_cron}
+                    onChange={(next) => setForm({ ...form, gsm_poll_cron: next })}
+                    // Off means "only by hand", and a schedule that cannot fire reads
+                    // as one that is simply not working.
+                    disabled={!form.gsm_auto_poll || !form.gsm_phone.trim()}
+                  />
+                </Stack>
+              </Grid.Col>
+              <Grid.Col span={{ base: 12, sm: 4 }}>
+                {/* Which machine dials this number, set here with the rest of the
+                modem's settings. It used to be chosen in the monitor, which made
+                setting a site up two screens — and the second one easy to forget,
+                leaving a number nobody ever calls. */}
+                <Input.Wrapper
+                  label="Хто дзвонить"
+                  size="xs"
+                  description="Машина з модемом, якій доручено це підприємство"
+                  // Not a warning about typing: a number with no machine behind it
+                  // is a site that is never polled and looks, everywhere else, set up.
+                  error={
+                    !!form.gsm_phone.trim() && form.gsm_agent_ids.length === 0
+                      ? 'Нікому не доручено — підприємство не опитуватиметься'
+                      : undefined
+                  }
+                >
+                  <Box mt={4}>
+                    <CheckboxFilter
+                      label="Агенти"
+                      options={agentOptions}
+                      value={form.gsm_agent_ids}
+                      onChange={(ids) => setForm({ ...form, gsm_agent_ids: ids })}
+                      disabled={!form.gsm_phone.trim()}
+                      emptyLabel="нікому"
+                      summary={(picked) =>
+                        picked.length <= 2
+                          ? picked.map((o) => o.label).join(', ')
+                          : `${picked.length} з ${agentOptions.length}`
+                      }
+                      error={!!form.gsm_phone.trim() && form.gsm_agent_ids.length === 0}
+                      width={260}
+                      fullWidth
+                    />
+                  </Box>
+                  {form.gsm_agent_ids.length > 1 && (
+                    <Text size="11px" c="dimmed" mt={4}>
+                      Спільна черга: хто перший звільниться, той і подзвонить
+                    </Text>
+                  )}
+                </Input.Wrapper>
+              </Grid.Col>
+            </Grid>
+          </Stack>
+        </Fieldset>
+
+        {deviceBlock}
+
+        <Group gap="sm" justify="flex-end">
+          <Button size="xs" variant="default" onClick={cancel}>
+            Скасувати
+          </Button>
+          <Button size="xs" onClick={submit} loading={save.isPending}>
+            Зберегти
+          </Button>
         </Group>
-      </Fieldset>
-
-      {deviceBlock}
-
-      <Group gap="sm" justify="flex-end">
-        <Button size="xs" variant="default" onClick={cancel}>
-          Скасувати
-        </Button>
-        <Button size="xs" onClick={submit} loading={save.isPending}>
-          Зберегти
-        </Button>
-      </Group>
       </Stack>
     </Modal>
   )
@@ -842,7 +884,8 @@ export function EnterprisesTab() {
         title="Підприємства"
         description={
           <>
-            Промислові споживачі за лініями. Їхні обсяги віднімаються від загальних, щоб отримати побутове споживання
+            Промислові споживачі за лініями. Їхні обсяги віднімаються від загальних, щоб отримати
+            побутове споживання
           </>
         }
       />
@@ -870,17 +913,15 @@ export function EnterprisesTab() {
                 children: (
                   <Stack gap="xs">
                     <Text size="sm">
-                      Буде видалено <b>всі</b> добові та годинні архіви підприємств —
-                      і те, що прийшло з Радміртеха, і те, що начитали модеми.
+                      Буде видалено <b>всі</b> добові та годинні архіви підприємств — і те, що
+                      прийшло з Радміртеха, і те, що начитали модеми.
                     </Text>
                     <Text size="sm">
-                      З Радміртеха все повернеться само: наступне оновлення
-                      побачить порожній архів і перечитає кожен прилад з
-                      01.01.2024. Це довго — години, а не хвилини.
+                      З Радміртеха все повернеться само: наступне оновлення побачить порожній архів
+                      і перечитає кожен прилад з 01.01.2024. Це довго — години, а не хвилини.
                     </Text>
                     <Text size="sm" fw={600} c="red">
-                      Начитане модемом не повернеться: у коректорі лежать тижні,
-                      а не роки.
+                      Начитане модемом не повернеться: у коректорі лежать тижні, а не роки.
                     </Text>
                   </Stack>
                 ),
@@ -1226,11 +1267,7 @@ export function EnterprisesTab() {
                           </ActionIcon>
                         </Tooltip>
                         <Tooltip label="Очистити архів за період або весь" withArrow>
-                          <ActionIcon
-                            variant="subtle"
-                            color="orange"
-                            onClick={() => setPurging(e)}
-                          >
+                          <ActionIcon variant="subtle" color="orange" onClick={() => setPurging(e)}>
                             <IconEraser size={16} />
                           </ActionIcon>
                         </Tooltip>
@@ -1282,7 +1319,6 @@ export function EnterprisesTab() {
   )
 }
 
-
 /**
  * The modem at a site, in one column.
  *
@@ -1305,10 +1341,7 @@ function Gsm({ gsm }: { gsm?: EnterpriseGsm | null }) {
         {gsm.phone}
       </Text>
       {gsm.auto_poll && (
-        <Tooltip
-          label={describeCron(gsm.poll_cron ?? '')}
-          withArrow
-        >
+        <Tooltip label={describeCron(gsm.poll_cron ?? '')} withArrow>
           <Badge size="xs" variant="light" color="teal" tt="none">
             за графіком
           </Badge>

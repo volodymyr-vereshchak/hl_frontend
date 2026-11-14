@@ -30,6 +30,9 @@ interface Props {
   disabled?: boolean
   /** Marks the control red — a setting left in a state that does not work. */
   error?: boolean
+  /** Fill the width it is given, as an input in a form does, instead of
+   *  growing and shrinking with what is picked. */
+  fullWidth?: boolean
 }
 
 /**
@@ -57,6 +60,7 @@ export function CheckboxFilter({
   summary,
   disabled,
   error,
+  fullWidth,
 }: Props) {
   const { t } = useLanguage()
   const [opened, setOpened] = useState(false)
@@ -95,6 +99,8 @@ export function CheckboxFilter({
           onClick={() => setOpened((o) => !o)}
           rightSection={<IconChevronDown size={14} />}
           disabled={disabled}
+          fullWidth={fullWidth}
+          justify={fullWidth ? 'space-between' : undefined}
           styles={error ? { root: { borderColor: 'var(--mantine-color-red-6)' } } : undefined}
         >
           {label}:{' '}

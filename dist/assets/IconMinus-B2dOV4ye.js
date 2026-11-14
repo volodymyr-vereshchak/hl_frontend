@@ -1,1 +1,0 @@
-import{m as e}from"./index-CyaDcSnv.js";var t=e(`outline`,`minus`,`Minus`,[[`path`,{d:`M5 12l14 0`,key:`svg-0`}]]);export{t};

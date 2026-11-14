@@ -167,9 +167,23 @@ export function LineCard({ lineName, pressure, flow, volume, referenceTime }: Li
       }}
     >
       <Stack gap={6} align="center">
-        <Text fw={600} size="sm" ta="center" lineClamp={2} style={{ minHeight: '2.5em' }} title={lineName}>
-          {lineName}
-        </Text>
+        {/* Exactly two lines tall, whatever the name: a minimum height let
+            a two-line name grow past it and push everything below it down a
+            few pixels against the cards beside it. A one-line name sits in
+            the middle of the same box. */}
+        <Box
+          w="100%"
+          style={{
+            height: 'calc(2 * 1.35 * var(--mantine-font-size-sm))',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <Text fw={600} size="sm" ta="center" lh={1.35} lineClamp={2} title={lineName}>
+            {lineName}
+          </Text>
+        </Box>
 
         {/* Pressure block */}
         <Box
