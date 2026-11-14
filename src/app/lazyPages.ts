@@ -52,6 +52,9 @@ export const FlowCalcPage = lazy(() =>
 export const WeatherPage = lazy(() =>
   import('@/features/analytics/WeatherPage').then((m) => ({ default: m.WeatherPage })),
 )
+export const GrsModelPage = lazy(() =>
+  import('@/features/analytics/grs-model/GrsModelPage').then((m) => ({ default: m.GrsModelPage })),
+)
 export const WeatherPointsPage = lazy(() =>
   import('@/features/analytics/WeatherPointsPage').then((m) => ({ default: m.WeatherPointsPage })),
 )

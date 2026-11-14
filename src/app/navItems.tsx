@@ -13,6 +13,7 @@ import {
   IconCalendar,
   IconChartHistogram,
   IconCloud,
+  IconChartLine,
   IconMapPin,
   IconClockHour4,
   IconFlask,
@@ -52,8 +53,9 @@ export const REPORTS_NAV: NavItem[] = [
   { to: '/flow-calc', labelKey: 'navFlowCalc', icon: <IconCalculator size={16} /> },
 ]
 
-/** The "Аналітика" dropdown: weather now, consumption models later. */
+/** The "Аналітика" dropdown: the consumption models and the weather they run on. */
 export const ANALYTICS_NAV: NavItem[] = [
+  { to: '/analytics/grs-model', labelKey: 'navGrsModel', icon: <IconChartLine size={16} /> },
   { to: '/analytics/weather', labelKey: 'navWeather', icon: <IconCloud size={16} /> },
   { to: '/analytics/weather-points', labelKey: 'navWeatherPoints', icon: <IconMapPin size={16} />, adminOnly: true },
 ]
