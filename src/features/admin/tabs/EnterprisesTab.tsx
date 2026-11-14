@@ -61,7 +61,7 @@ import { DeviceHistoryEditor, DeviceHistoryModal } from '../DeviceHistoryModal'
 import { describeCron } from '@/domain/cronSchedule'
 import { PollCronField } from '../PollCronField'
 import {
-  FLOUTEK_MODEL, USER_CODE_MAX, WRITE_PASSWORD_MAX, phoneError,
+  FLOUTEK_MODEL, IZODROM_MODEL, USER_CODE_MAX, WRITE_PASSWORD_MAX, phoneError,
 } from './pollDeviceForm'
 import { useAdminNavigation } from '../adminNavigation'
 import { CheckboxFilter } from '@/components/CheckboxFilter'
@@ -417,13 +417,17 @@ export function EnterprisesTab() {
   /** Whether the corrector fitted now is a Floutek, the only family here
    *  whose requests carry a user code. Hidden for the rest, like the
    *  timeouts: a field nobody needs collects typos. */
-  const fittedSpeaksPkv = useMemo(() => {
+  const fittedModel = useMemo(() => {
     const fitted = [...form.devices].reverse().find((d) => !d.removed_date)
     const type = (corectorTypes ?? []).find(
       (c) => String(c.id) === String(fitted?.corector_type_id ?? ''),
     )
-    return FLOUTEK_MODEL.test(type?.model_name ?? '')
+    return type?.model_name ?? ''
   }, [form.devices, corectorTypes])
+  const fittedSpeaksPkv = FLOUTEK_MODEL.test(fittedModel)
+  /** An Изодром is asked nothing without its access code — the same field,
+   *  under the name its own program gives it. */
+  const fittedIsIzodrom = IZODROM_MODEL.test(fittedModel)
 
   /** ДПД's modem number for the site being edited, put into the field. */
   const phoneLookup = useMutation({
@@ -710,11 +714,12 @@ export function EnterprisesTab() {
               ) : undefined
             }
           />
-          {fittedSpeaksPkv && (
+          {(fittedSpeaksPkv || fittedIsIzodrom) && (
             <TextInput
-              label="Код користувача"
+              label={fittedIsIzodrom ? 'Код доступу' : 'Код користувача'}
+              description={fittedIsIzodrom ? 'Число 1…255, без нього прилад мовчить' : undefined}
               size="xs"
-              w={150}
+              w={fittedIsIzodrom ? 230 : 150}
               value={form.gsm_password}
               onChange={(e) => setForm({ ...form, gsm_password: e.currentTarget.value })}
               maxLength={USER_CODE_MAX}

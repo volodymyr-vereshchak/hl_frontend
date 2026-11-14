@@ -57,6 +57,13 @@ export function phoneError(raw: unknown): string | null {
  */
 export const FLOUTEK_MODEL = /ФЛОУТЕК|FLOUTEK|FLOUTEC|ПК-В/i
 
+/**
+ * An Изодром flow computer, by the model on the card: the family name, or
+ * one of its own models (ОЕ-22ДМ, ОЕ-22ЛА — Cyrillic or Latin letters). It
+ * answers to its access code and to nothing else, so the card has to carry it.
+ */
+export const IZODROM_MODEL = /ИЗОДРОМ|ІЗОДРОМ|IZODROM|[ОO][ЕE]-22/i
+
 /** Four bytes in the request; the server refuses a longer code. */
 export const USER_CODE_MAX = 4
 

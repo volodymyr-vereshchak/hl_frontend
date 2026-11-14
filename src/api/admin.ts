@@ -387,7 +387,8 @@ export interface Manufacturer {
   id: number
   short_name: string
   full_name: string
-  mf_dev: number
+  /** ДПД code; null for a manufacturer ДПД does not know (Ізодром). */
+  mf_dev: number | null
 }
 
 export interface CorectorType {
@@ -397,7 +398,8 @@ export interface CorectorType {
   id: number
   manufacturer_id: number
   model_name: string
-  type_dev: number
+  /** ДПД code; null where ДПД has no such model. */
+  type_dev: number | null
 }
 
 /** What a catalog export wrote into device_catalog.json. */
@@ -409,16 +411,18 @@ export interface CatalogExportResult {
 /**
  * What loading device_catalog.json changed.
  *
- * Manufacturers are matched by `mf_dev`, so a rename made on another
- * installation arrives as a rename here. Models are matched by name and left
- * alone once they exist — their `type_dev` is not unique, so a renamed model
- * comes in as a new one and `warnings` says where the two sides disagree.
+ * Manufacturers and models are matched by the uid the file carries, so a
+ * rename made on another installation arrives as a rename here, not as a
+ * second entry. Codes are never rewritten: `warnings` says where the two
+ * sides disagree.
  */
 export interface CatalogSyncResult {
   message: string
   added_manufacturers: number
   renamed_manufacturers: number
   added_models: number
+  /** Models renamed in place — matched by the uid the file carries. */
+  renamed_models: number
   warnings: string[]
 }
 

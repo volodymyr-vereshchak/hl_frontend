@@ -373,8 +373,10 @@ export function DeviceMappingsTab() {
   const fields: CrudField<Manufacturer>[] = [
     { key: 'id', label: 'ID', numeric: true, hideInForm: true },
     // mf_dev is how DPD addresses the manufacturer: it goes into every poll
-    // request, so it is the manufacturer's identity, not a label.
-    { key: 'mf_dev', label: 'Код', numeric: true, type: 'number', required: true },
+    // request, so it is the manufacturer's identity, not a label. Empty for a
+    // manufacturer ДПД does not know (Ізодром) — its devices are read over a
+    // modem only and are never asked from ДПД.
+    { key: 'mf_dev', label: 'Код', numeric: true, type: 'number' },
     { key: 'short_name', label: 'Скорочення', required: true },
     { key: 'full_name', label: 'Повна назва', required: true },
   ]
@@ -384,7 +386,7 @@ export function DeviceMappingsTab() {
   return (
     <CrudTable<Manufacturer>
       title="Виробники приладів"
-      description="Довідник каталогу пристроїв. Код (mf_dev) — те, чим ДПД адресує виробника. Після перейменування натисніть «Зберегти в JSON», інакше назву буде відновлено з файлу під час перезапуску"
+      description="Довідник каталогу пристроїв. Код (mf_dev) — те, чим ДПД адресує виробника; порожній — виробника в ДПД немає, його прилади читаються лише модемом. Після перейменування натисніть «Зберегти в JSON», інакше назву буде відновлено з файлу під час перезапуску"
       queryKey={['admin', 'manufacturers']}
       fetchAll={deviceCatalogApi.manufacturers}
       create={(d) => deviceCatalogApi.createManufacturer(d as Partial<Manufacturer>)}
@@ -414,7 +416,10 @@ export function CorrectorTypesTab() {
   const manufacturerOptions = useMemo(
     () =>
       (manufacturers ?? [])
-        .map((m) => ({ value: String(m.id), label: `${m.short_name} (mf_dev ${m.mf_dev})` }))
+        .map((m) => ({
+          value: String(m.id),
+          label: m.mf_dev == null ? `${m.short_name} (без коду ДПД)` : `${m.short_name} (mf_dev ${m.mf_dev})`,
+        }))
         .sort((a, b) => a.label.localeCompare(b.label)),
     [manufacturers],
   )
@@ -424,7 +429,8 @@ export function CorrectorTypesTab() {
     { key: 'id', label: 'ID', numeric: true, hideInForm: true },
     // (mf_dev, type_dev) is the pair DPD is asked by, so type_dev is identity
     // too — and it is what decides which volume field a model reports in.
-    { key: 'type_dev', label: 'Код типу', numeric: true, type: 'number', required: true },
+    // Empty where ДПД has no such model.
+    { key: 'type_dev', label: 'Код типу', numeric: true, type: 'number' },
     {
       key: 'manufacturer_id',
       label: 'Виробник',
@@ -444,7 +450,7 @@ export function CorrectorTypesTab() {
   return (
     <CrudTable<CorectorType>
       title="Типи коректорів"
-      description="Довідник каталогу пристроїв. Пара (код виробника, код типу) — те, чим ДПД адресує прилад. Як опитувати прилад модемом, агент визначає сам під час дзвінка"
+      description="Довідник каталогу пристроїв. Пара (код виробника, код типу) — те, чим ДПД адресує прилад; без коду прилад із ДПД не запитується. Як опитувати прилад модемом, агент визначає сам під час дзвінка"
       queryKey={['admin', 'corrector-types']}
       fetchAll={deviceCatalogApi.correctorTypes}
       create={(d) => deviceCatalogApi.createCorrectorType(d as Partial<CorectorType>)}
