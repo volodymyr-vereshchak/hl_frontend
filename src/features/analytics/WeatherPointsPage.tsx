@@ -7,6 +7,7 @@ import {
   Badge,
   Button,
   Group,
+  Loader,
   Modal,
   MultiSelect,
   Paper,
@@ -20,7 +21,7 @@ import {
 } from '@mantine/core'
 import { modals } from '@mantine/modals'
 import { notifications } from '@mantine/notifications'
-import { IconBuildingFactory, IconMapPin, IconPencil, IconPlus, IconTrash, IconWand } from '@tabler/icons-react'
+import { IconBuildingFactory, IconMapPin, IconPencil, IconPlus, IconTrash } from '@tabler/icons-react'
 import { grsModelApi, type GrsModelStation } from '@/api/grsModel'
 import { weatherApi, type WeatherLineRef, type WeatherPoint, type WeatherPointInput } from '@/api/weather'
 import { formatCoordinates, parseCoordinates } from '@/domain/weather/coords'
@@ -62,7 +63,6 @@ export function WeatherPointsPage() {
   const { data: lines } = useBranchLines(branchId)
   const { data: points, isLoading } = useWeatherPoints(branchId)
   const [editing, setEditing] = useState<WeatherPoint | 'new' | null>(null)
-  const [bulkOpen, setBulkOpen] = useState(false)
   const [grsOpen, setGrsOpen] = useState(false)
   const grsStatus = useQuery({
     queryKey: ['grs-model', 'status', branchId],
@@ -95,21 +95,13 @@ export function WeatherPointsPage() {
       onConfirm: () => remove.mutate(p.id),
     })
 
-  // GRS of the 1С balance report with no weather point yet — what «create
-  // from the GRS file» offers. Only stations the inflow report names: the
-  // consumption report alone does not make a station of the balance.
-  const grsUncovered = useMemo(() => {
-    const names = new Set((points ?? []).map((p) => p.name))
-    return (grsStatus.data?.stations ?? []).filter(
-      (s) => s.inflow_days > 0 && s.weather_point_id == null && !names.has(s.name),
-    )
-  }, [grsStatus.data, points])
-
-  // Trend lines no point covers yet — what «create from trends» offers.
-  const uncovered = useMemo(() => {
-    const taken = new Set((points ?? []).flatMap((p) => p.lines.map((l) => l.id)))
-    return (lines ?? []).filter((l) => l.include_in_trends && !taken.has(l.id))
-  }, [lines, points])
+  // GRS of the 1С balance report not yet tied to a weather point — what
+  // «create from the GRS file» offers. Only stations the inflow report names:
+  // the consumption report alone does not make a station of the balance.
+  const grsUncovered = useMemo(
+    () => (grsStatus.data?.stations ?? []).filter((s) => s.inflow_days > 0 && s.weather_point_id == null),
+    [grsStatus.data],
+  )
 
   const coverage = (c: WeatherPoint['daily']) =>
     c.count === 0 ? (
@@ -155,21 +147,11 @@ export function WeatherPointsPage() {
                   variant="light"
                   color="teal"
                   leftSection={<IconBuildingFactory size={14} />}
-                  disabled={grsUncovered.length === 0}
+                  disabled={branchId == null}
                   onClick={() => setGrsOpen(true)}
                 >
-                  {t('weatherFromGrs')} ({grsUncovered.length})
-                </Button>
-              </Tooltip>
-              <Tooltip label={t('weatherFromTrendsHint')} withArrow multiline w={280}>
-                <Button
-                  size="xs"
-                  variant="light"
-                  leftSection={<IconWand size={14} />}
-                  disabled={uncovered.length === 0}
-                  onClick={() => setBulkOpen(true)}
-                >
-                  {t('weatherFromTrends')} ({uncovered.length})
+                  {t('weatherFromGrs')}
+                  {grsStatus.data ? ` (${grsUncovered.length})` : ''}
                 </Button>
               </Tooltip>
               <Button size="xs" leftSection={<IconPlus size={14} />} onClick={() => setEditing('new')}>
@@ -288,19 +270,15 @@ export function WeatherPointsPage() {
       {grsOpen && (
         <GrsBulkModal
           stations={grsUncovered}
+          points={points ?? []}
+          loading={grsStatus.isLoading}
+          error={grsStatus.error ? (grsStatus.error as Error).message : null}
+          hasStations={(grsStatus.data?.stations ?? []).some((s) => s.inflow_days > 0)}
           onClose={() => setGrsOpen(false)}
           onSaved={() => {
             void invalidate()
             void qc.invalidateQueries({ queryKey: ['grs-model'] })
           }}
-        />
-      )}
-      {bulkOpen && branchId != null && (
-        <BulkModal
-          branchId={branchId}
-          lines={uncovered}
-          onClose={() => setBulkOpen(false)}
-          onSaved={invalidate}
         />
       )}
     </Stack>
@@ -427,23 +405,35 @@ function PointModal({
  *  so the list can be filled in over several visits. */
 function GrsBulkModal({
   stations,
+  points,
+  loading,
+  error,
+  hasStations,
   onClose,
   onSaved,
 }: {
   stations: GrsModelStation[]
+  points: WeatherPoint[]
+  loading: boolean
+  error: string | null
+  /** The branch has GRS from the balance report at all. */
+  hasStations: boolean
   onClose: () => void
   onSaved: () => void
 }) {
   const { t } = useLanguage()
   const [coords, setCoords] = useState<Record<number, string>>({})
-  const ready = stations.filter((s) => parseCoordinates(coords[s.id] ?? ''))
+  // A point of the station's name is already there: the station is tied to
+  // it as it is, no coordinates asked.
+  const existing = new Map(points.map((p) => [p.name, p]))
+  const ready = stations.filter((s) => existing.has(s.name) || parseCoordinates(coords[s.id] ?? ''))
 
   const save = useMutation({
     mutationFn: () =>
       grsModelApi.createStationPoints(
         ready.map((s) => {
-          const c = parseCoordinates(coords[s.id])!
-          return { station_id: s.id, latitude: c.lat, longitude: c.lon }
+          const c = existing.has(s.name) ? null : parseCoordinates(coords[s.id])
+          return { station_id: s.id, latitude: c?.lat ?? null, longitude: c?.lon ?? null }
         }),
       ),
     onSuccess: () => {
@@ -456,98 +446,46 @@ function GrsBulkModal({
     },
   })
 
+  let empty: string | null = null
+  if (error) empty = `${t('weatherFromGrsFailed')}: ${error}`
+  else if (!loading && !hasStations) empty = t('weatherFromGrsNoFile')
+  else if (!loading && stations.length === 0) empty = t('weatherFromGrsAllDone')
+
   return (
     <Modal opened onClose={onClose} title={t('weatherFromGrs')} size="xl">
       <Stack gap="xs">
-        <Text size="xs" c="dimmed">
-          {t('weatherCoordinatesHint')}
-        </Text>
-        {stations.map((s) => (
-          <Group key={s.id} gap="sm" wrap="nowrap" align="flex-start">
-            <Text size="sm" w={260} pt={8} lineClamp={1} title={s.name}>
-              {s.name}
+        {loading && <Loader size="sm" />}
+        {empty ? (
+          <Text size="sm" c={error ? 'red' : 'dimmed'}>
+            {empty}
+          </Text>
+        ) : (
+          <>
+            <Text size="xs" c="dimmed">
+              {t('weatherCoordinatesHint')}
             </Text>
-            <div style={{ flex: 1 }}>
-              <CoordinatesInput
-                compact
-                value={coords[s.id] ?? ''}
-                onChange={(v) => setCoords((c) => ({ ...c, [s.id]: v }))}
-              />
-            </div>
-          </Group>
-        ))}
-        <Group justify="flex-end" mt="sm">
-          <Button variant="default" onClick={onClose}>
-            {t('cancel')}
-          </Button>
-          <Button onClick={() => save.mutate()} loading={save.isPending} disabled={ready.length === 0}>
-            {t('weatherSave')} ({ready.length})
-          </Button>
-        </Group>
-      </Stack>
-    </Modal>
-  )
-}
-
-/** One point per uncovered trend line, named after it; rows left without
- *  coordinates are skipped, so the list can be filled in over several visits. */
-function BulkModal({
-  branchId,
-  lines,
-  onClose,
-  onSaved,
-}: {
-  branchId: number
-  lines: ReportLine[]
-  onClose: () => void
-  onSaved: () => void
-}) {
-  const { t } = useLanguage()
-  const [coords, setCoords] = useState<Record<number, string>>({})
-  const ready = lines.filter((l) => parseCoordinates(coords[l.id] ?? ''))
-
-  const save = useMutation({
-    mutationFn: async () => {
-      for (const l of ready) {
-        const c = parseCoordinates(coords[l.id])!
-        await weatherApi.create(branchId, {
-          name: l.name,
-          latitude: c.lat,
-          longitude: c.lon,
-          lines: [{ kind: l.kind, id: l.id }],
-        })
-      }
-    },
-    onSuccess: () => {
-      onSaved()
-      onClose()
-    },
-    onError: (e: Error) => {
-      onSaved()
-      notifications.show({ message: e.message, color: 'red' })
-    },
-  })
-
-  return (
-    <Modal opened onClose={onClose} title={t('weatherFromTrends')} size="xl">
-      <Stack gap="xs">
-        <Text size="xs" c="dimmed">
-          {t('weatherCoordinatesHint')}
-        </Text>
-        {lines.map((l) => (
-          <Group key={l.id} gap="sm" wrap="nowrap" align="flex-start">
-            <Text size="sm" w={260} pt={8} lineClamp={1} title={l.name}>
-              {l.name}
-            </Text>
-            <div style={{ flex: 1 }}>
-              <CoordinatesInput
-                compact
-                value={coords[l.id] ?? ''}
-                onChange={(v) => setCoords((c) => ({ ...c, [l.id]: v }))}
-              />
-            </div>
-          </Group>
-        ))}
+            {stations.map((s) => (
+              <Group key={s.id} gap="sm" wrap="nowrap" align="flex-start">
+                <Text size="sm" w={260} pt={8} lineClamp={1} title={s.name}>
+                  {s.name}
+                </Text>
+                <div style={{ flex: 1 }}>
+                  {existing.has(s.name) ? (
+                    <Text size="xs" c="teal" pt={10}>
+                      {t('weatherFromGrsExisting')}
+                    </Text>
+                  ) : (
+                    <CoordinatesInput
+                      compact
+                      value={coords[s.id] ?? ''}
+                      onChange={(v) => setCoords((c) => ({ ...c, [s.id]: v }))}
+                    />
+                  )}
+                </div>
+              </Group>
+            ))}
+          </>
+        )}
         <Group justify="flex-end" mt="sm">
           <Button variant="default" onClick={onClose}>
             {t('cancel')}

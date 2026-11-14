@@ -161,7 +161,10 @@ export const grsModelApi = {
   updateStation: (id: number, data: { enabled?: boolean; weather_point_id?: number }) =>
     api.patch<GrsModelStation>(`/grs-model/stations/${id}`, data),
   /** A weather point per station, named after it and tied to it. */
-  createStationPoints: (items: { station_id: number; latitude: number; longitude: number }[]) =>
+  /** Coordinates may be null for a station a point of its name already exists for. */
+  createStationPoints: (
+    items: { station_id: number; latitude: number | null; longitude: number | null }[],
+  ) =>
     api.post<{ station_id: number; weather_point_id: number; created: boolean }[]>(
       '/grs-model/stations/weather-points',
       items,
