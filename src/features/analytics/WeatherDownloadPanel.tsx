@@ -150,54 +150,65 @@ export function WeatherDownloadPanel({ branchId, points }: { branchId: number; p
     }
   }
 
-  const downloadForecast = async () => {
-    setError(null)
-    const groups = Math.ceil(points.length / POINTS_PER_REQUEST)
-    setBusy({ done: 0, total: groups })
-    let nd = 0
-    let nh = 0
-    try {
-      for (let g = 0; g < groups; g++) {
-        const group = points.slice(g * POINTS_PER_REQUEST, (g + 1) * POINTS_PER_REQUEST)
-        const locs = await fetchLocations(forecastUrl(group.map((p) => ({ lat: p.latitude, lon: p.longitude }))))
-        for (const [i, loc] of locs.entries()) {
-          if (!group[i]) continue
-          const res = await importRows(group[i].id, loc.daily, loc.hourly, 'forecast')
-          nd += res.nd
-          nh += res.nh
-        }
-        setBusy({ done: g + 1, total: groups })
-      }
-      notifications.show({ color: 'teal', message: `${t('weatherForecastImported')}: ${nd} / ${nh}` })
-    } catch (e) {
-      setError((e as Error).message)
-    } finally {
-      setBusy(null)
-      refresh()
-    }
-  }
-
+  /**
+   * One button for what the internet has: the history the archives are
+   * missing, then a fresh forecast — the order the server's own update runs
+   * in. Two buttons meant two trips for the same thing, and the forecast was
+   * the one forgotten.
+   *
+   * The two halves fail apart. An overloaded archive must not leave the
+   * forecast a day old, and a forecast that cannot be had does not undo the
+   * history already written.
+   */
   const downloadOnline = async () => {
     setError(null)
-    setBusy({ done: 0, total: requests.length })
+    const groups = Math.ceil(points.length / POINTS_PER_REQUEST)
+    const total = requests.length + groups
+    setBusy({ done: 0, total })
+    const problems: string[] = []
     let nd = 0
     let nh = 0
+    let fd = 0
+    let fh = 0
     try {
-      for (const [k, r] of requests.entries()) {
-        const locs = await fetchLocations(urlOf(r, 'json'))
-        // Online the order is ours: location i is the i-th point of the request.
-        for (const [i, loc] of locs.entries()) {
-          const point = points[r.pointIndexes[i]]
-          if (!point) continue
-          const res = await importRows(point.id, loc.daily, loc.hourly)
-          nd += res.nd
-          nh += res.nh
+      try {
+        for (const [k, r] of requests.entries()) {
+          const locs = await fetchLocations(urlOf(r, 'json'))
+          // Online the order is ours: location i is the i-th point of the request.
+          for (const [i, loc] of locs.entries()) {
+            const point = points[r.pointIndexes[i]]
+            if (!point) continue
+            const res = await importRows(point.id, loc.daily, loc.hourly)
+            nd += res.nd
+            nh += res.nh
+          }
+          setBusy({ done: k + 1, total })
         }
-        setBusy({ done: k + 1, total: requests.length })
+      } catch (e) {
+        problems.push(`${t('weatherCoverageDaily')} / ${t('weatherCoverageHourly')}: ${(e as Error).message}`)
       }
-      notifications.show({ color: 'teal', message: `${t('weatherImported')}: ${nd} / ${nh}` })
-    } catch (e) {
-      setError((e as Error).message)
+      try {
+        for (let g = 0; g < groups; g++) {
+          const group = points.slice(g * POINTS_PER_REQUEST, (g + 1) * POINTS_PER_REQUEST)
+          const locs = await fetchLocations(forecastUrl(group.map((p) => ({ lat: p.latitude, lon: p.longitude }))))
+          for (const [i, loc] of locs.entries()) {
+            if (!group[i]) continue
+            const res = await importRows(group[i].id, loc.daily, loc.hourly, 'forecast')
+            fd += res.nd
+            fh += res.nh
+          }
+          setBusy({ done: requests.length + g + 1, total })
+        }
+      } catch (e) {
+        problems.push(`${t('weatherSourceForecast')}: ${(e as Error).message}`)
+      }
+      if (problems.length) setError(problems.join('\n'))
+      if (nd + nh + fd + fh > 0) {
+        notifications.show({
+          color: problems.length ? 'yellow' : 'teal',
+          message: `${t('weatherImported')}: ${nd} / ${nh} · ${t('weatherForecastImported')}: ${fd} / ${fh}`,
+        })
+      }
     } finally {
       setBusy(null)
       refresh()
@@ -335,18 +346,22 @@ export function WeatherDownloadPanel({ branchId, points }: { branchId: number; p
 
         {error && (
           <Alert color="red" variant="light" icon={<IconAlertTriangle size={16} />}>
-            {error}
+            <Text size="sm" style={{ whiteSpace: 'pre-line' }}>
+              {error}
+            </Text>
           </Alert>
         )}
         {busy && <Progress value={(busy.done / Math.max(1, busy.total)) * 100} animated />}
 
         <Group gap="sm" wrap="wrap">
+          {/* Never disabled: with no history missing it still brings the
+              forecast up to date. */}
           <Button
             size="sm"
             leftSection={<IconCloudDownload size={16} />}
             onClick={downloadOnline}
             loading={!!busy}
-            disabled={requests.length === 0}
+            disabled={points.length === 0}
           >
             {t('weatherOnline')}
           </Button>
@@ -358,16 +373,6 @@ export function WeatherDownloadPanel({ branchId, points }: { branchId: number; p
             disabled={requests.length === 0}
           >
             {t('weatherOffline')}
-          </Button>
-          <Button
-            size="sm"
-            variant="light"
-            color="grape"
-            leftSection={<IconCloudDownload size={16} />}
-            onClick={downloadForecast}
-            loading={!!busy}
-          >
-            {t('weatherForecastDownload')}
           </Button>
           <FileButton onChange={(f) => void onFiles(f)} accept=".csv,.json,text/csv,application/json" multiple>
             {(props) => (
