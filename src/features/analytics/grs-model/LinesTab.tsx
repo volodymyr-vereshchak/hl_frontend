@@ -39,7 +39,6 @@ import { buildEnterpriseByLinePeriod, getEnterpriseFetchFn } from '@/domain/ente
 import {
   lineDeviation,
   lineKey,
-  trendExpectation,
   weekly,
   type LineRef,
   type StationDeviation,
@@ -81,8 +80,6 @@ const ALL = '__all__'
 type View = 'chart' | 'table'
 
 interface Row extends StationDeviation {
-  /** What the trends report expects of the station, m³. */
-  trend: (number | null)[]
   /** The model in line m³ (the 1С scale undone). */
   modelNet: (number | null)[]
 }
@@ -95,8 +92,7 @@ interface Result {
 
 /**
  * Аналітика → «За лініями»: every GRS tied to its trend lines, day by day up
- * to today, against two predictions — the consumption model, and what the
- * trends report expects (the station moving with the rest of the branch).
+ * to today: the lines' volume less industry against the consumption model.
  * See domain/grsLineDeviation.
  */
 export function LinesTab({ branchId, status }: { branchId: number; status: GrsModelStatus }) {
@@ -188,15 +184,9 @@ export function LinesTab({ branchId, status }: { branchId: number; status: GrsMo
         archive,
         industry,
       })
-      // The trends expectation is taken over the period shown plus the week
-      // before it — as the trends report would, over its own range.
-      const window = analysis.days.map((d) => d >= shiftDay(from, -WEEK_RUN_UP) && d <= to)
-      const expected = trendExpectation(
-        out.stations.map((s) => s.net.map((v, i) => (window[i] ? v : null))),
-      )
       const keep = analysis.days.map((d) => d >= from && d <= to)
       const cut = <T,>(xs: T[]) => xs.filter((_, i) => keep[i])
-      const stations: Row[] = out.stations.map((s, k) => {
+      const stations: Row[] = out.stations.map((s) => {
         return {
           ...s,
           estimate: cut(s.estimate),
@@ -207,7 +197,6 @@ export function LinesTab({ branchId, status }: { branchId: number; status: GrsMo
           modelNet: cut(
             s.model.map((m) => (m == null || s.scale == null ? null : (m * 1000) / s.scale)),
           ),
-          trend: cut(expected[k]),
         }
       })
       setResult({ days: cut(analysis.days), stations, common: cut(out.common) })
@@ -258,22 +247,18 @@ export function LinesTab({ branchId, status }: { branchId: number; status: GrsMo
     }
     const fact = result.days.map((_, i) => sum((s) => s.net[i]))
     const model = result.days.map((_, i) => sum((s) => s.modelNet[i]))
-    const trend = result.days.map((_, i) => sum((s) => s.trend[i]))
     const ratio = (a: (number | null)[], b: (number | null)[]) =>
       a.map((v, i) =>
         v != null && v > 0 && b[i] != null && b[i]! > 0 ? Math.log(v / b[i]!) : null,
       )
     const vsModel = weekly(ratio(fact, model))
-    const vsTrend = weekly(ratio(fact, trend))
     const round = (v: number | null, d = 0) =>
       v == null ? null : Math.round(v * 10 ** d) / 10 ** d
     return result.days.map((day, i) => ({
       period: day,
       fact: round(fact[i]),
       model: round(model[i]),
-      trend: round(trend[i]),
       vsModel: round(vsModel[i], 1),
-      vsTrend: round(vsTrend[i], 1),
     }))
   }, [result, mode, compared])
 
@@ -290,7 +275,6 @@ export function LinesTab({ branchId, status }: { branchId: number; status: GrsMo
     axis: dark ? '#9aa7ad' : '#5a6b75',
     fact: dark ? '#4dabf7' : '#1c7ed6',
     model: dark ? '#ced4da' : '#495057',
-    trend: dark ? '#ffa94d' : '#e8590c',
   }
   const colorOf = (k: number) => PALETTE[k % PALETTE.length]
   const fmtX = (value: string): [string, string] => [
@@ -418,7 +402,6 @@ export function LinesTab({ branchId, status }: { branchId: number; status: GrsMo
               <Group gap="md">
                 <Legend color={c.fact} label={t('gmLinesFact')} />
                 <Legend color={c.model} label={t('gmLinesByModel')} dashed />
-                <Legend color={c.trend} label={t('gmLinesByTrends')} dashed />
               </Group>
             )}
           </Group>
@@ -499,23 +482,12 @@ export function LinesTab({ branchId, status }: { branchId: number; status: GrsMo
                     dot={false}
                     isAnimationActive={false}
                   />
-                  <Line
-                    name={t('gmLinesByTrends')}
-                    dataKey="trend"
-                    stroke={c.trend}
-                    strokeWidth={1.5}
-                    strokeDasharray="5 4"
-                    dot={false}
-                    isAnimationActive={false}
-                  />
                 </LineChart>
               </ResponsiveContainer>
               <Group gap="md" mt="sm" mb={4}>
                 <Text size="xs" fw={600}>
                   {t('gmLinesCompareDeviation')}, %
                 </Text>
-                <Legend color={c.model} label={t('gmLinesDevModel')} />
-                <Legend color={c.trend} label={t('gmLinesDevTrends')} />
               </Group>
               <ResponsiveContainer width="100%" height={Math.round(chartHeight * 0.4)}>
                 <LineChart
@@ -537,14 +509,6 @@ export function LinesTab({ branchId, status }: { branchId: number; status: GrsMo
                     name={t('gmLinesDevModel')}
                     dataKey="vsModel"
                     stroke={c.model}
-                    strokeWidth={2}
-                    dot={false}
-                    isAnimationActive={false}
-                  />
-                  <Line
-                    name={t('gmLinesDevTrends')}
-                    dataKey="vsTrend"
-                    stroke={c.trend}
                     strokeWidth={2}
                     dot={false}
                     isAnimationActive={false}
@@ -572,9 +536,7 @@ export function LinesTab({ branchId, status }: { branchId: number; status: GrsMo
                   <Table.Th ta="right">{t('gmLinesScale')}</Table.Th>
                   <Table.Th ta="right">{t('gmLinesFact')}, м³</Table.Th>
                   <Table.Th ta="right">{t('gmLinesByModel')}, м³</Table.Th>
-                  <Table.Th ta="right">{t('gmLinesByTrends')}, м³</Table.Th>
                   <Table.Th ta="right">{t('gmLinesDevModel')}</Table.Th>
-                  <Table.Th ta="right">{t('gmLinesDevTrends')}</Table.Th>
                   <Table.Th ta="right">{t('gmDeviationWeek')}</Table.Th>
                   <Table.Th>{t('gmState')}</Table.Th>
                 </Table.Tr>
@@ -582,14 +544,11 @@ export function LinesTab({ branchId, status }: { branchId: number; status: GrsMo
               <Table.Tbody>
                 {result.stations.map((s, k) => {
                   const known = s.net
-                    .map((v, i) =>
-                      v != null && s.modelNet[i] != null && s.trend[i] != null ? i : -1,
-                    )
+                    .map((v, i) => (v != null && s.modelNet[i] != null ? i : -1))
                     .filter((i) => i >= 0)
                   const total = (xs: (number | null)[]) => known.reduce((a, i) => a + xs[i]!, 0)
                   const fact = total(s.net)
                   const byModel = total(s.modelNet)
-                  const byTrend = total(s.trend)
                   const week = lastOf(s.week)
                   const off = week != null && Math.abs(week) > WEEK_LIMIT
                   return (
@@ -614,9 +573,7 @@ export function LinesTab({ branchId, status }: { branchId: number; status: GrsMo
                       </Table.Td>
                       <Num>{known.length ? fmtNumber(fact, 0, locale) : '—'}</Num>
                       <Num>{known.length ? fmtNumber(byModel, 0, locale) : '—'}</Num>
-                      <Num>{known.length ? fmtNumber(byTrend, 0, locale) : '—'}</Num>
                       <Num>{fmtSigned(byModel ? (fact / byModel - 1) * 100 : null, 1, locale)}</Num>
-                      <Num>{fmtSigned(byTrend ? (fact / byTrend - 1) * 100 : null, 1, locale)}</Num>
                       <Table.Td
                         ta="right"
                         ff={MONO}

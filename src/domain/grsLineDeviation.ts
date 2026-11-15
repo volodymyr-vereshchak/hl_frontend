@@ -138,34 +138,3 @@ export function weekly(log: (number | null)[]): (number | null)[] {
       : null
   })
 }
-
-/** Rescaling passes, as in the trends report: the branch median settles in three. */
-const TREND_PASSES = 3
-
-/**
- * What the trends report expects of each station: its usual place against
- * the median of all of them, times that median day by day (m³). The usual
- * place is the median over the days of its share of the period total over
- * the branch median — a fault covering fewer than half of the days does not
- * move it. Same idea as `calculateTrendPercentages` (domain/grsTrends), on
- * the stations instead of the lines.
- */
-export function trendExpectation(nets: (number | null)[][]): (number | null)[][] {
-  const totals = nets.map((n) => n.reduce<number>((a, v) => a + (v ?? 0), 0))
-  const share = nets.map((n, k) => n.map((v) => (v == null || !totals[k] ? null : v / totals[k])))
-  const days = nets[0]?.length ?? 0
-  let scale = nets.map(() => 1)
-  let branch: (number | null)[] = []
-  for (let pass = 0; pass < TREND_PASSES; pass++) {
-    branch = Array.from({ length: days }, (_, i) =>
-      median(share.map((s, k) => (s[i] == null ? null : s[i]! / scale[k])).filter((v): v is number => v != null)),
-    )
-    scale = share.map((s, k) => {
-      const r = s.map((v, i) => (v == null || !branch[i] ? null : v / branch[i]!)).filter((v): v is number => v != null)
-      return median(r) ?? scale[k]
-    })
-  }
-  return nets.map((_, k) =>
-    branch.map((b) => (b == null || !totals[k] ? null : b * scale[k] * totals[k])),
-  )
-}

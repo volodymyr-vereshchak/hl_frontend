@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { lineDeviation, trendExpectation, type LineDeviationInput } from './grsLineDeviation'
+import { lineDeviation, type LineDeviationInput } from './grsLineDeviation'
 
 const days = Array.from({ length: 20 }, (_, i) => `2026-11-${String(i + 1).padStart(2, '0')}`)
 const flat = (v: number) => days.map(() => v)
@@ -72,25 +72,5 @@ describe('line deviation', () => {
   it('industry can be left in', () => {
     const a = lineDeviation(input({ industry: null })).stations[0]
     expect(a.scale).toBeCloseTo(1000 / 2100)
-  })
-})
-
-describe('trend expectation', () => {
-  it('a station follows the branch; its fault stands out against it', () => {
-    // Three stations, the branch doubles over the period; B halves on the last 3 days.
-    const base = [1, 1.2, 1.4, 1.6, 1.8, 2, 2, 2, 2, 2]
-    const nets = [100, 300, 50].map((s, k) =>
-      base.map((b, i) => s * b * (k === 1 && i >= 7 ? 0.5 : 1)),
-    )
-    const exp = trendExpectation(nets)
-    expect(exp[0][9]! / nets[0][9]).toBeCloseTo(1, 1)
-    expect(exp[2][0]! / nets[2][0]).toBeCloseTo(1, 1)
-    expect(nets[1][9] / exp[1][9]!).toBeCloseTo(0.5, 1)
-  })
-
-  it('a missing day is unknown', () => {
-    const exp = trendExpectation([[1, null, 1], [2, 2, 2], [3, 3, 3]])
-    expect(exp[0][1]).not.toBeNull()
-    expect(exp[1][1]).toBeCloseTo(2, 1)
   })
 })
