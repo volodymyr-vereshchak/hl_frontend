@@ -89,6 +89,12 @@ export function WeatherForecast({ point }: { point: WeatherPoint }) {
 
   const index = days.findIndex((d) => d.day === day)
   const current = index >= 0 ? days[index] : null
+  // Days downloaded before the daily mean was asked for have none; the hours
+  // always had it, so their mean stands in. Neither — the fact is not shown.
+  const hourHumidity = hours.map((h) => h.humidity).filter((v): v is number => v != null)
+  const humidity =
+    current?.humidity ??
+    (hourHumidity.length ? hourHumidity.reduce((a, b) => a + b, 0) / hourHumidity.length : null)
   const move = (step: number) => {
     const next = days[index + step]
     if (next) setDay(next.day)
@@ -221,10 +227,9 @@ export function WeatherForecast({ point }: { point: WeatherPoint }) {
                   label={t('weatherPrecipitation')}
                   value={`${fmt(current.precipitation, 1)} мм`}
                 />
-                <Fact
-                  label={t('weatherHumidity')}
-                  value={current.humidity != null ? `${fmt(current.humidity)} %` : '—'}
-                />
+                {humidity != null && (
+                  <Fact label={t('weatherHumidity')} value={`${fmt(humidity)} %`} />
+                )}
                 <Fact label={t('weatherWind')} value={`${fmt(current.wind_max, 1)} м/с`} />
               </SimpleGrid>
             </Stack>

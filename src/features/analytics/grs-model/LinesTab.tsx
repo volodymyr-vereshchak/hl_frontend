@@ -251,13 +251,17 @@ export function LinesTab({ branchId, status }: { branchId: number; status: GrsMo
       a.map((v, i) =>
         v != null && v > 0 && b[i] != null && b[i]! > 0 ? Math.log(v / b[i]!) : null,
       )
-    const vsModel = weekly(ratio(fact, model))
+    const daily = ratio(fact, model)
+    const vsModel = weekly(daily)
     const round = (v: number | null, d = 0) =>
       v == null ? null : Math.round(v * 10 ** d) / 10 ** d
     return result.days.map((day, i) => ({
       period: day,
       fact: round(fact[i]),
       model: round(model[i]),
+      // The day alone, and the 7 days up to it: one day of a village GRS
+      // swings by 10 % on its own, the week is what the limit judges.
+      vsModelDay: daily[i] == null ? null : round((Math.exp(daily[i]!) - 1) * 100, 1),
       vsModel: round(vsModel[i], 1),
     }))
   }, [result, mode, compared])
@@ -274,7 +278,9 @@ export function LinesTab({ branchId, status }: { branchId: number; status: GrsMo
     grid: dark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)',
     axis: dark ? '#9aa7ad' : '#5a6b75',
     fact: dark ? '#4dabf7' : '#1c7ed6',
-    model: dark ? '#ced4da' : '#495057',
+    model: dark ? '#69db7c' : '#2b8a3e',
+    day: dark ? '#91a7ff' : '#748ffc',
+    week: dark ? '#ff8787' : '#e03131',
   }
   const colorOf = (k: number) => PALETTE[k % PALETTE.length]
   const fmtX = (value: string): [string, string] => [
@@ -418,8 +424,21 @@ export function LinesTab({ branchId, status }: { branchId: number; status: GrsMo
                 {xAxis}
                 <YAxis width={64} tick={{ fontSize: 11, fill: c.axis }} tickFormatter={percent} />
                 <Tooltip
-                  formatter={(v, name) => [`${v ?? '—'} %`, String(name)]}
-                  labelFormatter={(l) => fmtDay(String(l), locale)}
+                  content={({ active, payload, label }) =>
+                    active && payload?.length ? (
+                      <ChartTip
+                        title={fmtDay(String(label), locale)}
+                        rows={[...payload]
+                          .filter((p) => p.value != null)
+                          .sort((a, b) => Math.abs(Number(b.value)) - Math.abs(Number(a.value)))
+                          .map((p) => ({
+                            color: String(p.stroke ?? p.color),
+                            label: String(p.name),
+                            value: fmtSigned(Number(p.value), 1, locale),
+                          }))}
+                      />
+                    ) : null
+                  }
                 />
                 <ReferenceLine y={0} stroke={c.axis} strokeDasharray="4 4" />
                 <ReferenceLine y={WEEK_LIMIT} stroke="#fa5252" strokeDasharray="2 4" />
@@ -462,8 +481,44 @@ export function LinesTab({ branchId, status }: { branchId: number; status: GrsMo
                     tickFormatter={(v) => fmtNumber(Number(v), 0, locale)}
                   />
                   <Tooltip
-                    formatter={(v, name) => [`${fmtNumber(Number(v), 0, locale)} м³`, String(name)]}
-                    labelFormatter={(l) => fmtDay(String(l), locale)}
+                    content={({ active, payload, label }) => {
+                      const r = payload?.[0]?.payload as
+                        | {
+                            fact: number | null
+                            model: number | null
+                            vsModelDay: number | null
+                            vsModel: number | null
+                          }
+                        | undefined
+                      if (!active || !r) return null
+                      return (
+                        <ChartTip
+                          title={fmtDay(String(label), locale)}
+                          rows={[
+                            {
+                              color: c.fact,
+                              label: t('gmLinesFact'),
+                              value: r.fact == null ? '—' : `${fmtNumber(r.fact, 0, locale)} м³`,
+                            },
+                            {
+                              color: c.model,
+                              label: t('gmLinesByModel'),
+                              value: r.model == null ? '—' : `${fmtNumber(r.model, 0, locale)} м³`,
+                            },
+                            {
+                              color: c.day,
+                              label: t('gmLinesDevDay'),
+                              value: fmtSigned(r.vsModelDay, 1, locale),
+                            },
+                            {
+                              color: c.week,
+                              label: t('gmLinesDevWeek'),
+                              value: fmtSigned(r.vsModel, 1, locale),
+                            },
+                          ]}
+                        />
+                      )
+                    }}
                   />
                   <Line
                     name={t('gmLinesFact')}
@@ -488,6 +543,8 @@ export function LinesTab({ branchId, status }: { branchId: number; status: GrsMo
                 <Text size="xs" fw={600}>
                   {t('gmLinesCompareDeviation')}, %
                 </Text>
+                <Legend color={c.day} label={t('gmLinesDevDay')} />
+                <Legend color={c.week} label={t('gmLinesDevWeek')} />
               </Group>
               <ResponsiveContainer width="100%" height={Math.round(chartHeight * 0.4)}>
                 <LineChart
@@ -499,17 +556,61 @@ export function LinesTab({ branchId, status }: { branchId: number; status: GrsMo
                   {xAxis}
                   <YAxis width={64} tick={{ fontSize: 11, fill: c.axis }} tickFormatter={percent} />
                   <Tooltip
-                    formatter={(v, name) => [`${v ?? '—'} %`, String(name)]}
-                    labelFormatter={(l) => fmtDay(String(l), locale)}
+                    content={({ active, payload, label }) => {
+                      const r = payload?.[0]?.payload as
+                        | {
+                            fact: number | null
+                            model: number | null
+                            vsModelDay: number | null
+                            vsModel: number | null
+                          }
+                        | undefined
+                      if (!active || !r) return null
+                      return (
+                        <ChartTip
+                          title={fmtDay(String(label), locale)}
+                          rows={[
+                            {
+                              color: c.fact,
+                              label: t('gmLinesFact'),
+                              value: r.fact == null ? '—' : `${fmtNumber(r.fact, 0, locale)} м³`,
+                            },
+                            {
+                              color: c.model,
+                              label: t('gmLinesByModel'),
+                              value: r.model == null ? '—' : `${fmtNumber(r.model, 0, locale)} м³`,
+                            },
+                            {
+                              color: c.day,
+                              label: t('gmLinesDevDay'),
+                              value: fmtSigned(r.vsModelDay, 1, locale),
+                            },
+                            {
+                              color: c.week,
+                              label: t('gmLinesDevWeek'),
+                              value: fmtSigned(r.vsModel, 1, locale),
+                            },
+                          ]}
+                        />
+                      )
+                    }}
                   />
                   <ReferenceLine y={0} stroke={c.axis} strokeDasharray="4 4" />
                   <ReferenceLine y={WEEK_LIMIT} stroke="#fa5252" strokeDasharray="2 4" />
                   <ReferenceLine y={-WEEK_LIMIT} stroke="#fa5252" strokeDasharray="2 4" />
                   <Line
-                    name={t('gmLinesDevModel')}
+                    name={t('gmLinesDevDay')}
+                    dataKey="vsModelDay"
+                    stroke={c.day}
+                    strokeWidth={1}
+                    dot={false}
+                    isAnimationActive={false}
+                  />
+                  <Line
+                    name={t('gmLinesDevWeek')}
                     dataKey="vsModel"
-                    stroke={c.model}
-                    strokeWidth={2}
+                    stroke={c.week}
+                    strokeWidth={2.5}
                     dot={false}
                     isAnimationActive={false}
                   />
@@ -631,5 +732,47 @@ function Legend({ color, label, dashed }: { color: string; label: string; dashed
         {label}
       </Text>
     </Group>
+  )
+}
+
+/** A tooltip that reads in both themes: the page's surface and text colour,
+ *  the series colour only as a swatch. */
+function ChartTip({
+  title,
+  rows,
+}: {
+  title: string
+  rows: { color: string; label: string; value: string }[]
+}) {
+  return (
+    <div
+      style={{
+        background: 'var(--hlv-surface)',
+        border: '1px solid var(--hlv-border)',
+        borderRadius: 8,
+        padding: '8px 10px',
+        minWidth: 220,
+        boxShadow: '0 4px 14px rgba(0,0,0,0.18)',
+        maxHeight: 360,
+        overflow: 'hidden',
+      }}
+    >
+      <Text size="xs" fw={700} mb={4}>
+        {title}
+      </Text>
+      {rows.map((r) => (
+        <Group key={r.label} gap="xs" justify="space-between" wrap="nowrap">
+          <Group gap={6} wrap="nowrap">
+            <span
+              style={{ width: 10, height: 10, borderRadius: 2, background: r.color, flex: 'none' }}
+            />
+            <Text size="xs">{r.label}</Text>
+          </Group>
+          <Text size="xs" ff={MONO} fw={600}>
+            {r.value}
+          </Text>
+        </Group>
+      ))}
+    </div>
   )
 }
