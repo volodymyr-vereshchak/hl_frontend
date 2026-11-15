@@ -42,11 +42,10 @@ import { Tile } from './ModelTab'
 const MONO = "'JetBrains Mono Variable', monospace"
 /** The row and the chart of all stations together. */
 const TOTAL = '__total__'
-/** Days of history shown by default, and of forecast after the last fact. */
+/** Days of forecast after the last fact shown by default. */
 const DEFAULT_AHEAD = 16
-/** Quick periods, in days back from the last day of the GRS figures. */
-const PRESETS = { recent: 120, year: 365 } as const
-type Preset = keyof typeof PRESETS | 'all'
+/** Months of history shown by default; the operator picks any other period. */
+const DEFAULT_MONTHS = 3
 type View = 'chart' | 'stations' | 'episodes' | 'months'
 /** Height of everything above the two charts, px: they share the rest of the screen. */
 const CHROME = 470
@@ -168,19 +167,14 @@ export function AnalysisTab({ branchId, status }: { branchId: number; status: Gr
   const locale = getLocale()
   const dark = useMantineColorScheme().colorScheme === 'dark'
   const anchor = status.inflow?.last ?? isoDay(new Date())
-  const start = status.inflow?.first ?? shiftDay(anchor, -PRESETS.year)
-  const end = shiftDay(anchor, DEFAULT_AHEAD)
-  const presetFrom = (p: Preset) => {
-    if (p === 'all') return start
-    const d = shiftDay(anchor, -PRESETS[p])
-    return d < start ? start : d
-  }
-  // A year by default: last winter is there to compare with.
-  const [from, setFrom] = useState(() => presetFrom('year'))
-  const [to, setTo] = useState(end)
-  const preset =
-    (['recent', 'year', 'all'] as Preset[]).find((p) => from === presetFrom(p) && to === end) ??
-    null
+  const [from, setFrom] = useState(() => {
+    const d = new Date(`${anchor}T00:00:00`)
+    d.setMonth(d.getMonth() - DEFAULT_MONTHS)
+    const back = isoDay(d)
+    const first = status.inflow?.first
+    return first && back < first ? first : back
+  })
+  const [to, setTo] = useState(() => shiftDay(anchor, DEFAULT_AHEAD))
   const [selected, setSelected] = useState<string>(TOTAL)
   const [view, setView] = useLocalStorage<View>({
     key: 'hlv-grs-analysis-view',
@@ -466,19 +460,6 @@ export function AnalysisTab({ branchId, status }: { branchId: number; status: Gr
             minDate={from}
             onChange={(v) => v && setTo(v)}
             popoverProps={{ zIndex: 500, withinPortal: true }}
-          />
-          <SegmentedControl
-            size="xs"
-            value={preset ?? ''}
-            onChange={(v) => {
-              setFrom(presetFrom(v as Preset))
-              setTo(end)
-            }}
-            data={[
-              { value: 'recent', label: t('gmPresetRecent') },
-              { value: 'year', label: t('gmPresetYear') },
-              { value: 'all', label: t('gmPresetAll') },
-            ]}
           />
           <Text size="xs" c="dimmed" pb={6}>
             {t('gmLastFact')}: {fmtDay(data.last_fact_day, locale)}

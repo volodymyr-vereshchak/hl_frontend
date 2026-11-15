@@ -103,11 +103,17 @@ describe('GrsModelPage', () => {
     const user = userEvent.setup()
     renderPage()
     await screen.findByRole('radio', { name: 'Графік' })
-    expect(screen.getByRole('radio', { name: 'Рік' })).toBeChecked()
-    await user.click(screen.getByRole('radio', { name: 'Весь період' }))
-    await waitFor(() =>
-      expect(api.analysis).toHaveBeenLastCalledWith(9, '2025-01-01', expect.any(String)),
+    // Three months back from the last 1С day by default, no quick periods.
+    const last = (status as unknown as GrsModelStatus).inflow!.last
+    const back = new Date(`${last}T00:00:00`)
+    back.setMonth(back.getMonth() - 3)
+    const pad = (n: number) => String(n).padStart(2, '0')
+    expect(api.analysis).toHaveBeenCalledWith(
+      9,
+      `${back.getFullYear()}-${pad(back.getMonth() + 1)}-${pad(back.getDate())}`,
+      expect.any(String),
     )
+    expect(screen.queryByRole('radio', { name: 'Рік' })).toBeNull()
 
     // A row of the stations table picks the GRS, and the selector shows it.
     const picker = screen
