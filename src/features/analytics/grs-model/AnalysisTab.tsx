@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useLocalStorage, useViewportSize } from '@mantine/hooks'
 import {
   Alert,
   Badge,
@@ -46,6 +47,9 @@ const DEFAULT_AHEAD = 16
 /** Quick periods, in days back from the last day of the GRS figures. */
 const PRESETS = { recent: 120, year: 365 } as const
 type Preset = keyof typeof PRESETS | 'all'
+type View = 'chart' | 'stations' | 'episodes' | 'months'
+/** Height of everything above the two charts, px: they share the rest of the screen. */
+const CHROME = 470
 
 interface StationRow {
   name: string
@@ -178,6 +182,13 @@ export function AnalysisTab({ branchId, status }: { branchId: number; status: Gr
     (['recent', 'year', 'all'] as Preset[]).find((p) => from === presetFrom(p) && to === end) ??
     null
   const [selected, setSelected] = useState<string>(TOTAL)
+  const [view, setView] = useLocalStorage<View>({
+    key: 'hlv-grs-analysis-view',
+    defaultValue: 'chart',
+  })
+  /** The episode opened from the table: lit on the chart. */
+  const [lit, setLit] = useState<{ grs: string; start: string; end: string } | null>(null)
+  const { height: viewport } = useViewportSize()
 
   const query = useQuery({
     queryKey: ['grs-model', 'analysis', branchId, status.fit?.id, from, to],
@@ -241,6 +252,8 @@ export function AnalysisTab({ branchId, status }: { branchId: number; status: Gr
     level: dark ? '#63e6be' : '#0ca678',
     band: dark ? 'rgba(173,181,189,0.18)' : 'rgba(134,142,150,0.18)',
     alarm: dark ? 'rgba(255,107,107,0.20)' : 'rgba(250,82,82,0.14)',
+    lit: dark ? 'rgba(255,212,59,0.30)' : 'rgba(250,176,5,0.28)',
+    litEdge: dark ? '#ffd43b' : '#f08c00',
     over: dark ? 'rgba(255,107,107,0.28)' : 'rgba(250,82,82,0.18)',
     under: dark ? 'rgba(77,171,247,0.28)' : 'rgba(28,126,214,0.18)',
     today: dark ? '#e6edf0' : '#22313a',
@@ -270,6 +283,13 @@ export function AnalysisTab({ branchId, status }: { branchId: number; status: Gr
         ? data.days[data.days.length - 1]
         : day
   const marks = active === TOTAL ? [] : episodes.filter((e) => e.grs === active)
+  const shownEpisodes = active === TOTAL ? episodes : marks
+  const isLit = (e: { grs: string; start: string }) =>
+    lit != null && lit.grs === e.grs && lit.start === e.start
+  // The two charts share what the screen has left: 60 / 40.
+  const room = Math.max(560, viewport - CHROME)
+  const volumeHeight = Math.round(room * 0.6)
+  const deviationHeight = Math.round(room * 0.4)
   const lastFactShown =
     data.last_fact_day != null &&
     data.days.includes(data.last_fact_day) &&
@@ -464,6 +484,17 @@ export function AnalysisTab({ branchId, status }: { branchId: number; status: Gr
             {t('gmLastFact')}: {fmtDay(data.last_fact_day, locale)}
             {query.isFetching ? ` · ${t('appLoading')}` : ''}
           </Text>
+          <SegmentedControl
+            size="xs"
+            value={view}
+            onChange={(v) => setView(v as View)}
+            data={[
+              { value: 'chart', label: t('weatherViewChart') },
+              { value: 'stations', label: t('gmViewStations') },
+              { value: 'episodes', label: `${t('gmEpisodes')} (${shownEpisodes.length})` },
+              { value: 'months', label: t('gmViewMonths') },
+            ]}
+          />
           <Button
             size="xs"
             variant="light"
@@ -507,264 +538,216 @@ export function AnalysisTab({ branchId, status }: { branchId: number; status: Gr
         />
       </SimpleGrid>
 
-      <Paper withBorder radius="md" p="md">
-        <ScrollArea>
-          <Table highlightOnHover verticalSpacing={6} fz="xs" miw={900}>
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th>{t('gmStation')}</Table.Th>
-                <Table.Th ta="right">
-                  {t('gmFact')}, {t('gmUnit')}
-                </Table.Th>
-                <Table.Th ta="right">
-                  {t('gmExpected')}, {t('gmUnit')}
-                </Table.Th>
-                <Table.Th ta="right">{t('gmDeviationPeriod')}</Table.Th>
-                <Table.Th ta="right">{t('gmDeviationWeek')}</Table.Th>
-                <Table.Th ta="right">{t('gmWeekLimit')}</Table.Th>
-                <Table.Th ta="right">{t('gmTrend')}</Table.Th>
-                <Table.Th>{t('gmState')}</Table.Th>
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              <Table.Tr
-                onClick={() => setSelected(TOTAL)}
-                style={{
-                  cursor: 'pointer',
-                  background: active === TOTAL ? 'var(--hlv-surface-2)' : undefined,
-                }}
-              >
-                <Table.Td fw={700}>{t('gmAllStations')}</Table.Td>
-                <Num>{fmtNumber(totalFact, 1, locale)}</Num>
-                <Num>{fmtNumber(totalExpected, 1, locale)}</Num>
-                <Num>
-                  {totalExpected
-                    ? fmtSigned((totalFact / totalExpected - 1) * 100, 1, locale)
-                    : '—'}
-                </Num>
-                <Table.Td colSpan={4} />
-              </Table.Tr>
-              {rows.map((r) => (
-                <Table.Tr
-                  key={r.name}
-                  onClick={() => setSelected(r.name)}
-                  style={{
-                    cursor: 'pointer',
-                    background: active === r.name ? 'var(--hlv-surface-2)' : undefined,
-                  }}
-                >
-                  <Table.Td fw={500}>{r.name}</Table.Td>
-                  <Num>{fmtNumber(r.fact, 1, locale)}</Num>
-                  <Num>{fmtNumber(r.expected, 1, locale)}</Num>
-                  <Num>{fmtSigned(r.deviation, 1, locale)}</Num>
-                  <Table.Td
-                    ta="right"
-                    ff={MONO}
-                    fw={r.alarm ? 700 : undefined}
-                    c={r.alarm ? 'red' : undefined}
-                  >
-                    {fmtSigned(r.week, 1, locale)}
-                  </Table.Td>
-                  <Num>
-                    {r.weekLimit != null ? `± ${fmtNumber(r.weekLimit, 1, locale)} %` : '—'}
-                  </Num>
-                  <Num>{fmtSigned(r.trend, 1, locale)}</Num>
-                  <Table.Td>
-                    <Badge
-                      size="xs"
-                      variant="light"
-                      color={r.alarm ? 'red' : !r.hasModel || r.fact == null ? 'gray' : 'teal'}
-                    >
-                      {t(stateKey(r))}
-                    </Badge>
-                  </Table.Td>
-                </Table.Tr>
-              ))}
-            </Table.Tbody>
-          </Table>
-        </ScrollArea>
-        <Text size="xs" c="dimmed" mt="sm">
-          {t('gmTableNote')}
-        </Text>
-      </Paper>
-
-      <Paper withBorder radius="md" p="md">
-        <Group justify="space-between" mb="xs" wrap="wrap" gap="xs">
-          <Text fw={600}>
-            {title} — {t('gmChartVolume')}, {t('gmUnit')}
-          </Text>
-          <Group gap="md">
-            <Legend color={c.fact} label={t('gmFact')} />
-            <Legend color={c.expected} label={t('gmExpected')} />
-            <Legend color={c.ahead} label={t('gmForecast')} dashed />
-            {marks.length > 0 && <Legend color={c.alarm} label={t('gmEpisodes')} block />}
-          </Group>
-        </Group>
-        <ResponsiveContainer width="100%" height={360}>
-          <ComposedChart data={chart} margin={margin}>
-            <CartesianGrid stroke={c.grid} strokeDasharray="3 3" />
-            {xAxis}
-            <YAxis yAxisId="v" width={56} tick={{ fontSize: 11, fill: c.axis }} />
-            {tooltip}
-            {marks.map((e) => (
-              <ReferenceArea
-                key={`${e.start}${e.end}`}
-                yAxisId="v"
-                x1={inRange(e.start)}
-                x2={inRange(e.end)}
-                fill={c.alarm}
-                stroke="none"
-                ifOverflow="visible"
-              />
-            ))}
-            {lastFactShown && (
-              <ReferenceLine
-                yAxisId="v"
-                x={data.last_fact_day!}
-                stroke={c.today}
-                strokeWidth={1.5}
-                label={{
-                  value: t('gmLastFact'),
-                  position: 'insideTopRight',
-                  fill: c.today,
-                  fontSize: 11,
-                }}
-              />
-            )}
-            <Line
-              yAxisId="v"
-              dataKey="expected"
-              stroke={c.expected}
-              strokeWidth={1.5}
-              dot={false}
-              isAnimationActive={false}
-            />
-            <Line
-              yAxisId="v"
-              dataKey="ahead"
-              stroke={c.ahead}
-              strokeWidth={2}
-              strokeDasharray="5 4"
-              dot={false}
-              isAnimationActive={false}
-            />
-            <Line
-              yAxisId="v"
-              dataKey="y"
-              stroke={c.fact}
-              strokeWidth={2}
-              dot={false}
-              connectNulls={false}
-              isAnimationActive={false}
-            />
-          </ComposedChart>
-        </ResponsiveContainer>
-
-        <Group justify="space-between" mt="md" mb="xs" wrap="wrap" gap="xs">
-          <Text fw={600}>{t(active === TOTAL ? 'gmChartCommon' : 'gmChartDeviation')}, %</Text>
-          {active !== TOTAL && (
+      {view === 'chart' && (
+        <Paper withBorder radius="md" p="md">
+          <Group justify="space-between" mb="xs" wrap="wrap" gap="xs">
+            <Text fw={600}>
+              {title} — {t('gmChartVolume')}, {t('gmUnit')}
+            </Text>
             <Group gap="md">
-              <Legend color={c.week} label={t('gmDeviationWeek')} />
-              <Legend color={c.band} label={t('gmWeekLimit')} block />
-              <Legend color={c.level} label={t('gmTrend')} dashed />
+              <Legend color={c.fact} label={t('gmFact')} />
+              <Legend color={c.expected} label={t('gmExpected')} />
+              <Legend color={c.ahead} label={t('gmForecast')} dashed />
+              {marks.length > 0 && <Legend color={c.alarm} label={t('gmEpisodes')} block />}
             </Group>
-          )}
-        </Group>
-        <ResponsiveContainer width="100%" height={240}>
-          <ComposedChart data={chart} margin={margin}>
-            <CartesianGrid stroke={c.grid} strokeDasharray="3 3" />
-            {xAxis}
-            <YAxis
-              yAxisId="d"
-              width={56}
-              tick={{ fontSize: 11, fill: c.axis }}
-              tickFormatter={(v) => `${Math.round(Number(v))}%`}
-            />
-            {tooltip}
-            <Area
-              yAxisId="d"
-              dataKey="band"
-              stroke="none"
-              fill={c.band}
-              fillOpacity={1}
-              activeDot={false}
-              isAnimationActive={false}
-            />
-            <ReferenceLine yAxisId="d" y={0} stroke={c.axis} strokeDasharray="4 4" />
-            <Line
-              yAxisId="d"
-              dataKey="trend"
-              stroke={c.level}
-              strokeWidth={1.5}
-              strokeDasharray="5 4"
-              dot={false}
-              isAnimationActive={false}
-            />
-            <Line
-              yAxisId="d"
-              dataKey="week"
-              stroke={c.week}
-              strokeWidth={2}
-              dot={false}
-              connectNulls={false}
-              isAnimationActive={false}
-            />
-          </ComposedChart>
-        </ResponsiveContainer>
-        <Text size="xs" c="dimmed" mt="xs">
-          {t(active === TOTAL ? 'gmChartCommonNote' : 'gmChartDeviationNote')}
-        </Text>
-      </Paper>
+          </Group>
+          <ResponsiveContainer width="100%" height={volumeHeight}>
+            <ComposedChart data={chart} margin={margin}>
+              <CartesianGrid stroke={c.grid} strokeDasharray="3 3" />
+              {xAxis}
+              <YAxis yAxisId="v" width={56} tick={{ fontSize: 11, fill: c.axis }} />
+              {tooltip}
+              {marks.map((e) => (
+                <ReferenceArea
+                  key={`${e.start}${e.end}`}
+                  yAxisId="v"
+                  x1={inRange(e.start)}
+                  x2={inRange(e.end)}
+                  fill={isLit(e) ? c.lit : c.alarm}
+                  stroke={isLit(e) ? c.litEdge : 'none'}
+                  ifOverflow="visible"
+                />
+              ))}
+              {lastFactShown && (
+                <ReferenceLine
+                  yAxisId="v"
+                  x={data.last_fact_day!}
+                  stroke={c.today}
+                  strokeWidth={1.5}
+                  label={{
+                    value: t('gmLastFact'),
+                    position: 'insideTopRight',
+                    fill: c.today,
+                    fontSize: 11,
+                  }}
+                />
+              )}
+              <Line
+                yAxisId="v"
+                dataKey="expected"
+                stroke={c.expected}
+                strokeWidth={1.5}
+                dot={false}
+                isAnimationActive={false}
+              />
+              <Line
+                yAxisId="v"
+                dataKey="ahead"
+                stroke={c.ahead}
+                strokeWidth={2}
+                strokeDasharray="5 4"
+                dot={false}
+                isAnimationActive={false}
+              />
+              <Line
+                yAxisId="v"
+                dataKey="y"
+                stroke={c.fact}
+                strokeWidth={2}
+                dot={false}
+                connectNulls={false}
+                isAnimationActive={false}
+              />
+            </ComposedChart>
+          </ResponsiveContainer>
 
-      <Paper withBorder radius="md" p="md">
-        <Text fw={600} mb="xs">
-          {t('gmEpisodes')}
-        </Text>
-        {episodes.length === 0 ? (
-          <Text size="sm" c="dimmed">
-            {t('gmNoEpisodes')}
+          <Group justify="space-between" mt="md" mb="xs" wrap="wrap" gap="xs">
+            <Text fw={600}>{t(active === TOTAL ? 'gmChartCommon' : 'gmChartDeviation')}, %</Text>
+            {active !== TOTAL && (
+              <Group gap="md">
+                <Legend color={c.week} label={t('gmDeviationWeek')} />
+                <Legend color={c.band} label={t('gmWeekLimit')} block />
+                <Legend color={c.level} label={t('gmTrend')} dashed />
+              </Group>
+            )}
+          </Group>
+          <ResponsiveContainer width="100%" height={deviationHeight}>
+            <ComposedChart data={chart} margin={margin}>
+              <CartesianGrid stroke={c.grid} strokeDasharray="3 3" />
+              {xAxis}
+              <YAxis
+                yAxisId="d"
+                width={56}
+                tick={{ fontSize: 11, fill: c.axis }}
+                tickFormatter={(v) => `${Math.round(Number(v))}%`}
+              />
+              {tooltip}
+              <Area
+                yAxisId="d"
+                dataKey="band"
+                stroke="none"
+                fill={c.band}
+                fillOpacity={1}
+                activeDot={false}
+                isAnimationActive={false}
+              />
+              <ReferenceLine yAxisId="d" y={0} stroke={c.axis} strokeDasharray="4 4" />
+              {lit && lit.grs === active && (
+                <ReferenceArea
+                  yAxisId="d"
+                  x1={inRange(lit.start)}
+                  x2={inRange(lit.end)}
+                  fill={c.lit}
+                  stroke={c.litEdge}
+                  ifOverflow="visible"
+                />
+              )}
+              <Line
+                yAxisId="d"
+                dataKey="trend"
+                stroke={c.level}
+                strokeWidth={1.5}
+                strokeDasharray="5 4"
+                dot={false}
+                isAnimationActive={false}
+              />
+              <Line
+                yAxisId="d"
+                dataKey="week"
+                stroke={c.week}
+                strokeWidth={2}
+                dot={false}
+                connectNulls={false}
+                isAnimationActive={false}
+              />
+            </ComposedChart>
+          </ResponsiveContainer>
+          <Text size="xs" c="dimmed" mt="xs">
+            {t(active === TOTAL ? 'gmChartCommonNote' : 'gmChartDeviationNote')}
           </Text>
-        ) : (
+        </Paper>
+      )}
+
+      {view === 'stations' && (
+        <Paper withBorder radius="md" p="md">
           <ScrollArea>
-            <Table highlightOnHover verticalSpacing={6} fz="xs" miw={820}>
+            <Table highlightOnHover verticalSpacing={6} fz="xs" miw={900}>
               <Table.Thead>
                 <Table.Tr>
                   <Table.Th>{t('gmStation')}</Table.Th>
-                  <Table.Th>{t('gmFrom')}</Table.Th>
-                  <Table.Th>{t('gmTo')}</Table.Th>
-                  <Table.Th ta="right">{t('gmDays')}</Table.Th>
-                  <Table.Th ta="right">{t('gmDeviation')}</Table.Th>
                   <Table.Th ta="right">
-                    {t('gmVolume')}, {t('gmUnit')}
+                    {t('gmFact')}, {t('gmUnit')}
                   </Table.Th>
-                  <Table.Th ta="right">{t('gmCommon')}</Table.Th>
+                  <Table.Th ta="right">
+                    {t('gmExpected')}, {t('gmUnit')}
+                  </Table.Th>
+                  <Table.Th ta="right">{t('gmDeviationPeriod')}</Table.Th>
+                  <Table.Th ta="right">{t('gmDeviationWeek')}</Table.Th>
+                  <Table.Th ta="right">{t('gmWeekLimit')}</Table.Th>
+                  <Table.Th ta="right">{t('gmTrend')}</Table.Th>
                   <Table.Th>{t('gmState')}</Table.Th>
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
-                {episodes.map((e) => (
+                <Table.Tr
+                  onClick={() => setSelected(TOTAL)}
+                  style={{
+                    cursor: 'pointer',
+                    background: active === TOTAL ? 'var(--hlv-surface-2)' : undefined,
+                  }}
+                >
+                  <Table.Td fw={700}>{t('gmAllStations')}</Table.Td>
+                  <Num>{fmtNumber(totalFact, 1, locale)}</Num>
+                  <Num>{fmtNumber(totalExpected, 1, locale)}</Num>
+                  <Num>
+                    {totalExpected
+                      ? fmtSigned((totalFact / totalExpected - 1) * 100, 1, locale)
+                      : '—'}
+                  </Num>
+                  <Table.Td colSpan={4} />
+                </Table.Tr>
+                {rows.map((r) => (
                   <Table.Tr
-                    key={`${e.grs}${e.start}`}
-                    onClick={() => setSelected(e.grs)}
-                    style={{ cursor: 'pointer' }}
+                    key={r.name}
+                    onClick={() => setSelected(r.name)}
+                    style={{
+                      cursor: 'pointer',
+                      background: active === r.name ? 'var(--hlv-surface-2)' : undefined,
+                    }}
                   >
-                    <Table.Td fw={500}>{e.grs}</Table.Td>
-                    <Table.Td ff={MONO}>{fmtDay(e.start, locale)}</Table.Td>
-                    <Table.Td ff={MONO}>{fmtDay(e.end, locale)}</Table.Td>
-                    <Num>{e.days}</Num>
+                    <Table.Td fw={500}>{r.name}</Table.Td>
+                    <Num>{fmtNumber(r.fact, 1, locale)}</Num>
+                    <Num>{fmtNumber(r.expected, 1, locale)}</Num>
+                    <Num>{fmtSigned(r.deviation, 1, locale)}</Num>
                     <Table.Td
                       ta="right"
                       ff={MONO}
-                      fw={600}
-                      c={(e.deviation ?? 0) > 0 ? 'red' : 'blue'}
+                      fw={r.alarm ? 700 : undefined}
+                      c={r.alarm ? 'red' : undefined}
                     >
-                      {fmtSigned(e.deviation, 1, locale)}
+                      {fmtSigned(r.week, 1, locale)}
                     </Table.Td>
-                    <Num>{fmtSigned(e.volume, 1, locale).replace(' %', '')}</Num>
-                    <Num>{fmtSigned(e.common, 1, locale)}</Num>
+                    <Num>
+                      {r.weekLimit != null ? `± ${fmtNumber(r.weekLimit, 1, locale)} %` : '—'}
+                    </Num>
+                    <Num>{fmtSigned(r.trend, 1, locale)}</Num>
                     <Table.Td>
-                      <Badge size="xs" variant="light" color={e.open ? 'red' : 'gray'}>
-                        {t(e.open ? 'gmEpisodeOpen' : 'gmEpisodeClosed')}
+                      <Badge
+                        size="xs"
+                        variant="light"
+                        color={r.alarm ? 'red' : !r.hasModel || r.fact == null ? 'gray' : 'teal'}
+                      >
+                        {t(stateKey(r))}
                       </Badge>
                     </Table.Td>
                   </Table.Tr>
@@ -772,70 +755,140 @@ export function AnalysisTab({ branchId, status }: { branchId: number; status: Gr
               </Table.Tbody>
             </Table>
           </ScrollArea>
-        )}
-        <Text size="xs" c="dimmed" mt="sm">
-          {t('gmEpisodesNote')}
-        </Text>
-      </Paper>
-
-      {months.length > 0 && (
-        <Paper withBorder radius="md" p="md">
-          <Text fw={600} mb="xs">
-            {t('gmMonths')}, %
-          </Text>
-          <ScrollArea>
-            <Table verticalSpacing={5} fz="xs" withColumnBorders>
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th miw={220}>{t('gmStation')}</Table.Th>
-                  {months.map((m) => (
-                    <Table.Th key={m} ta="right" miw={70}>
-                      {m.slice(5)}.{m.slice(0, 4)}
-                    </Table.Th>
-                  ))}
-                  <Table.Th ta="right" miw={70}>
-                    {t('gmMonthLimit')}
-                  </Table.Th>
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {data.stations
-                  .filter((s) => s.has_model)
-                  .map((s) => {
-                    const limit = limitOf.get(s.name) ?? null
-                    return (
-                      <Table.Tr
-                        key={s.name}
-                        onClick={() => setSelected(s.name)}
-                        style={{ cursor: 'pointer' }}
-                      >
-                        <Table.Td fw={500}>{s.name}</Table.Td>
-                        {data.months.map((m) => {
-                          const v = m.values[s.name]
-                          const out = v != null && limit != null && Math.abs(v) > limit
-                          return (
-                            <Table.Td
-                              key={m.month}
-                              ta="right"
-                              ff={MONO}
-                              fw={out ? 700 : undefined}
-                              style={{ background: out ? (v > 0 ? c.over : c.under) : undefined }}
-                            >
-                              {v != null ? fmtSigned(v, 1, locale).replace(' %', '') : '—'}
-                            </Table.Td>
-                          )
-                        })}
-                        <Num>{limit != null ? `± ${fmtNumber(limit, 1, locale)}` : '—'}</Num>
-                      </Table.Tr>
-                    )
-                  })}
-              </Table.Tbody>
-            </Table>
-          </ScrollArea>
           <Text size="xs" c="dimmed" mt="sm">
-            {t('gmMonthsNote')}
+            {t('gmTableNote')}
           </Text>
         </Paper>
+      )}
+
+      {view === 'episodes' && (
+        <Paper withBorder radius="md" p="md">
+          <Text fw={600} mb="xs">
+            {t('gmEpisodes')}
+          </Text>
+          {shownEpisodes.length === 0 ? (
+            <Text size="sm" c="dimmed">
+              {t('gmNoEpisodes')}
+            </Text>
+          ) : (
+            <ScrollArea>
+              <Table highlightOnHover verticalSpacing={6} fz="xs" miw={820}>
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>{t('gmStation')}</Table.Th>
+                    <Table.Th>{t('gmFrom')}</Table.Th>
+                    <Table.Th>{t('gmTo')}</Table.Th>
+                    <Table.Th ta="right">{t('gmDays')}</Table.Th>
+                    <Table.Th ta="right">{t('gmDeviation')}</Table.Th>
+                    <Table.Th ta="right">
+                      {t('gmVolume')}, {t('gmUnit')}
+                    </Table.Th>
+                    <Table.Th ta="right">{t('gmCommon')}</Table.Th>
+                    <Table.Th>{t('gmState')}</Table.Th>
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {shownEpisodes.map((e) => (
+                    <Table.Tr
+                      key={`${e.grs}${e.start}`}
+                      onClick={() => {
+                        setSelected(e.grs)
+                        setLit({ grs: e.grs, start: e.start, end: e.end })
+                        setView('chart')
+                      }}
+                      style={{ cursor: 'pointer' }}
+                    >
+                      <Table.Td fw={500}>{e.grs}</Table.Td>
+                      <Table.Td ff={MONO}>{fmtDay(e.start, locale)}</Table.Td>
+                      <Table.Td ff={MONO}>{fmtDay(e.end, locale)}</Table.Td>
+                      <Num>{e.days}</Num>
+                      <Table.Td
+                        ta="right"
+                        ff={MONO}
+                        fw={600}
+                        c={(e.deviation ?? 0) > 0 ? 'red' : 'blue'}
+                      >
+                        {fmtSigned(e.deviation, 1, locale)}
+                      </Table.Td>
+                      <Num>{fmtSigned(e.volume, 1, locale).replace(' %', '')}</Num>
+                      <Num>{fmtSigned(e.common, 1, locale)}</Num>
+                      <Table.Td>
+                        <Badge size="xs" variant="light" color={e.open ? 'red' : 'gray'}>
+                          {t(e.open ? 'gmEpisodeOpen' : 'gmEpisodeClosed')}
+                        </Badge>
+                      </Table.Td>
+                    </Table.Tr>
+                  ))}
+                </Table.Tbody>
+              </Table>
+            </ScrollArea>
+          )}
+          <Text size="xs" c="dimmed" mt="sm">
+            {t('gmEpisodesNote')}
+          </Text>
+        </Paper>
+      )}
+
+      {view === 'months' && (
+        <>
+          <Paper withBorder radius="md" p="md">
+            <Text fw={600} mb="xs">
+              {t('gmMonths')}, %
+            </Text>
+            <ScrollArea>
+              <Table verticalSpacing={5} fz="xs" withColumnBorders>
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th miw={220}>{t('gmStation')}</Table.Th>
+                    {months.map((m) => (
+                      <Table.Th key={m} ta="right" miw={70}>
+                        {m.slice(5)}.{m.slice(0, 4)}
+                      </Table.Th>
+                    ))}
+                    <Table.Th ta="right" miw={70}>
+                      {t('gmMonthLimit')}
+                    </Table.Th>
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {data.stations
+                    .filter((s) => s.has_model)
+                    .map((s) => {
+                      const limit = limitOf.get(s.name) ?? null
+                      return (
+                        <Table.Tr
+                          key={s.name}
+                          onClick={() => setSelected(s.name)}
+                          style={{ cursor: 'pointer' }}
+                        >
+                          <Table.Td fw={500}>{s.name}</Table.Td>
+                          {data.months.map((m) => {
+                            const v = m.values[s.name]
+                            const out = v != null && limit != null && Math.abs(v) > limit
+                            return (
+                              <Table.Td
+                                key={m.month}
+                                ta="right"
+                                ff={MONO}
+                                fw={out ? 700 : undefined}
+                                style={{ background: out ? (v > 0 ? c.over : c.under) : undefined }}
+                              >
+                                {v != null ? fmtSigned(v, 1, locale).replace(' %', '') : '—'}
+                              </Table.Td>
+                            )
+                          })}
+                          <Num>{limit != null ? `± ${fmtNumber(limit, 1, locale)}` : '—'}</Num>
+                        </Table.Tr>
+                      )
+                    })}
+                </Table.Tbody>
+              </Table>
+            </ScrollArea>
+            <Text size="xs" c="dimmed" mt="sm">
+              {t('gmMonthsNote')}
+            </Text>
+          </Paper>
+        </>
       )}
     </Stack>
   )

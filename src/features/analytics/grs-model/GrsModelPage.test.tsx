@@ -23,7 +23,9 @@ vi.mock('@/features/auth/UserContext', () => ({
 vi.mock('@/features/reports/useBranchLines', () => ({
   useBranches: () => ({ data: [{ id: 9, name: 'Запорізька філія' }] }),
   useEnsureValidBranch: () => undefined,
-  useBranchLines: () => ({ data: [{ id: 208, name: 'Вільнянськ загальний', kind: 'virtual', include_in_trends: true }] }),
+  useBranchLines: () => ({
+    data: [{ id: 208, name: 'Вільнянськ загальний', kind: 'virtual', include_in_trends: true }],
+  }),
 }))
 const api = vi.hoisted(() => ({
   status: vi.fn(),
@@ -78,35 +80,55 @@ function renderPage() {
 }
 
 describe('GrsModelPage', () => {
-  it('analysis lists every modelled station and the episodes', async () => {
+  it('analysis shows one view at a time: chart, stations, episodes', async () => {
+    const user = userEvent.setup()
     renderPage()
-    await screen.findByRole('cell', { name: 'Усі ГРС разом' })
+    await screen.findByRole('radio', { name: 'Графік' })
     expect(api.analysis).toHaveBeenCalledWith(9, expect.any(String), expect.any(String))
+    expect(screen.queryByRole('cell', { name: 'Усі ГРС разом' })).toBeNull()
+
+    await user.click(screen.getByRole('radio', { name: 'ГРС' }))
+    await screen.findByRole('cell', { name: 'Усі ГРС разом' })
     for (const s of (analysis as unknown as GrsAnalysis).stations) {
       expect(screen.getAllByText(s.name).length).toBeGreaterThan(0)
     }
-    const open = (analysis as unknown as GrsAnalysis).episodes.filter((e) => e.open).length
-    expect(screen.getAllByText('триває').length).toBeGreaterThanOrEqual(open)
+
+    // With all stations picked, every episode is listed.
+    await user.click(screen.getByRole('radio', { name: /^Епізоди/ }))
+    const all = (analysis as unknown as GrsAnalysis).episodes
+    expect(screen.getAllByText('триває').length).toBe(all.filter((e) => e.open).length)
   })
 
-  it('the period and the GRS are picked above the chart', async () => {
+  it('the period, the GRS and an episode are picked above the chart', async () => {
     const user = userEvent.setup()
     renderPage()
-    await screen.findByRole('cell', { name: 'Усі ГРС разом' })
+    await screen.findByRole('radio', { name: 'Графік' })
     expect(screen.getByRole('radio', { name: 'Рік' })).toBeChecked()
     await user.click(screen.getByRole('radio', { name: 'Весь період' }))
     await waitFor(() =>
       expect(api.analysis).toHaveBeenLastCalledWith(9, '2025-01-01', expect.any(String)),
     )
 
-    // A row of the table picks the GRS too, and the selector shows it.
+    // A row of the stations table picks the GRS, and the selector shows it.
     const picker = screen
       .getAllByLabelText('ГРС')
       .find((el) => el.tagName === 'INPUT') as HTMLInputElement
     expect(picker.value).toBe('Усі ГРС разом')
-    await user.click(screen.getAllByRole('cell', { name: 'ГРС Вільнянськ' })[0])
-    expect(picker.value).toBe('ГРС Вільнянськ')
-    expect(screen.getByText(/^ГРС Вільнянськ — /)).toBeInTheDocument()
+    const episode = (analysis as unknown as GrsAnalysis).episodes[0]
+    await user.click(screen.getByRole('radio', { name: 'ГРС' }))
+    await user.click((await screen.findAllByRole('cell', { name: episode.grs }))[0])
+    expect(picker.value).toBe(episode.grs)
+
+    // Only that station's episodes; one of them opens the chart.
+    await user.click(screen.getByRole('radio', { name: /^Епізоди/ }))
+    const rows = screen.getAllByRole('row').slice(1)
+    const own = (analysis as unknown as GrsAnalysis).episodes.filter((e) => e.grs === episode.grs)
+    expect(rows.length).toBe(own.length)
+    await user.click(within(rows[0]).getAllByRole('cell')[0])
+    expect(screen.getByRole('radio', { name: 'Графік' })).toBeChecked()
+    expect(
+      screen.getByText((content) => content.startsWith(`${episode.grs} — `)),
+    ).toBeInTheDocument()
   })
 
   it('model tab shows quality per station and the train button', async () => {

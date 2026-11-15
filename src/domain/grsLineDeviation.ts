@@ -45,6 +45,8 @@ export interface StationDeviation {
   deviation: (number | null)[]
   /** The same over 7 days, %. */
   week: (number | null)[]
+  /** The lines' volume less industry, m³ a day. */
+  net: (number | null)[]
 }
 
 export const lineKey = (l: LineRef) => `${l.kind}:${l.id}`
@@ -101,6 +103,7 @@ export function lineDeviation(input: LineDeviationInput): {
         estimate,
         model: station.model,
         log,
+        net,
       }
     })
 
@@ -111,12 +114,7 @@ export function lineDeviation(input: LineDeviationInput): {
 
   const stations = rows.map((r) => {
     const own = r.log.map((v, i) => (v == null ? null : v - (common[i] ?? 0)))
-    const week = own.map((_, i) => {
-      const window = own.slice(Math.max(0, i - 6), i + 1).filter((v): v is number => v != null)
-      return window.length >= 5
-        ? (Math.exp(window.reduce((a, b) => a + b, 0) / window.length) - 1) * 100
-        : null
-    })
+    const week = weekly(own)
     return {
       name: r.name,
       scale: r.scale,
@@ -125,7 +123,49 @@ export function lineDeviation(input: LineDeviationInput): {
       model: r.model,
       deviation: own.map((v) => (v == null ? null : (Math.exp(v) - 1) * 100)),
       week,
+      net: r.net,
     }
   })
   return { stations, common: common.map((v) => (v == null ? null : (Math.exp(v) - 1) * 100)) }
+}
+
+/** 7-day mean of a log ratio, as %; null with fewer than 5 days known. */
+export function weekly(log: (number | null)[]): (number | null)[] {
+  return log.map((_, i) => {
+    const window = log.slice(Math.max(0, i - 6), i + 1).filter((v): v is number => v != null)
+    return window.length >= 5
+      ? (Math.exp(window.reduce((a, b) => a + b, 0) / window.length) - 1) * 100
+      : null
+  })
+}
+
+/** Rescaling passes, as in the trends report: the branch median settles in three. */
+const TREND_PASSES = 3
+
+/**
+ * What the trends report expects of each station: its usual place against
+ * the median of all of them, times that median day by day (m³). The usual
+ * place is the median over the days of its share of the period total over
+ * the branch median — a fault covering fewer than half of the days does not
+ * move it. Same idea as `calculateTrendPercentages` (domain/grsTrends), on
+ * the stations instead of the lines.
+ */
+export function trendExpectation(nets: (number | null)[][]): (number | null)[][] {
+  const totals = nets.map((n) => n.reduce<number>((a, v) => a + (v ?? 0), 0))
+  const share = nets.map((n, k) => n.map((v) => (v == null || !totals[k] ? null : v / totals[k])))
+  const days = nets[0]?.length ?? 0
+  let scale = nets.map(() => 1)
+  let branch: (number | null)[] = []
+  for (let pass = 0; pass < TREND_PASSES; pass++) {
+    branch = Array.from({ length: days }, (_, i) =>
+      median(share.map((s, k) => (s[i] == null ? null : s[i]! / scale[k])).filter((v): v is number => v != null)),
+    )
+    scale = share.map((s, k) => {
+      const r = s.map((v, i) => (v == null || !branch[i] ? null : v / branch[i]!)).filter((v): v is number => v != null)
+      return median(r) ?? scale[k]
+    })
+  }
+  return nets.map((_, k) =>
+    branch.map((b) => (b == null || !totals[k] ? null : b * scale[k] * totals[k])),
+  )
 }
