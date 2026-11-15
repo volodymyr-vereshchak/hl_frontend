@@ -8,6 +8,7 @@ import {
   Paper,
   ScrollArea,
   SegmentedControl,
+  Select,
   Stack,
   Table,
   Text,
@@ -74,7 +75,9 @@ const PALETTE = [
   '#7950f2',
 ]
 
-type Mode = 'model' | 'trends' | 'volume'
+type Mode = 'model' | 'compare'
+/** «Модель і тренди» for all stations together. */
+const ALL = '__all__'
 type View = 'chart' | 'table'
 
 interface Row extends StationDeviation {
@@ -82,8 +85,6 @@ interface Row extends StationDeviation {
   trend: (number | null)[]
   /** The model in line m³ (the 1С scale undone). */
   modelNet: (number | null)[]
-  /** Weekly deviation of the lines from the trends expectation, %. */
-  trendWeek: (number | null)[]
 }
 
 interface Result {
@@ -112,8 +113,9 @@ export function LinesTab({ branchId, status }: { branchId: number; status: GrsMo
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<Result | null>(null)
   const [hidden, setHidden] = useState<Record<number, boolean>>({})
+  const [focus, setFocus] = useState<string>(ALL)
   const [mode, setMode] = useLocalStorage<Mode>({
-    key: 'hlv-grs-lines-mode',
+    key: 'hlv-grs-lines-mode2',
     defaultValue: 'model',
   })
   const [view, setView] = useLocalStorage<View>({
@@ -195,10 +197,6 @@ export function LinesTab({ branchId, status }: { branchId: number; status: GrsMo
       const keep = analysis.days.map((d) => d >= from && d <= to)
       const cut = <T,>(xs: T[]) => xs.filter((_, i) => keep[i])
       const stations: Row[] = out.stations.map((s, k) => {
-        const trendLog = s.net.map((v, i) => {
-          const e = expected[k][i]
-          return v != null && v > 0 && e != null && e > 0 ? Math.log(v / e) : null
-        })
         return {
           ...s,
           estimate: cut(s.estimate),
@@ -210,7 +208,6 @@ export function LinesTab({ branchId, status }: { branchId: number; status: GrsMo
             s.model.map((m) => (m == null || s.scale == null ? null : (m * 1000) / s.scale)),
           ),
           trend: cut(expected[k]),
-          trendWeek: cut(weekly(trendLog)),
         }
       })
       setResult({ days: cut(analysis.days), stations, common: cut(out.common) })
@@ -236,29 +233,49 @@ export function LinesTab({ branchId, status }: { branchId: number; status: GrsMo
     () => (result ? result.stations.filter((_, k) => !hidden[k]) : []),
     [result, hidden],
   )
+  /** «Модель і тренди»: all stations summed, or the one picked. */
+  const compared = useMemo(() => {
+    if (!result) return []
+    const chosen = focus === ALL ? result.stations : result.stations.filter((s) => s.name === focus)
+    return chosen.filter((s) => s.scale != null)
+  }, [result, focus])
   const chart = useMemo(() => {
     if (!result) return []
-    return result.days.map((day, i) => {
-      const row: Record<string, string | number | null> = { period: day }
-      if (mode === 'volume') {
-        const sum = (pick: (s: Row) => number | null) => {
-          const values = picked.map(pick)
-          return !values.length || values.some((v) => v == null)
-            ? null
-            : Math.round(values.reduce<number>((a, v) => a + v!, 0))
-        }
-        row.fact = sum((s) => s.net[i])
-        row.model = sum((s) => s.modelNet[i])
-        row.trend = sum((s) => s.trend[i])
-      } else {
+    if (mode === 'model') {
+      return result.days.map((day, i) => {
+        const row: Record<string, string | number | null> = { period: day }
         result.stations.forEach((s) => {
-          const v = mode === 'model' ? s.week[i] : s.trendWeek[i]
-          row[s.name] = v == null ? null : Math.round(v * 10) / 10
+          row[s.name] = s.week[i] == null ? null : Math.round(s.week[i]! * 10) / 10
         })
-      }
-      return row
-    })
-  }, [result, mode, picked])
+        return row
+      })
+    }
+    const sum = (pick: (s: Row) => number | null) => {
+      const values = compared.map(pick)
+      return !values.length || values.some((v) => v == null)
+        ? null
+        : values.reduce<number>((a, v) => a + v!, 0)
+    }
+    const fact = result.days.map((_, i) => sum((s) => s.net[i]))
+    const model = result.days.map((_, i) => sum((s) => s.modelNet[i]))
+    const trend = result.days.map((_, i) => sum((s) => s.trend[i]))
+    const ratio = (a: (number | null)[], b: (number | null)[]) =>
+      a.map((v, i) =>
+        v != null && v > 0 && b[i] != null && b[i]! > 0 ? Math.log(v / b[i]!) : null,
+      )
+    const vsModel = weekly(ratio(fact, model))
+    const vsTrend = weekly(ratio(fact, trend))
+    const round = (v: number | null, d = 0) =>
+      v == null ? null : Math.round(v * 10 ** d) / 10 ** d
+    return result.days.map((day, i) => ({
+      period: day,
+      fact: round(fact[i]),
+      model: round(model[i]),
+      trend: round(trend[i]),
+      vsModel: round(vsModel[i], 1),
+      vsTrend: round(vsTrend[i], 1),
+    }))
+  }, [result, mode, compared])
 
   if (!mapped.length) {
     return (
@@ -280,7 +297,16 @@ export function LinesTab({ branchId, status }: { branchId: number; status: GrsMo
     new Date(`${value}T00:00:00`).toLocaleDateString(locale, { day: '2-digit', month: '2-digit' }),
     '',
   ]
-  const chartHeight = Math.max(360, viewport - CHROME)
+  const chartHeight = Math.max(420, viewport - CHROME)
+  const percent = (v: number) => `${Math.round(Number(v))}%`
+  const xAxis = (
+    <XAxis
+      dataKey="period"
+      interval={Math.max(0, Math.ceil(chart.length / 24) - 1)}
+      tick={<TimeAxisTick format={fmtX} fill={c.axis} />}
+      height={timeAxisHeight(false)}
+    />
+  )
 
   return (
     <Stack gap="md">
@@ -334,11 +360,6 @@ export function LinesTab({ branchId, status }: { branchId: number; status: GrsMo
                   { value: 'table', label: t('weatherViewTable') },
                 ]}
               />
-              <ChartLinePicker
-                lines={result.stations.map((s, k) => ({ id: k, name: s.name, color: colorOf(k) }))}
-                hidden={hidden}
-                onChange={setHidden}
-              />
             </>
           )}
           <Text size="xs" c="dimmed" pb={6} ml="auto">
@@ -357,17 +378,43 @@ export function LinesTab({ branchId, status }: { branchId: number; status: GrsMo
       {result && !running && view === 'chart' && (
         <Paper withBorder radius="md" p="md">
           <Group justify="space-between" mb="xs" wrap="wrap" gap="sm">
-            <SegmentedControl
-              size="xs"
-              value={mode}
-              onChange={(v) => setMode(v as Mode)}
-              data={[
-                { value: 'model', label: t('gmLinesModeModel') },
-                { value: 'trends', label: t('gmLinesModeTrends') },
-                { value: 'volume', label: t('gmLinesModeVolume') },
-              ]}
-            />
-            {mode === 'volume' && (
+            <Group gap="sm" wrap="wrap">
+              <SegmentedControl
+                size="xs"
+                value={mode}
+                onChange={(v) => setMode(v as Mode)}
+                data={[
+                  { value: 'model', label: t('gmLinesModeModel') },
+                  { value: 'compare', label: t('gmLinesModeCompare') },
+                ]}
+              />
+              {mode === 'model' ? (
+                <ChartLinePicker
+                  lines={result.stations.map((s, k) => ({
+                    id: k,
+                    name: s.name,
+                    color: colorOf(k),
+                  }))}
+                  hidden={hidden}
+                  onChange={setHidden}
+                />
+              ) : (
+                <Select
+                  size="xs"
+                  w={300}
+                  aria-label={t('gmStation')}
+                  data={[
+                    { value: ALL, label: t('gmAllStations') },
+                    ...result.stations.map((s) => ({ value: s.name, label: s.name })),
+                  ]}
+                  value={focus}
+                  onChange={(v) => setFocus(v ?? ALL)}
+                  allowDeselect={false}
+                  searchable
+                />
+              )}
+            </Group>
+            {mode === 'compare' && (
               <Group gap="md">
                 <Legend color={c.fact} label={t('gmLinesFact')} />
                 <Legend color={c.model} label={t('gmLinesByModel')} dashed />
@@ -375,44 +422,66 @@ export function LinesTab({ branchId, status }: { branchId: number; status: GrsMo
               </Group>
             )}
           </Group>
-          {picked.length === 0 ? (
+
+          {mode === 'model' && picked.length === 0 && (
             <Text size="sm" c="dimmed" ta="center" py="xl">
               {t('gmLinesPickSome')}
             </Text>
-          ) : (
+          )}
+          {mode === 'model' && picked.length > 0 && (
             <ResponsiveContainer width="100%" height={chartHeight}>
               <LineChart data={chart} margin={{ top: 6, right: 8, bottom: 0, left: 0 }}>
                 <CartesianGrid stroke={c.grid} strokeDasharray="3 3" />
-                <XAxis
-                  dataKey="period"
-                  interval={Math.max(0, Math.ceil(chart.length / 24) - 1)}
-                  tick={<TimeAxisTick format={fmtX} fill={c.axis} />}
-                  height={timeAxisHeight(false)}
-                />
-                <YAxis
-                  width={64}
-                  tick={{ fontSize: 11, fill: c.axis }}
-                  tickFormatter={(v) =>
-                    mode === 'volume'
-                      ? fmtNumber(Number(v), 0, locale)
-                      : `${Math.round(Number(v))}%`
-                  }
-                />
+                {xAxis}
+                <YAxis width={64} tick={{ fontSize: 11, fill: c.axis }} tickFormatter={percent} />
                 <Tooltip
-                  formatter={(v, name) => [
-                    mode === 'volume' ? `${fmtNumber(Number(v), 0, locale)} м³` : `${v ?? '—'} %`,
-                    String(name),
-                  ]}
+                  formatter={(v, name) => [`${v ?? '—'} %`, String(name)]}
                   labelFormatter={(l) => fmtDay(String(l), locale)}
                 />
-                {mode !== 'volume' && <ReferenceLine y={0} stroke={c.axis} strokeDasharray="4 4" />}
-                {mode !== 'volume' && (
-                  <ReferenceLine y={WEEK_LIMIT} stroke="#fa5252" strokeDasharray="2 4" />
+                <ReferenceLine y={0} stroke={c.axis} strokeDasharray="4 4" />
+                <ReferenceLine y={WEEK_LIMIT} stroke="#fa5252" strokeDasharray="2 4" />
+                <ReferenceLine y={-WEEK_LIMIT} stroke="#fa5252" strokeDasharray="2 4" />
+                {result.stations.map((s, k) =>
+                  hidden[k] ? null : (
+                    <Line
+                      key={s.name}
+                      dataKey={s.name}
+                      stroke={colorOf(k)}
+                      strokeWidth={2}
+                      dot={false}
+                      connectNulls={false}
+                      isAnimationActive={false}
+                    />
+                  ),
                 )}
-                {mode !== 'volume' && (
-                  <ReferenceLine y={-WEEK_LIMIT} stroke="#fa5252" strokeDasharray="2 4" />
-                )}
-                {mode === 'volume' && (
+              </LineChart>
+            </ResponsiveContainer>
+          )}
+
+          {mode === 'compare' && compared.length === 0 && (
+            <Text size="sm" c="dimmed" ta="center" py="xl">
+              {t('gmLinesNoScale')}
+            </Text>
+          )}
+          {mode === 'compare' && compared.length > 0 && (
+            <>
+              <ResponsiveContainer width="100%" height={Math.round(chartHeight * 0.6)}>
+                <LineChart
+                  data={chart}
+                  syncId="lines-compare"
+                  margin={{ top: 6, right: 8, bottom: 0, left: 0 }}
+                >
+                  <CartesianGrid stroke={c.grid} strokeDasharray="3 3" />
+                  {xAxis}
+                  <YAxis
+                    width={64}
+                    tick={{ fontSize: 11, fill: c.axis }}
+                    tickFormatter={(v) => fmtNumber(Number(v), 0, locale)}
+                  />
+                  <Tooltip
+                    formatter={(v, name) => [`${fmtNumber(Number(v), 0, locale)} м³`, String(name)]}
+                    labelFormatter={(l) => fmtDay(String(l), locale)}
+                  />
                   <Line
                     name={t('gmLinesFact')}
                     dataKey="fact"
@@ -421,8 +490,6 @@ export function LinesTab({ branchId, status }: { branchId: number; status: GrsMo
                     dot={false}
                     isAnimationActive={false}
                   />
-                )}
-                {mode === 'volume' && (
                   <Line
                     name={t('gmLinesByModel')}
                     dataKey="model"
@@ -432,8 +499,6 @@ export function LinesTab({ branchId, status }: { branchId: number; status: GrsMo
                     dot={false}
                     isAnimationActive={false}
                   />
-                )}
-                {mode === 'volume' && (
                   <Line
                     name={t('gmLinesByTrends')}
                     dataKey="trend"
@@ -443,34 +508,56 @@ export function LinesTab({ branchId, status }: { branchId: number; status: GrsMo
                     dot={false}
                     isAnimationActive={false}
                   />
-                )}
-                {mode !== 'volume' &&
-                  result.stations.map((s, k) =>
-                    hidden[k] ? null : (
-                      <Line
-                        key={s.name}
-                        dataKey={s.name}
-                        stroke={colorOf(k)}
-                        strokeWidth={2}
-                        dot={false}
-                        connectNulls={false}
-                        isAnimationActive={false}
-                      />
-                    ),
-                  )}
-              </LineChart>
-            </ResponsiveContainer>
+                </LineChart>
+              </ResponsiveContainer>
+              <Group gap="md" mt="sm" mb={4}>
+                <Text size="xs" fw={600}>
+                  {t('gmLinesCompareDeviation')}, %
+                </Text>
+                <Legend color={c.model} label={t('gmLinesDevModel')} />
+                <Legend color={c.trend} label={t('gmLinesDevTrends')} />
+              </Group>
+              <ResponsiveContainer width="100%" height={Math.round(chartHeight * 0.4)}>
+                <LineChart
+                  data={chart}
+                  syncId="lines-compare"
+                  margin={{ top: 6, right: 8, bottom: 0, left: 0 }}
+                >
+                  <CartesianGrid stroke={c.grid} strokeDasharray="3 3" />
+                  {xAxis}
+                  <YAxis width={64} tick={{ fontSize: 11, fill: c.axis }} tickFormatter={percent} />
+                  <Tooltip
+                    formatter={(v, name) => [`${v ?? '—'} %`, String(name)]}
+                    labelFormatter={(l) => fmtDay(String(l), locale)}
+                  />
+                  <ReferenceLine y={0} stroke={c.axis} strokeDasharray="4 4" />
+                  <ReferenceLine y={WEEK_LIMIT} stroke="#fa5252" strokeDasharray="2 4" />
+                  <ReferenceLine y={-WEEK_LIMIT} stroke="#fa5252" strokeDasharray="2 4" />
+                  <Line
+                    name={t('gmLinesDevModel')}
+                    dataKey="vsModel"
+                    stroke={c.model}
+                    strokeWidth={2}
+                    dot={false}
+                    isAnimationActive={false}
+                  />
+                  <Line
+                    name={t('gmLinesDevTrends')}
+                    dataKey="vsTrend"
+                    stroke={c.trend}
+                    strokeWidth={2}
+                    dot={false}
+                    isAnimationActive={false}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </>
           )}
           <Text size="xs" c="dimmed" mt="xs">
-            {t(
-              mode === 'model'
-                ? 'gmLinesChartNote'
-                : mode === 'trends'
-                  ? 'gmLinesTrendsNote'
-                  : 'gmLinesVolumeNote',
-            )
-              .replace('{n}', String(WEEK_LIMIT))
-              .replace('{k}', String(picked.length))}
+            {t(mode === 'model' ? 'gmLinesChartNote' : 'gmLinesCompareNote').replace(
+              '{n}',
+              String(WEEK_LIMIT),
+            )}
           </Text>
         </Paper>
       )}
