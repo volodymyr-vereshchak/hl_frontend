@@ -7,13 +7,15 @@ import {
   Group,
   Paper,
   ScrollArea,
+  SegmentedControl,
+  Select,
   SimpleGrid,
   Stack,
   Table,
   Text,
   useMantineColorScheme,
 } from '@mantine/core'
-import { IconAlertTriangle, IconFileSpreadsheet } from '@tabler/icons-react'
+import { IconAlertTriangle, IconCalendar, IconFileSpreadsheet } from '@tabler/icons-react'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import {
   Area,
@@ -29,7 +31,7 @@ import {
 } from 'recharts'
 import { grsModelApi, type GrsAnalysis, type GrsModelStatus } from '@/api/grsModel'
 import { LoadingState } from '@/components/LoadingState'
-import { PeriodPicker } from '@/features/archive/PeriodPicker'
+import { DatePickerInput } from '@mantine/dates'
 import { TimeAxisTick, timeAxisHeight } from '@/features/archive/TimeAxisTick'
 import { writeSheets } from '@/lib/xlsx'
 import { useLanguage } from '@/locales/LanguageContext'
@@ -40,8 +42,10 @@ const MONO = "'JetBrains Mono Variable', monospace"
 /** The row and the chart of all stations together. */
 const TOTAL = '__total__'
 /** Days of history shown by default, and of forecast after the last fact. */
-const DEFAULT_BACK = 120
 const DEFAULT_AHEAD = 16
+/** Quick periods, in days back from the last day of the GRS figures. */
+const PRESETS = { recent: 120, year: 365 } as const
+type Preset = keyof typeof PRESETS | 'all'
 
 interface StationRow {
   name: string
@@ -52,6 +56,7 @@ interface StationRow {
   week: number | null
   weekLimit: number | null
   level: number | null
+  trend: number | null
   alarm: boolean
   excludedDays: number
 }
@@ -65,6 +70,7 @@ interface ChartRow {
   week: number | null
   band: [number, number] | null
   level: number | null
+  trend: number | null
   excluded: string | null
   forecast: boolean
 }
@@ -90,6 +96,7 @@ function stationRows(data: GrsAnalysis): StationRow[] {
     }
     const w = lastOf(s.week)
     const l = lastOf(s.level)
+    const tr = lastOf(s.trend ?? [])
     return {
       name: s.name,
       hasModel: s.has_model,
@@ -99,6 +106,7 @@ function stationRows(data: GrsAnalysis): StationRow[] {
       week: w >= 0 ? s.week[w] : null,
       weekLimit: w >= 0 ? s.week_limit[w] : null,
       level: l >= 0 ? s.level[l] : null,
+      trend: tr >= 0 ? s.trend[tr] : null,
       alarm: w >= 0 && s.week_alarm[w],
       excludedDays: s.excluded.filter(Boolean).length,
     }
@@ -120,6 +128,7 @@ function chartRows(data: GrsAnalysis, selected: string): ChartRow[] {
         week: data.common[i],
         band: null,
         level: null,
+        trend: null,
         excluded: null,
         forecast: data.forecast[i],
       }
@@ -133,13 +142,15 @@ function chartRows(data: GrsAnalysis, selected: string): ChartRow[] {
       week: station.week[i],
       band: limit != null ? [-limit, limit] : null,
       level: station.level[i],
+      trend: station.trend?.[i] ?? null,
       excluded: station.excluded[i],
       forecast: data.forecast[i],
     }
   })
   // Start the dashed line where the solid one ends, not a step later.
   const first = rows.findIndex((r) => r.ahead != null)
-  if (first > 0 && rows[first - 1].expected != null) rows[first - 1].ahead = rows[first - 1].expected
+  if (first > 0 && rows[first - 1].expected != null)
+    rows[first - 1].ahead = rows[first - 1].expected
   return rows
 }
 
@@ -153,8 +164,19 @@ export function AnalysisTab({ branchId, status }: { branchId: number; status: Gr
   const locale = getLocale()
   const dark = useMantineColorScheme().colorScheme === 'dark'
   const anchor = status.inflow?.last ?? isoDay(new Date())
-  const [from, setFrom] = useState(() => shiftDay(anchor, -DEFAULT_BACK))
-  const [to, setTo] = useState(() => shiftDay(anchor, DEFAULT_AHEAD))
+  const start = status.inflow?.first ?? shiftDay(anchor, -PRESETS.year)
+  const end = shiftDay(anchor, DEFAULT_AHEAD)
+  const presetFrom = (p: Preset) => {
+    if (p === 'all') return start
+    const d = shiftDay(anchor, -PRESETS[p])
+    return d < start ? start : d
+  }
+  // A year by default: last winter is there to compare with.
+  const [from, setFrom] = useState(() => presetFrom('year'))
+  const [to, setTo] = useState(end)
+  const preset =
+    (['recent', 'year', 'all'] as Preset[]).find((p) => from === presetFrom(p) && to === end) ??
+    null
   const [selected, setSelected] = useState<string>(TOTAL)
 
   const query = useQuery({
@@ -166,15 +188,22 @@ export function AnalysisTab({ branchId, status }: { branchId: number; status: Gr
 
   const rows = useMemo(() => {
     if (!data) return []
-    const ratio = (r: StationRow) => (r.week != null && r.weekLimit ? Math.abs(r.week) / r.weekLimit : 0)
+    const ratio = (r: StationRow) =>
+      r.week != null && r.weekLimit ? Math.abs(r.week) / r.weekLimit : 0
     return stationRows(data).sort(
-      (a, b) => Number(b.alarm) - Number(a.alarm) || ratio(b) - ratio(a) || a.name.localeCompare(b.name, 'uk'),
+      (a, b) =>
+        Number(b.alarm) - Number(a.alarm) ||
+        ratio(b) - ratio(a) ||
+        a.name.localeCompare(b.name, 'uk'),
     )
   }, [data])
   const active = data?.stations.some((s) => s.name === selected) ? selected : TOTAL
   const chart = useMemo(() => (data ? chartRows(data, active) : []), [data, active])
   const episodes = useMemo(
-    () => [...(data?.episodes ?? [])].sort((a, b) => b.end.localeCompare(a.end) || a.grs.localeCompare(b.grs, 'uk')),
+    () =>
+      [...(data?.episodes ?? [])].sort(
+        (a, b) => b.end.localeCompare(a.end) || a.grs.localeCompare(b.grs, 'uk'),
+      ),
     [data],
   )
 
@@ -189,8 +218,16 @@ export function AnalysisTab({ branchId, status }: { branchId: number; status: Gr
 
   const totalFact = sum(data.total.y)
   const totalExpected = sum(data.total.expected)
-  const aheadValues = data.total.ahead.filter((v, i) => v != null && data.last_fact_day != null && data.days[i] > data.last_fact_day)
-  const openEpisodes = episodes.filter((e) => e.open).length
+  const after = (i: number) => data.last_fact_day != null && data.days[i] > data.last_fact_day
+  const picked = data.stations.find((s) => s.name === active)
+  const pickedRow = rows.find((r) => r.name === active)
+  const tileFact = picked ? (pickedRow?.fact ?? null) : totalFact
+  const tileExpected = picked ? (pickedRow?.expected ?? null) : totalExpected
+  const aheadValues = (picked ? picked.model : data.total.ahead).filter(
+    (v, i): v is number => v != null && after(i),
+  )
+  const tileEpisodes = picked ? episodes.filter((e) => e.grs === active) : episodes
+  const openEpisodes = tileEpisodes.filter((e) => e.open).length
   const months = data.months.map((m) => m.month)
   const limitOf = new Map(data.stations.map((s) => [s.name, s.month_limit]))
 
@@ -209,7 +246,11 @@ export function AnalysisTab({ branchId, status }: { branchId: number; status: Gr
     today: dark ? '#e6edf0' : '#22313a',
   }
   const fmtX = (value: string): [string, string] => [
-    new Date(`${value}T00:00:00`).toLocaleDateString(locale, { day: '2-digit', month: '2-digit', year: '2-digit' }),
+    new Date(`${value}T00:00:00`).toLocaleDateString(locale, {
+      day: '2-digit',
+      month: '2-digit',
+      year: '2-digit',
+    }),
     '',
   ]
   const tickInterval = Math.max(0, Math.ceil(chart.length / 20) - 1)
@@ -222,9 +263,17 @@ export function AnalysisTab({ branchId, status }: { branchId: number; status: Gr
     />
   )
   const margin = { top: 6, right: 8, bottom: 0, left: 0 }
-  const inRange = (day: string) => (day < data.days[0] ? data.days[0] : day > data.days[data.days.length - 1] ? data.days[data.days.length - 1] : day)
+  const inRange = (day: string) =>
+    day < data.days[0]
+      ? data.days[0]
+      : day > data.days[data.days.length - 1]
+        ? data.days[data.days.length - 1]
+        : day
   const marks = active === TOTAL ? [] : episodes.filter((e) => e.grs === active)
-  const lastFactShown = data.last_fact_day != null && data.days.includes(data.last_fact_day) && data.last_fact_day !== data.days[data.days.length - 1]
+  const lastFactShown =
+    data.last_fact_day != null &&
+    data.days.includes(data.last_fact_day) &&
+    data.last_fact_day !== data.days[data.days.length - 1]
   const title = active === TOTAL ? t('gmAllStations') : active
 
   const tooltip = (
@@ -254,19 +303,37 @@ export function AnalysisTab({ branchId, status }: { branchId: number; status: Gr
               )}
               {r.excluded && (
                 <Badge size="xs" color="gray" variant="light">
-                  {t(r.excluded === 'missing' ? 'gmExcludedMissing' : r.excluded === 'level' ? 'gmExcludedLevel' : 'gmExcludedShape')}
+                  {t(
+                    r.excluded === 'missing'
+                      ? 'gmExcludedMissing'
+                      : r.excluded === 'level'
+                        ? 'gmExcludedLevel'
+                        : 'gmExcludedShape',
+                  )}
                 </Badge>
               )}
             </Group>
             <TipRow label={t('gmFact')} value={r.y != null ? fmtNumber(r.y, 1, locale) : null} />
-            <TipRow label={t('gmExpected')} value={r.expected != null ? fmtNumber(r.expected, 1, locale) : null} />
-            <TipRow label={t('gmForecast')} value={r.ahead != null && r.y == null ? fmtNumber(r.ahead, 1, locale) : null} />
-            <TipRow label={t('gmDeviationDay')} value={deviation != null ? fmtSigned(deviation, 1, locale) : null} />
+            <TipRow
+              label={t('gmExpected')}
+              value={r.expected != null ? fmtNumber(r.expected, 1, locale) : null}
+            />
+            <TipRow
+              label={t('gmForecast')}
+              value={r.ahead != null && r.y == null ? fmtNumber(r.ahead, 1, locale) : null}
+            />
+            <TipRow
+              label={t('gmDeviationDay')}
+              value={deviation != null ? fmtSigned(deviation, 1, locale) : null}
+            />
             <TipRow
               label={t(active === TOTAL ? 'gmCommon' : 'gmDeviationWeek')}
               value={r.week != null ? fmtSigned(r.week, 1, locale) : null}
             />
-            <TipRow label={t('gmWeekLimit')} value={r.band ? `± ${fmtNumber(r.band[1], 1, locale)} %` : null} />
+            <TipRow
+              label={t('gmWeekLimit')}
+              value={r.band ? `± ${fmtNumber(r.band[1], 1, locale)} %` : null}
+            />
           </Box>
         )
       }}
@@ -278,16 +345,52 @@ export function AnalysisTab({ branchId, status }: { branchId: number; status: Gr
       {
         name: 'ГРС',
         aoa: [
-          [t('gmStation'), `${t('gmFact')}, ${t('gmUnit')}`, `${t('gmExpected')}, ${t('gmUnit')}`, `${t('gmDeviationPeriod')}, %`, `${t('gmDeviationWeek')}, %`, `${t('gmWeekLimit')}, %`, `${t('gmLevel')}, %`, t('gmState')],
-          ...rows.map((r) => [r.name, round(r.fact), round(r.expected), round(r.deviation), round(r.week), round(r.weekLimit), round(r.level), t(stateKey(r))]),
+          [
+            t('gmStation'),
+            `${t('gmFact')}, ${t('gmUnit')}`,
+            `${t('gmExpected')}, ${t('gmUnit')}`,
+            `${t('gmDeviationPeriod')}, %`,
+            `${t('gmDeviationWeek')}, %`,
+            `${t('gmWeekLimit')}, %`,
+            `${t('gmTrend')}, %`,
+            t('gmState'),
+          ],
+          ...rows.map((r) => [
+            r.name,
+            round(r.fact),
+            round(r.expected),
+            round(r.deviation),
+            round(r.week),
+            round(r.weekLimit),
+            round(r.trend),
+            t(stateKey(r)),
+          ]),
         ],
         cols: [36, 16, 18, 16, 16, 12, 12, 16],
       },
       {
         name: t('gmEpisodes'),
         aoa: [
-          [t('gmStation'), t('gmFrom'), t('gmTo'), t('gmDays'), `${t('gmDeviation')}, %`, `${t('gmVolume')}, ${t('gmUnit')}`, `${t('gmCommon')}, %`, t('gmState')],
-          ...episodes.map((e) => [e.grs, fmtDay(e.start, locale), fmtDay(e.end, locale), e.days, round(e.deviation), round(e.volume), round(e.common), t(e.open ? 'gmEpisodeOpen' : 'gmEpisodeClosed')]),
+          [
+            t('gmStation'),
+            t('gmFrom'),
+            t('gmTo'),
+            t('gmDays'),
+            `${t('gmDeviation')}, %`,
+            `${t('gmVolume')}, ${t('gmUnit')}`,
+            `${t('gmCommon')}, %`,
+            t('gmState'),
+          ],
+          ...episodes.map((e) => [
+            e.grs,
+            fmtDay(e.start, locale),
+            fmtDay(e.end, locale),
+            e.days,
+            round(e.deviation),
+            round(e.volume),
+            round(e.common),
+            t(e.open ? 'gmEpisodeOpen' : 'gmEpisodeClosed'),
+          ]),
         ],
         cols: [36, 12, 12, 8, 14, 16, 14, 14],
       },
@@ -295,7 +398,9 @@ export function AnalysisTab({ branchId, status }: { branchId: number; status: Gr
         name: t('gmMonths'),
         aoa: [
           [t('gmStation'), ...months],
-          ...data.stations.filter((s) => s.has_model).map((s) => [s.name, ...data.months.map((m) => m.values[s.name] ?? null)]),
+          ...data.stations
+            .filter((s) => s.has_model)
+            .map((s) => [s.name, ...data.months.map((m) => m.values[s.name] ?? null)]),
         ],
       },
     ])
@@ -303,42 +408,92 @@ export function AnalysisTab({ branchId, status }: { branchId: number; status: Gr
 
   return (
     <Stack gap="md">
-      <Group gap="sm" align="flex-end" wrap="wrap">
-        <PeriodPicker
-          withTime={false}
-          from={from}
-          to={to}
-          onChange={({ from: f, to: t2 }) => {
-            setFrom(f)
-            setTo(t2)
-          }}
-        />
-        <Text size="xs" c="dimmed">
-          {t('gmLastFact')}: {fmtDay(data.last_fact_day, locale)}
-          {query.isFetching ? ` · ${t('appLoading')}` : ''}
-        </Text>
-        <Button
-          size="xs"
-          variant="light"
-          color="teal"
-          leftSection={<IconFileSpreadsheet size={15} />}
-          onClick={exportExcel}
-          ml="auto"
-        >
-          {t('excel')}
-        </Button>
-      </Group>
+      <Paper withBorder radius="md" p="sm">
+        <Group gap="sm" align="flex-end" wrap="wrap">
+          <Select
+            size="xs"
+            w={300}
+            label={t('gmStation')}
+            data={[
+              { value: TOTAL, label: t('gmAllStations') },
+              ...[...data.stations]
+                .sort((a, b) => a.name.localeCompare(b.name, 'uk'))
+                .map((s) => ({ value: s.name, label: s.name })),
+            ]}
+            value={active}
+            onChange={(v) => setSelected(v ?? TOTAL)}
+            allowDeselect={false}
+            searchable
+          />
+          <DatePickerInput
+            size="xs"
+            w={140}
+            label={t('gmFrom')}
+            leftSection={<IconCalendar size={15} />}
+            valueFormat="DD.MM.YYYY"
+            value={from}
+            maxDate={to}
+            onChange={(v) => v && setFrom(v)}
+            popoverProps={{ zIndex: 500, withinPortal: true }}
+          />
+          <DatePickerInput
+            size="xs"
+            w={140}
+            label={t('gmTo')}
+            leftSection={<IconCalendar size={15} />}
+            valueFormat="DD.MM.YYYY"
+            value={to}
+            minDate={from}
+            onChange={(v) => v && setTo(v)}
+            popoverProps={{ zIndex: 500, withinPortal: true }}
+          />
+          <SegmentedControl
+            size="xs"
+            value={preset ?? ''}
+            onChange={(v) => {
+              setFrom(presetFrom(v as Preset))
+              setTo(end)
+            }}
+            data={[
+              { value: 'recent', label: t('gmPresetRecent') },
+              { value: 'year', label: t('gmPresetYear') },
+              { value: 'all', label: t('gmPresetAll') },
+            ]}
+          />
+          <Text size="xs" c="dimmed" pb={6}>
+            {t('gmLastFact')}: {fmtDay(data.last_fact_day, locale)}
+            {query.isFetching ? ` · ${t('appLoading')}` : ''}
+          </Text>
+          <Button
+            size="xs"
+            variant="light"
+            color="teal"
+            leftSection={<IconFileSpreadsheet size={15} />}
+            onClick={exportExcel}
+            ml="auto"
+          >
+            {t('excel')}
+          </Button>
+        </Group>
+      </Paper>
 
       <SimpleGrid cols={{ base: 2, sm: 3, md: 5 }} spacing="sm">
-        <Tile label={`${t('gmFact')}, ${t('gmUnit')}`} value={fmtNumber(totalFact, 0, locale)} />
-        <Tile label={`${t('gmExpected')}, ${t('gmUnit')}`} value={fmtNumber(totalExpected, 0, locale)} />
+        <Tile label={`${t('gmFact')}, ${t('gmUnit')}`} value={fmtNumber(tileFact, 0, locale)} />
+        <Tile
+          label={`${t('gmExpected')}, ${t('gmUnit')}`}
+          value={fmtNumber(tileExpected, 0, locale)}
+        />
         <Tile
           label={t('gmDeviationPeriod')}
-          value={totalExpected ? fmtSigned((totalFact / totalExpected - 1) * 100, 1, locale) : '—'}
+          value={
+            tileFact != null && tileExpected
+              ? fmtSigned((tileFact / tileExpected - 1) * 100, 1, locale)
+              : '—'
+          }
         />
         <Tile
           label={t('gmEpisodes')}
-          value={String(episodes.length)}
+          value={String(tileEpisodes.length)}
           color={openEpisodes ? 'red' : undefined}
           hint={`${t('gmEpisodeOpen')}: ${openEpisodes}`}
         />
@@ -346,7 +501,9 @@ export function AnalysisTab({ branchId, status }: { branchId: number; status: Gr
           label={`${t('gmForecast')}, ${t('gmUnit')}`}
           value={aheadValues.length ? fmtNumber(sum(aheadValues), 0, locale) : '—'}
           color={c.ahead}
-          hint={aheadValues.length ? `${aheadValues.length} ${t('gmDaysShort')}` : t('gmNoForecast')}
+          hint={
+            aheadValues.length ? `${aheadValues.length} ${t('gmDaysShort')}` : t('gmNoForecast')
+          }
         />
       </SimpleGrid>
 
@@ -365,38 +522,59 @@ export function AnalysisTab({ branchId, status }: { branchId: number; status: Gr
                 <Table.Th ta="right">{t('gmDeviationPeriod')}</Table.Th>
                 <Table.Th ta="right">{t('gmDeviationWeek')}</Table.Th>
                 <Table.Th ta="right">{t('gmWeekLimit')}</Table.Th>
-                <Table.Th ta="right">{t('gmLevel')}</Table.Th>
+                <Table.Th ta="right">{t('gmTrend')}</Table.Th>
                 <Table.Th>{t('gmState')}</Table.Th>
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
               <Table.Tr
                 onClick={() => setSelected(TOTAL)}
-                style={{ cursor: 'pointer', background: active === TOTAL ? 'var(--hlv-surface-2)' : undefined }}
+                style={{
+                  cursor: 'pointer',
+                  background: active === TOTAL ? 'var(--hlv-surface-2)' : undefined,
+                }}
               >
                 <Table.Td fw={700}>{t('gmAllStations')}</Table.Td>
                 <Num>{fmtNumber(totalFact, 1, locale)}</Num>
                 <Num>{fmtNumber(totalExpected, 1, locale)}</Num>
-                <Num>{totalExpected ? fmtSigned((totalFact / totalExpected - 1) * 100, 1, locale) : '—'}</Num>
+                <Num>
+                  {totalExpected
+                    ? fmtSigned((totalFact / totalExpected - 1) * 100, 1, locale)
+                    : '—'}
+                </Num>
                 <Table.Td colSpan={4} />
               </Table.Tr>
               {rows.map((r) => (
                 <Table.Tr
                   key={r.name}
                   onClick={() => setSelected(r.name)}
-                  style={{ cursor: 'pointer', background: active === r.name ? 'var(--hlv-surface-2)' : undefined }}
+                  style={{
+                    cursor: 'pointer',
+                    background: active === r.name ? 'var(--hlv-surface-2)' : undefined,
+                  }}
                 >
                   <Table.Td fw={500}>{r.name}</Table.Td>
                   <Num>{fmtNumber(r.fact, 1, locale)}</Num>
                   <Num>{fmtNumber(r.expected, 1, locale)}</Num>
                   <Num>{fmtSigned(r.deviation, 1, locale)}</Num>
-                  <Table.Td ta="right" ff={MONO} fw={r.alarm ? 700 : undefined} c={r.alarm ? 'red' : undefined}>
+                  <Table.Td
+                    ta="right"
+                    ff={MONO}
+                    fw={r.alarm ? 700 : undefined}
+                    c={r.alarm ? 'red' : undefined}
+                  >
                     {fmtSigned(r.week, 1, locale)}
                   </Table.Td>
-                  <Num>{r.weekLimit != null ? `± ${fmtNumber(r.weekLimit, 1, locale)} %` : '—'}</Num>
-                  <Num>{fmtSigned(r.level, 1, locale)}</Num>
+                  <Num>
+                    {r.weekLimit != null ? `± ${fmtNumber(r.weekLimit, 1, locale)} %` : '—'}
+                  </Num>
+                  <Num>{fmtSigned(r.trend, 1, locale)}</Num>
                   <Table.Td>
-                    <Badge size="xs" variant="light" color={r.alarm ? 'red' : !r.hasModel || r.fact == null ? 'gray' : 'teal'}>
+                    <Badge
+                      size="xs"
+                      variant="light"
+                      color={r.alarm ? 'red' : !r.hasModel || r.fact == null ? 'gray' : 'teal'}
+                    >
                       {t(stateKey(r))}
                     </Badge>
                   </Table.Td>
@@ -445,12 +623,40 @@ export function AnalysisTab({ branchId, status }: { branchId: number; status: Gr
                 x={data.last_fact_day!}
                 stroke={c.today}
                 strokeWidth={1.5}
-                label={{ value: t('gmLastFact'), position: 'insideTopRight', fill: c.today, fontSize: 11 }}
+                label={{
+                  value: t('gmLastFact'),
+                  position: 'insideTopRight',
+                  fill: c.today,
+                  fontSize: 11,
+                }}
               />
             )}
-            <Line yAxisId="v" dataKey="expected" stroke={c.expected} strokeWidth={1.5} dot={false} isAnimationActive={false} />
-            <Line yAxisId="v" dataKey="ahead" stroke={c.ahead} strokeWidth={2} strokeDasharray="5 4" dot={false} isAnimationActive={false} />
-            <Line yAxisId="v" dataKey="y" stroke={c.fact} strokeWidth={2} dot={false} connectNulls={false} isAnimationActive={false} />
+            <Line
+              yAxisId="v"
+              dataKey="expected"
+              stroke={c.expected}
+              strokeWidth={1.5}
+              dot={false}
+              isAnimationActive={false}
+            />
+            <Line
+              yAxisId="v"
+              dataKey="ahead"
+              stroke={c.ahead}
+              strokeWidth={2}
+              strokeDasharray="5 4"
+              dot={false}
+              isAnimationActive={false}
+            />
+            <Line
+              yAxisId="v"
+              dataKey="y"
+              stroke={c.fact}
+              strokeWidth={2}
+              dot={false}
+              connectNulls={false}
+              isAnimationActive={false}
+            />
           </ComposedChart>
         </ResponsiveContainer>
 
@@ -460,7 +666,7 @@ export function AnalysisTab({ branchId, status }: { branchId: number; status: Gr
             <Group gap="md">
               <Legend color={c.week} label={t('gmDeviationWeek')} />
               <Legend color={c.band} label={t('gmWeekLimit')} block />
-              <Legend color={c.level} label={t('gmLevel')} dashed />
+              <Legend color={c.level} label={t('gmTrend')} dashed />
             </Group>
           )}
         </Group>
@@ -475,10 +681,34 @@ export function AnalysisTab({ branchId, status }: { branchId: number; status: Gr
               tickFormatter={(v) => `${Math.round(Number(v))}%`}
             />
             {tooltip}
-            <Area yAxisId="d" dataKey="band" stroke="none" fill={c.band} fillOpacity={1} activeDot={false} isAnimationActive={false} />
+            <Area
+              yAxisId="d"
+              dataKey="band"
+              stroke="none"
+              fill={c.band}
+              fillOpacity={1}
+              activeDot={false}
+              isAnimationActive={false}
+            />
             <ReferenceLine yAxisId="d" y={0} stroke={c.axis} strokeDasharray="4 4" />
-            <Line yAxisId="d" dataKey="level" stroke={c.level} strokeWidth={1.5} strokeDasharray="5 4" dot={false} isAnimationActive={false} />
-            <Line yAxisId="d" dataKey="week" stroke={c.week} strokeWidth={2} dot={false} connectNulls={false} isAnimationActive={false} />
+            <Line
+              yAxisId="d"
+              dataKey="trend"
+              stroke={c.level}
+              strokeWidth={1.5}
+              strokeDasharray="5 4"
+              dot={false}
+              isAnimationActive={false}
+            />
+            <Line
+              yAxisId="d"
+              dataKey="week"
+              stroke={c.week}
+              strokeWidth={2}
+              dot={false}
+              connectNulls={false}
+              isAnimationActive={false}
+            />
           </ComposedChart>
         </ResponsiveContainer>
         <Text size="xs" c="dimmed" mt="xs">
@@ -513,12 +743,21 @@ export function AnalysisTab({ branchId, status }: { branchId: number; status: Gr
               </Table.Thead>
               <Table.Tbody>
                 {episodes.map((e) => (
-                  <Table.Tr key={`${e.grs}${e.start}`} onClick={() => setSelected(e.grs)} style={{ cursor: 'pointer' }}>
+                  <Table.Tr
+                    key={`${e.grs}${e.start}`}
+                    onClick={() => setSelected(e.grs)}
+                    style={{ cursor: 'pointer' }}
+                  >
                     <Table.Td fw={500}>{e.grs}</Table.Td>
                     <Table.Td ff={MONO}>{fmtDay(e.start, locale)}</Table.Td>
                     <Table.Td ff={MONO}>{fmtDay(e.end, locale)}</Table.Td>
                     <Num>{e.days}</Num>
-                    <Table.Td ta="right" ff={MONO} fw={600} c={(e.deviation ?? 0) > 0 ? 'red' : 'blue'}>
+                    <Table.Td
+                      ta="right"
+                      ff={MONO}
+                      fw={600}
+                      c={(e.deviation ?? 0) > 0 ? 'red' : 'blue'}
+                    >
                       {fmtSigned(e.deviation, 1, locale)}
                     </Table.Td>
                     <Num>{fmtSigned(e.volume, 1, locale).replace(' %', '')}</Num>
@@ -565,7 +804,11 @@ export function AnalysisTab({ branchId, status }: { branchId: number; status: Gr
                   .map((s) => {
                     const limit = limitOf.get(s.name) ?? null
                     return (
-                      <Table.Tr key={s.name} onClick={() => setSelected(s.name)} style={{ cursor: 'pointer' }}>
+                      <Table.Tr
+                        key={s.name}
+                        onClick={() => setSelected(s.name)}
+                        style={{ cursor: 'pointer' }}
+                      >
                         <Table.Td fw={500}>{s.name}</Table.Td>
                         {data.months.map((m) => {
                           const v = m.values[s.name]
@@ -628,7 +871,17 @@ function TipRow({ label, value }: { label: string; value: string | null }) {
   )
 }
 
-function Legend({ color, label, dashed, block }: { color: string; label: string; dashed?: boolean; block?: boolean }) {
+function Legend({
+  color,
+  label,
+  dashed,
+  block,
+}: {
+  color: string
+  label: string
+  dashed?: boolean
+  block?: boolean
+}) {
   return (
     <Group gap={6} wrap="nowrap">
       <Box

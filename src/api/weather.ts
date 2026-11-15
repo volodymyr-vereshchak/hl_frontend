@@ -55,6 +55,10 @@ export interface WeatherDailyRow {
   precipitation: number | null
   wind_max: number | null
   radiation: number | null
+  /** Mean relative humidity, %. */
+  humidity?: number | null
+  /** WMO weather code — what the forecast pictures are drawn from. */
+  weather_code?: number | null
 }
 
 /** °C, %, m/s, W/m², mm, %. `stamp` is the hour's local start, ISO without zone. */
@@ -66,6 +70,7 @@ export interface WeatherHourlyRow {
   radiation: number | null
   precipitation: number | null
   cloud_cover: number | null
+  weather_code?: number | null
 }
 
 export interface DateRange {

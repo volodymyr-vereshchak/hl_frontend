@@ -1,0 +1,145 @@
+/* Animated weather pictures (WeatherIcon.tsx). Inline SVG and CSS only: the
+   production server is offline, nothing may come from outside. */
+
+.hlv-wx {
+  display: block;
+  overflow: visible;
+}
+
+.hlv-wx .rays {
+  transform-origin: 32px 32px;
+  animation: hlv-wx-spin 18s linear infinite;
+}
+.hlv-wx .sun-small .rays {
+  transform-origin: 22px 22px;
+}
+.hlv-wx .moon {
+  animation: hlv-wx-glow 5s ease-in-out infinite alternate;
+}
+.hlv-wx .cloud {
+  animation: hlv-wx-drift 7s ease-in-out infinite alternate;
+}
+.hlv-wx .cloud.back {
+  animation-duration: 9s;
+  animation-direction: alternate-reverse;
+}
+
+.hlv-wx .drop {
+  animation: hlv-wx-fall 1s linear infinite;
+}
+.hlv-wx.drizzle .drop {
+  animation-duration: 1.6s;
+}
+.hlv-wx.heavy .drop {
+  animation-duration: 0.6s;
+}
+.hlv-wx .flake {
+  animation: hlv-wx-snow 2.8s linear infinite;
+}
+.hlv-wx.heavy .flake {
+  animation-duration: 1.9s;
+}
+.hlv-wx .bolt {
+  animation: hlv-wx-flash 3.2s steps(1, end) infinite;
+}
+.hlv-wx .fog-line {
+  animation: hlv-wx-fog 6s ease-in-out infinite alternate;
+}
+.hlv-wx .fog-line:nth-child(2) {
+  animation-delay: -2s;
+}
+.hlv-wx .fog-line:nth-child(3) {
+  animation-delay: -4s;
+}
+
+@keyframes hlv-wx-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes hlv-wx-glow {
+  from {
+    opacity: 0.85;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes hlv-wx-drift {
+  from {
+    transform: translateX(-1.5px);
+  }
+  to {
+    transform: translateX(1.5px);
+  }
+}
+@keyframes hlv-wx-fall {
+  0% {
+    transform: translateY(-4px);
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(12px);
+    opacity: 0;
+  }
+}
+@keyframes hlv-wx-snow {
+  0% {
+    transform: translate(0, -4px);
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  50% {
+    transform: translate(2px, 5px);
+  }
+  100% {
+    transform: translate(-1px, 13px);
+    opacity: 0;
+  }
+}
+@keyframes hlv-wx-flash {
+  0%,
+  62% {
+    opacity: 0;
+  }
+  64%,
+  70% {
+    opacity: 1;
+  }
+  72%,
+  76% {
+    opacity: 0.2;
+  }
+  78%,
+  84% {
+    opacity: 1;
+  }
+  86%,
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes hlv-wx-fog {
+  from {
+    transform: translateX(-3px);
+  }
+  to {
+    transform: translateX(3px);
+  }
+}
+
+.hlv-wx.still *,
+.hlv-wx.still {
+  animation: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hlv-wx * {
+    animation: none !important;
+  }
+}

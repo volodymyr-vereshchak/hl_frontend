@@ -36,6 +36,7 @@ import { useLanguage } from '@/locales/LanguageContext'
 import type { TranslationKey } from '@/locales'
 import { useSelectionStore } from '@/store/selectionStore'
 import { useWeatherPoints } from './WeatherPointsPage'
+import { WeatherForecast } from './weather/WeatherForecast'
 
 const pad = (n: number) => String(n).padStart(2, '0')
 
@@ -340,6 +341,8 @@ export function WeatherPage() {
         </>
       }
     >
+      {point && <WeatherForecast point={point} />}
+
       {rows && !hasWeather && (
         <Box ta="center" py="md">
           <Text c="dimmed">{t('weatherNoWeather')}</Text>

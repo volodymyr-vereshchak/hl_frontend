@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
   Alert,
   Badge,
   Button,
   FileButton,
   Group,
+  MultiSelect,
   Paper,
   ScrollArea,
   Select,
@@ -17,8 +18,14 @@ import {
 import { notifications } from '@mantine/notifications'
 import { IconAlertTriangle, IconUpload } from '@tabler/icons-react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { grsModelApi, type GrsModelStatus, type GrsReportKind, type GrsUploadResult } from '@/api/grsModel'
+import {
+  grsModelApi,
+  type GrsModelStatus,
+  type GrsReportKind,
+  type GrsUploadResult,
+} from '@/api/grsModel'
 import { LoadingState } from '@/components/LoadingState'
+import { useBranchLines } from '@/features/reports/useBranchLines'
 import { useLanguage } from '@/locales/LanguageContext'
 import type { TranslationKey } from '@/locales'
 import { fmtDay, fmtStamp } from './format'
@@ -59,7 +66,34 @@ export function DataTab({
       setResults(files)
       void refresh()
     },
-    onError: (e: Error) => notifications.show({ message: e.message, color: 'red', autoClose: 10_000 }),
+    onError: (e: Error) =>
+      notifications.show({ message: e.message, color: 'red', autoClose: 10_000 }),
+  })
+  const { data: branchLines } = useBranchLines(branchId)
+  // Trend lines first: those are what a GRS is usually measured by.
+  const lineOptions = useMemo(
+    () =>
+      [...(branchLines ?? [])]
+        .sort(
+          (a, b) =>
+            Number(!!b.include_in_trends) - Number(!!a.include_in_trends) ||
+            a.name.localeCompare(b.name, 'uk'),
+        )
+        .map((l) => ({
+          value: `${l.kind}:${l.id}`,
+          label: `${l.name}${l.include_in_trends ? ' ★' : ''}`,
+        })),
+    [branchLines],
+  )
+  const lineName = useMemo(
+    () => new Map((branchLines ?? []).map((l) => [`${l.kind}:${l.id}`, l.name])),
+    [branchLines],
+  )
+  const setLines = useMutation({
+    mutationFn: ({ id, lines }: { id: number; lines: { kind: string; id: number }[] }) =>
+      grsModelApi.setStationLines(id, lines),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['grs-model'] }),
+    onError: (e: Error) => notifications.show({ message: e.message, color: 'red' }),
   })
   const update = useMutation({
     mutationFn: ({ id, ...data }: { id: number; enabled?: boolean; weather_point_id?: number }) =>
@@ -142,14 +176,21 @@ export function DataTab({
             <Stack gap={6} mt="md">
               {results.map((r, i) =>
                 r.error !== undefined ? (
-                  <Alert key={i} color="red" variant="light" p="xs" icon={<IconAlertTriangle size={16} />}>
+                  <Alert
+                    key={i}
+                    color="red"
+                    variant="light"
+                    p="xs"
+                    icon={<IconAlertTriangle size={16} />}
+                  >
                     <b>{r.filename}</b>: {r.error}
                   </Alert>
                 ) : (
                   <Alert key={i} color="teal" variant="light" p="xs">
                     <b>{r.filename}</b> — {t(KIND_LABEL[r.kind])}, {fmtDay(r.first_day, locale)} –{' '}
-                    {fmtDay(r.last_day, locale)}, {t('gmStations')}: {r.stations}. {t('gmAdded')}: <b>{r.added}</b>,{' '}
-                    {t('gmUpdated')}: <b>{r.updated}</b>, {t('gmUnchanged')}: {r.unchanged}
+                    {fmtDay(r.last_day, locale)}, {t('gmStations')}: {r.stations}. {t('gmAdded')}:{' '}
+                    <b>{r.added}</b>, {t('gmUpdated')}: <b>{r.updated}</b>, {t('gmUnchanged')}:{' '}
+                    {r.unchanged}
                   </Alert>
                 ),
               )}
@@ -176,6 +217,7 @@ export function DataTab({
                   <Table.Th ta="right">{t('gmDaysShort')}</Table.Th>
                   <Table.Th>{t('gmKindConsumption')}</Table.Th>
                   <Table.Th w={240}>{t('gmWeatherPoint')}</Table.Th>
+                  <Table.Th w={300}>{t('gmTrendLines')}</Table.Th>
                   <Table.Th w={110}>{t('gmInModel')}</Table.Th>
                 </Table.Tr>
               </Table.Thead>
@@ -183,18 +225,26 @@ export function DataTab({
                 {status.stations.map((s) => (
                   <Table.Tr key={s.id} style={{ opacity: s.enabled ? 1 : 0.55 }}>
                     <Table.Td fw={500}>{s.name}</Table.Td>
-                    <Table.Td ff={MONO}>{span({ first: s.inflow_first, last: s.inflow_last })}</Table.Td>
+                    <Table.Td ff={MONO}>
+                      {span({ first: s.inflow_first, last: s.inflow_last })}
+                    </Table.Td>
                     <Table.Td ta="right" ff={MONO}>
                       {s.inflow_days}
                     </Table.Td>
-                    <Table.Td ff={MONO}>{span({ first: s.consumption_first, last: s.consumption_last })}</Table.Td>
+                    <Table.Td ff={MONO}>
+                      {span({ first: s.consumption_first, last: s.consumption_last })}
+                    </Table.Td>
                     <Table.Td>
                       {isAdmin ? (
                         <Select
                           size="xs"
                           data={pointOptions}
-                          value={s.weather_point_id != null ? String(s.weather_point_id) : BRANCH_MEAN}
-                          onChange={(v) => v != null && update.mutate({ id: s.id, weather_point_id: Number(v) })}
+                          value={
+                            s.weather_point_id != null ? String(s.weather_point_id) : BRANCH_MEAN
+                          }
+                          onChange={(v) =>
+                            v != null && update.mutate({ id: s.id, weather_point_id: Number(v) })
+                          }
                           allowDeselect={false}
                           disabled={update.isPending}
                         />
@@ -205,10 +255,38 @@ export function DataTab({
                     </Table.Td>
                     <Table.Td>
                       {isAdmin ? (
+                        <MultiSelect
+                          size="xs"
+                          data={lineOptions}
+                          value={(s.lines ?? []).map((l) => `${l.kind}:${l.id}`)}
+                          onChange={(v) =>
+                            setLines.mutate({
+                              id: s.id,
+                              lines: v.map((k) => ({
+                                kind: k.split(':')[0],
+                                id: Number(k.split(':')[1]),
+                              })),
+                            })
+                          }
+                          placeholder={(s.lines ?? []).length ? undefined : t('gmTrendLinesNone')}
+                          searchable
+                          clearable
+                          disabled={setLines.isPending}
+                        />
+                      ) : (
+                        (s.lines ?? [])
+                          .map((l) => lineName.get(`${l.kind}:${l.id}`) ?? `#${l.id}`)
+                          .join(', ') || '—'
+                      )}
+                    </Table.Td>
+                    <Table.Td>
+                      {isAdmin ? (
                         <Switch
                           size="xs"
                           checked={s.enabled}
-                          onChange={(e) => update.mutate({ id: s.id, enabled: e.currentTarget.checked })}
+                          onChange={(e) =>
+                            update.mutate({ id: s.id, enabled: e.currentTarget.checked })
+                          }
                           disabled={update.isPending}
                         />
                       ) : (

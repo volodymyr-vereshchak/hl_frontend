@@ -43,6 +43,8 @@ const DAILY_VARS: Record<string, keyof WeatherDailyRow> = {
   precipitation_sum: 'precipitation',
   wind_speed_10m_max: 'wind_max',
   shortwave_radiation_sum: 'radiation',
+  relative_humidity_2m_mean: 'humidity',
+  weather_code: 'weather_code',
 }
 const HOURLY_VARS: Record<string, keyof WeatherHourlyRow> = {
   temperature_2m: 'temperature',
@@ -51,6 +53,7 @@ const HOURLY_VARS: Record<string, keyof WeatherHourlyRow> = {
   shortwave_radiation: 'radiation',
   precipitation: 'precipitation',
   cloud_cover: 'cloud_cover',
+  weather_code: 'weather_code',
 }
 const WIND = new Set(['wind_speed_10m_max', 'wind_speed_10m'])
 

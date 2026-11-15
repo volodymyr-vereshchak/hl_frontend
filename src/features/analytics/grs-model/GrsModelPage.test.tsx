@@ -23,6 +23,7 @@ vi.mock('@/features/auth/UserContext', () => ({
 vi.mock('@/features/reports/useBranchLines', () => ({
   useBranches: () => ({ data: [{ id: 9, name: 'Запорізька філія' }] }),
   useEnsureValidBranch: () => undefined,
+  useBranchLines: () => ({ data: [{ id: 208, name: 'Вільнянськ загальний', kind: 'virtual', include_in_trends: true }] }),
 }))
 const api = vi.hoisted(() => ({
   status: vi.fn(),
@@ -36,10 +37,16 @@ vi.mock('@/api/grsModel', () => ({ grsModelApi: api }))
 beforeAll(() => {
   // jsdom has neither; Mantine and recharts ask for both.
   window.matchMedia ??= ((query: string) => ({
-    matches: false, media: query, onchange: null,
-    addListener: () => {}, removeListener: () => {},
-    addEventListener: () => {}, removeEventListener: () => {}, dispatchEvent: () => false,
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener: () => {},
+    removeListener: () => {},
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    dispatchEvent: () => false,
   })) as unknown as typeof window.matchMedia
+  Element.prototype.scrollIntoView ??= () => {}
   globalThis.ResizeObserver ??= class {
     observe() {}
     unobserve() {}
@@ -73,13 +80,33 @@ function renderPage() {
 describe('GrsModelPage', () => {
   it('analysis lists every modelled station and the episodes', async () => {
     renderPage()
-    await screen.findByText('Усі ГРС разом')
+    await screen.findByRole('cell', { name: 'Усі ГРС разом' })
     expect(api.analysis).toHaveBeenCalledWith(9, expect.any(String), expect.any(String))
     for (const s of (analysis as unknown as GrsAnalysis).stations) {
       expect(screen.getAllByText(s.name).length).toBeGreaterThan(0)
     }
     const open = (analysis as unknown as GrsAnalysis).episodes.filter((e) => e.open).length
     expect(screen.getAllByText('триває').length).toBeGreaterThanOrEqual(open)
+  })
+
+  it('the period and the GRS are picked above the chart', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await screen.findByRole('cell', { name: 'Усі ГРС разом' })
+    expect(screen.getByRole('radio', { name: 'Рік' })).toBeChecked()
+    await user.click(screen.getByRole('radio', { name: 'Весь період' }))
+    await waitFor(() =>
+      expect(api.analysis).toHaveBeenLastCalledWith(9, '2025-01-01', expect.any(String)),
+    )
+
+    // A row of the table picks the GRS too, and the selector shows it.
+    const picker = screen
+      .getAllByLabelText('ГРС')
+      .find((el) => el.tagName === 'INPUT') as HTMLInputElement
+    expect(picker.value).toBe('Усі ГРС разом')
+    await user.click(screen.getAllByRole('cell', { name: 'ГРС Вільнянськ' })[0])
+    expect(picker.value).toBe('ГРС Вільнянськ')
+    expect(screen.getByText(/^ГРС Вільнянськ — /)).toBeInTheDocument()
   })
 
   it('model tab shows quality per station and the train button', async () => {
@@ -89,7 +116,9 @@ describe('GrsModelPage', () => {
     expect(await screen.findByRole('button', { name: 'Перенавчити модель' })).toBeInTheDocument()
     const row = screen.getByText('ГРС Вільнянськ').closest('tr')!
     // Shown to one decimal: 4.06 % → «4,1 %».
-    const cells = within(row).getAllByRole('cell').map((c) => c.textContent?.replace(/\s/g, ' '))
+    const cells = within(row)
+      .getAllByRole('cell')
+      .map((c) => c.textContent?.replace(/\s/g, ' '))
     expect(cells).toContain('4,1 %')
     expect(screen.getByText(/обсяг мізерний/)).toBeInTheDocument()
   })
@@ -107,8 +136,13 @@ describe('GrsModelPage', () => {
 
   it('an empty branch opens on the data tab', async () => {
     api.status.mockResolvedValue({
-      ...(status as unknown as GrsModelStatus), rows: 0, stations: [], uploads: [], fit: null,
-      inflow: null, consumption: null,
+      ...(status as unknown as GrsModelStatus),
+      rows: 0,
+      stations: [],
+      uploads: [],
+      fit: null,
+      inflow: null,
+      consumption: null,
     })
     renderPage()
     await waitFor(() => expect(screen.getByText(/Даних ще немає/)).toBeInTheDocument())

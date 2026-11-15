@@ -1,6 +1,13 @@
 import { Alert, Group, Select, Stack, Tabs, Text, Title } from '@mantine/core'
 import { useLocalStorage } from '@mantine/hooks'
-import { IconAlertTriangle, IconChartLine, IconDatabase, IconInfoCircle, IconMathFunction } from '@tabler/icons-react'
+import {
+  IconAlertTriangle,
+  IconChartLine,
+  IconDatabase,
+  IconInfoCircle,
+  IconMathFunction,
+  IconTimeline,
+} from '@tabler/icons-react'
 import { useQuery } from '@tanstack/react-query'
 import { grsModelApi } from '@/api/grsModel'
 import { LoadingState } from '@/components/LoadingState'
@@ -10,9 +17,10 @@ import { useLanguage } from '@/locales/LanguageContext'
 import { useSelectionStore } from '@/store/selectionStore'
 import { AnalysisTab } from './AnalysisTab'
 import { DataTab } from './DataTab'
+import { LinesTab } from './LinesTab'
 import { ModelTab } from './ModelTab'
 
-type TabKey = 'analysis' | 'model' | 'data'
+type TabKey = 'analysis' | 'lines' | 'model' | 'data'
 
 const grsModelStatusKey = (branchId: number | null) => ['grs-model', 'status', branchId] as const
 
@@ -30,7 +38,10 @@ export function GrsModelPage() {
   const { branchId, setBranchId } = useSelectionStore()
   const { data: branches } = useBranches()
   useEnsureValidBranch(branches)
-  const [tab, setTab] = useLocalStorage<TabKey>({ key: 'hlv-grs-model-tab', defaultValue: 'analysis' })
+  const [tab, setTab] = useLocalStorage<TabKey>({
+    key: 'hlv-grs-model-tab',
+    defaultValue: 'analysis',
+  })
 
   const status = useQuery({
     queryKey: grsModelStatusKey(branchId),
@@ -40,7 +51,11 @@ export function GrsModelPage() {
   const data = status.data
   const empty = !!data && data.rows === 0
   // With nothing uploaded there is nothing to analyse: show where to start.
-  const active: TabKey = empty ? 'data' : !data?.fit && tab === 'analysis' ? 'model' : tab
+  const active: TabKey = empty
+    ? 'data'
+    : !data?.fit && (tab === 'analysis' || tab === 'lines')
+      ? 'model'
+      : tab
 
   return (
     <Stack gap="md">
@@ -90,8 +105,15 @@ export function GrsModelPage() {
 
           <Tabs value={active} onChange={(v) => v && setTab(v as TabKey)} keepMounted={false}>
             <Tabs.List mb="md">
-              <Tabs.Tab value="analysis" leftSection={<IconChartLine size={15} />} disabled={!data.fit}>
+              <Tabs.Tab
+                value="analysis"
+                leftSection={<IconChartLine size={15} />}
+                disabled={!data.fit}
+              >
                 {t('gmTabAnalysis')}
+              </Tabs.Tab>
+              <Tabs.Tab value="lines" leftSection={<IconTimeline size={15} />} disabled={!data.fit}>
+                {t('gmTabLines')}
               </Tabs.Tab>
               <Tabs.Tab value="model" leftSection={<IconMathFunction size={15} />} disabled={empty}>
                 {t('gmTabModel')}
@@ -103,6 +125,9 @@ export function GrsModelPage() {
 
             <Tabs.Panel value="analysis">
               {data.fit && <AnalysisTab branchId={branchId} status={data} />}
+            </Tabs.Panel>
+            <Tabs.Panel value="lines">
+              {data.fit && <LinesTab branchId={branchId} status={data} />}
             </Tabs.Panel>
             <Tabs.Panel value="model">
               <ModelTab branchId={branchId} status={data} isAdmin={isAdmin} />

@@ -13,6 +13,8 @@ export interface GrsModelStation {
   inflow_days: number
   consumption_first: string | null
   consumption_last: string | null
+  /** The trend lines that measure the station (summed). */
+  lines: { kind: 'physical' | 'virtual' | 'dpd'; id: number }[]
 }
 
 export interface GrsModelSpan {
@@ -53,7 +55,12 @@ export type GrsUploadResult =
 export interface GrsModelQuality {
   name: string
   status: 'ok' | 'few_days' | 'tiny'
-  variant?: 'plain' | 'heating'
+  /** Trend of the station's level, %: the last value and its range. */
+  trend_now?: number | null
+  trend_min?: number | null
+  trend_max?: number | null
+  /** Features by weight: share of the effect (%), own and branch coefficients. */
+  features?: { feature: string; own: number; common: number; share: number }[]
   weather?: string
   train_days?: number
   excluded_share?: number
@@ -87,6 +94,10 @@ export interface GrsModelFit {
   weather_last: string
   /** False: no consumption report was uploaded, the whole inflow is modelled. */
   with_consumption?: boolean
+  /** How strongly stations are pulled to the branch model, and what each strength gave. */
+  pooling?: { strength: number; tried: Record<string, number | null> }
+  /** Days of heating season the trend is a median of. */
+  trend_window?: number
 }
 
 export interface GrsModelStatus {
@@ -119,6 +130,8 @@ export interface GrsAnalysisStation {
   week: Series
   week_limit: Series
   level: Series
+  /** The station's trend, %: the model is multiplied by it. */
+  trend: Series
   day_alarm: boolean[]
   week_alarm: boolean[]
   /** Why the day is not judged: 'missing' | 'level' | 'shape'. */
@@ -161,6 +174,8 @@ export const grsModelApi = {
   updateStation: (id: number, data: { enabled?: boolean; weather_point_id?: number }) =>
     api.patch<GrsModelStation>(`/grs-model/stations/${id}`, data),
   /** A weather point per station, named after it and tied to it. */
+  setStationLines: (id: number, lines: { kind: string; id: number }[]) =>
+    api.put<{ station_id: number; lines: GrsModelStation['lines'] }>(`/grs-model/stations/${id}/lines`, lines),
   /** Coordinates may be null for a station a point of its name already exists for. */
   createStationPoints: (
     items: { station_id: number; latitude: number | null; longitude: number | null }[],

@@ -1,11 +1,25 @@
-import { Alert, Badge, Button, Group, Paper, ScrollArea, SimpleGrid, Stack, Table, Text, Tooltip } from '@mantine/core'
+import { useState } from 'react'
+import {
+  Alert,
+  Badge,
+  Button,
+  Group,
+  Paper,
+  ScrollArea,
+  SimpleGrid,
+  Stack,
+  Table,
+  Text,
+  Tooltip,
+} from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import { IconInfoCircle, IconPlayerPlay } from '@tabler/icons-react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { grsModelApi, type GrsModelQuality, type GrsModelStatus } from '@/api/grsModel'
 import { LoadingState } from '@/components/LoadingState'
 import { useLanguage } from '@/locales/LanguageContext'
-import { fmtDay, fmtNumber, fmtStamp } from './format'
+import { FeaturesPanel } from './FeaturesPanel'
+import { fmtDay, fmtNumber, fmtSigned, fmtStamp } from './format'
 
 const MONO = "'JetBrains Mono Variable', monospace"
 
@@ -30,6 +44,7 @@ export function ModelTab({
   const locale = getLocale()
   const qc = useQueryClient()
   const fit = status.fit
+  const [picked, setPicked] = useState<string | null>(null)
 
   const train = useMutation({
     mutationFn: () => grsModelApi.train(branchId),
@@ -40,11 +55,13 @@ export function ModelTab({
       })
       void qc.invalidateQueries({ queryKey: ['grs-model'] })
     },
-    onError: (e: Error) => notifications.show({ message: e.message, color: 'red', autoClose: 10_000 }),
+    onError: (e: Error) =>
+      notifications.show({ message: e.message, color: 'red', autoClose: 10_000 }),
   })
 
   const rows = [...(fit?.stations ?? [])].sort(
-    (a, b) => Number(a.status !== 'ok') - Number(b.status !== 'ok') || a.name.localeCompare(b.name, 'uk'),
+    (a, b) =>
+      Number(a.status !== 'ok') - Number(b.status !== 'ok') || a.name.localeCompare(b.name, 'uk'),
   )
   const trained = rows.filter((r) => r.status === 'ok')
   const mean = (pick: (r: GrsModelQuality) => number | null | undefined) => {
@@ -71,9 +88,9 @@ export function ModelTab({
                 </Group>
                 <Text size="xs" c="dimmed">
                   {fit.trained_by ? `${fit.trained_by} · ` : ''}
-                  {t('gmTrainedOn')} {fmtDay(fit.first_day, locale)} – {fmtDay(fit.last_day, locale)} ({fit.days}{' '}
-                  {t('gmDaysShort')}) · {t('gmWeather')} {fmtDay(fit.weather_first, locale)} –{' '}
-                  {fmtDay(fit.weather_last, locale)}
+                  {t('gmTrainedOn')} {fmtDay(fit.first_day, locale)} –{' '}
+                  {fmtDay(fit.last_day, locale)} ({fit.days} {t('gmDaysShort')}) · {t('gmWeather')}{' '}
+                  {fmtDay(fit.weather_first, locale)} – {fmtDay(fit.weather_last, locale)}
                 </Text>
               </>
             ) : (
@@ -107,9 +124,30 @@ export function ModelTab({
           )}
           <SimpleGrid cols={{ base: 2, sm: 4 }} spacing="sm">
             <Tile label={t('gmStationsTrained')} value={`${trained.length} / ${rows.length}`} />
-            <Tile label={t('gmMonthError')} value={`${fmtNumber(mean((r) => r.month_error), 1, locale)} %`} />
-            <Tile label="R²" value={fmtNumber(mean((r) => r.r2), 3, locale)} />
-            <Tile label={t('gmExcludedShare')} value={`${fmtNumber(mean((r) => r.excluded_share), 1, locale)} %`} />
+            <Tile
+              label={t('gmMonthError')}
+              value={`${fmtNumber(
+                mean((r) => r.month_error),
+                1,
+                locale,
+              )} %`}
+            />
+            <Tile
+              label="R²"
+              value={fmtNumber(
+                mean((r) => r.r2),
+                3,
+                locale,
+              )}
+            />
+            <Tile
+              label={t('gmExcludedShare')}
+              value={`${fmtNumber(
+                mean((r) => r.excluded_share),
+                1,
+                locale,
+              )} %`}
+            />
           </SimpleGrid>
 
           <Paper withBorder radius="md" p="md">
@@ -118,7 +156,7 @@ export function ModelTab({
                 <Table.Thead>
                   <Table.Tr>
                     <Table.Th>{t('gmStation')}</Table.Th>
-                    <Table.Th>{t('gmVariant')}</Table.Th>
+                    <Th hint={t('gmTrendHint')}>{t('gmTrend')}</Th>
                     <Th hint={t('gmTrainDaysHint')}>{t('gmTrainDays')}</Th>
                     <Th hint={t('gmExcludedHint')}>{t('gmExcluded')}</Th>
                     <Th hint={t('gmMonthErrorHint')}>{t('gmMonthError')}</Th>
@@ -132,14 +170,23 @@ export function ModelTab({
                 </Table.Thead>
                 <Table.Tbody>
                   {rows.map((r) => (
-                    <Table.Tr key={r.name}>
+                    <Table.Tr
+                      key={r.name}
+                      onClick={() => r.status === 'ok' && setPicked(r.name)}
+                      style={{
+                        cursor: r.status === 'ok' ? 'pointer' : undefined,
+                        background: picked === r.name ? 'var(--hlv-surface-2)' : undefined,
+                      }}
+                    >
                       <Table.Td fw={500}>{r.name}</Table.Td>
                       {r.status === 'ok' ? (
                         <>
-                          <Table.Td>
-                            <Badge size="xs" variant="light" color={r.variant === 'heating' ? 'orange' : 'gray'}>
-                              {t(r.variant === 'heating' ? 'gmVariantHeating' : 'gmVariantPlain')}
-                            </Badge>
+                          <Table.Td ta="right" ff={MONO}>
+                            <Tooltip
+                              label={`${t('gmTrendRange')}: ${fmtSigned(r.trend_min, 1, locale)} … ${fmtSigned(r.trend_max, 1, locale)}`}
+                            >
+                              <span>{fmtSigned(r.trend_now, 1, locale)}</span>
+                            </Tooltip>
                           </Table.Td>
                           <Num>{r.train_days}</Num>
                           <Table.Td ta="right" ff={MONO}>
@@ -161,7 +208,8 @@ export function ModelTab({
                           <Num>{fmtNumber(r.mape_heat, 1, locale)} %</Num>
                           <Num>{fmtNumber(r.mape_summer, 1, locale)} %</Num>
                           <Num>
-                            {fmtNumber(r.sigma_week_heat, 1, locale)} / {fmtNumber(r.sigma_week_summer, 1, locale)} %
+                            {fmtNumber(r.sigma_week_heat, 1, locale)} /{' '}
+                            {fmtNumber(r.sigma_week_summer, 1, locale)} %
                           </Num>
                           <Num>{fmtNumber(r.mean, 1, locale)}</Num>
                         </>
@@ -178,7 +226,14 @@ export function ModelTab({
             <Text size="xs" c="dimmed" mt="sm">
               {t('gmQualityNote').replace('{n}', String(GOOD_MONTH_ERROR))}
             </Text>
+            <Text size="xs" c="dimmed" mt={4}>
+              {t('gmPoolingNote')
+                .replace('{s}', fit.pooling ? String(fit.pooling.strength) : '—')
+                .replace('{w}', String(fit.trend_window ?? 120))}
+            </Text>
           </Paper>
+
+          <FeaturesPanel stations={rows} selected={picked} onSelect={setPicked} />
         </>
       )}
     </Stack>
@@ -210,7 +265,17 @@ function Num({ children }: { children: React.ReactNode }) {
   )
 }
 
-export function Tile({ label, value, color, hint }: { label: string; value: string; color?: string; hint?: string }) {
+export function Tile({
+  label,
+  value,
+  color,
+  hint,
+}: {
+  label: string
+  value: string
+  color?: string
+  hint?: string
+}) {
   return (
     <Paper withBorder radius="md" p="sm">
       <Text size="xs" c="dimmed">
