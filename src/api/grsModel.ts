@@ -160,6 +160,10 @@ export interface GrsAnalysis {
   trained_last: string
   trained_at: string
   common: Series
+  /** How much the forecast was moved on each day ahead, % (0 on days with facts). */
+  branch_correction?: Series
+  /** The branch's mean shared deviation over its last 7 days with facts, %. */
+  branch_level?: number | null
   stations: GrsAnalysisStation[]
   total: { y: Series; expected: Series; ahead: Series }
   months: { month: string; values: Record<string, number | null> }[]

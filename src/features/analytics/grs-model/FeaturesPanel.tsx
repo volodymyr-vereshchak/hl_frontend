@@ -22,6 +22,7 @@ const FEATURE_LABEL: Record<string, TranslationKey> = {
   HDD_Tmax22: 'gmFeatHDD_Tmax22',
   warm3: 'gmFeatwarm3',
   HDD_Tmin10: 'gmFeatHDD_Tmin10',
+  HDD_m10: 'gmFeatHDD_m10',
   cold_aut: 'gmFeatcold_aut',
   hol_xmas: 'gmFeathol_xmas',
   hol_easter: 'gmFeathol_easter',

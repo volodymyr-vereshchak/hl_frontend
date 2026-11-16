@@ -141,7 +141,7 @@ function chartRows(data: GrsAnalysis, selected: string): ChartRow[] {
       period: day,
       y: station.y[i],
       expected: station.expected[i],
-      ahead: after ? station.model[i] : null,
+      ahead: after ? station.expected[i] : null,
       week: station.week[i],
       band: limit != null ? [-limit, limit] : null,
       level: station.level[i],
@@ -229,7 +229,7 @@ export function AnalysisTab({ branchId, status }: { branchId: number; status: Gr
   const pickedRow = rows.find((r) => r.name === active)
   const tileFact = picked ? (pickedRow?.fact ?? null) : totalFact
   const tileExpected = picked ? (pickedRow?.expected ?? null) : totalExpected
-  const aheadValues = (picked ? picked.model : data.total.ahead).filter(
+  const aheadValues = (picked ? picked.expected : data.total.ahead).filter(
     (v, i): v is number => v != null && after(i),
   )
   const tileEpisodes = picked ? episodes.filter((e) => e.grs === active) : episodes
@@ -592,6 +592,22 @@ export function AnalysisTab({ branchId, status }: { branchId: number; status: Gr
               />
             </ComposedChart>
           </ResponsiveContainer>
+          {aheadValues.length > 0 &&
+            data.branch_level != null &&
+            Math.abs(data.branch_level) >= 0.5 && (
+              <Text size="xs" c="dimmed" mt={4}>
+                {t('gmForecastCorrected')
+                  .replace('{p}', fmtSigned(data.branch_level, 1, locale))
+                  .replace(
+                    '{d}',
+                    fmtSigned(
+                      data.branch_correction?.find((v) => v != null && v !== 0) ?? null,
+                      1,
+                      locale,
+                    ),
+                  )}
+              </Text>
+            )}
 
           <Group justify="space-between" mt="md" mb="xs" wrap="wrap" gap="xs">
             <Text fw={600}>{t(active === TOTAL ? 'gmChartCommon' : 'gmChartDeviation')}, %</Text>
