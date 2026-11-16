@@ -126,6 +126,11 @@ export function WeatherDownloadPanel({ branchId, points }: { branchId: number; p
   const refresh = () => {
     void qc.invalidateQueries({ queryKey: ['weather-plan'] })
     void qc.invalidateQueries({ queryKey: ['weather-points'] })
+    // What was drawn from the old weather: the forecast panel and the GRS
+    // model's analysis. Left alone they kept the old days for minutes while
+    // the hours of a day came fresh, and the two disagreed.
+    void qc.invalidateQueries({ queryKey: ['weather-forecast'] })
+    void qc.invalidateQueries({ queryKey: ['grs-model'] })
   }
 
   const urlOf = (r: WeatherRequest, format: 'json' | 'csv') =>

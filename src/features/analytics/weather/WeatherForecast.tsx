@@ -58,7 +58,9 @@ export function WeatherForecast({ point }: { point: WeatherPoint }) {
   const daily = useQuery({
     queryKey: ['weather-forecast', 'daily', point.id, first, last],
     queryFn: () => weatherApi.daily([point.id], first, last),
-    staleTime: 5 * 60_000,
+    // Read again whenever the page is opened: weather may have been
+    // downloaded on another page, or on another workstation, meanwhile.
+    refetchOnMount: 'always',
   })
   const days = useMemo(
     () =>
@@ -76,7 +78,9 @@ export function WeatherForecast({ point }: { point: WeatherPoint }) {
   const hourly = useQuery({
     queryKey: ['weather-forecast', 'hourly', point.id, day],
     queryFn: () => weatherApi.hourly([point.id], day, day),
-    staleTime: 5 * 60_000,
+    // Read again whenever the page is opened: weather may have been
+    // downloaded on another page, or on another workstation, meanwhile.
+    refetchOnMount: 'always',
     enabled: days.length > 0,
   })
   const hours = useMemo(

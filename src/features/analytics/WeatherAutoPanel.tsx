@@ -36,6 +36,8 @@ export function WeatherAutoPanel() {
     if (data.status !== 'running') {
       void qc.invalidateQueries({ queryKey: ['weather-points'] })
       void qc.invalidateQueries({ queryKey: ['weather-plan'] })
+      void qc.invalidateQueries({ queryKey: ['weather-forecast'] })
+      void qc.invalidateQueries({ queryKey: ['grs-model'] })
     }
   }
   const save = useMutation({
@@ -58,6 +60,8 @@ export function WeatherAutoPanel() {
       setWasRunning(false)
       void qc.invalidateQueries({ queryKey: ['weather-points'] })
       void qc.invalidateQueries({ queryKey: ['weather-plan'] })
+      void qc.invalidateQueries({ queryKey: ['weather-forecast'] })
+      void qc.invalidateQueries({ queryKey: ['grs-model'] })
     }
   }, [st, wasRunning, qc])
 
