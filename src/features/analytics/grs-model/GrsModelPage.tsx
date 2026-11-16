@@ -17,6 +17,7 @@ import { useLanguage } from '@/locales/LanguageContext'
 import { useSelectionStore } from '@/store/selectionStore'
 import { AnalysisTab } from './AnalysisTab'
 import { DataTab } from './DataTab'
+import { GrsModelHelpButton } from './GrsModelHelp'
 import { LinesTab } from './LinesTab'
 import { ModelTab } from './ModelTab'
 
@@ -67,16 +68,19 @@ export function GrsModelPage() {
             {t('gmDescription')}
           </Text>
         </div>
-        <Select
-          placeholder={t('branch')}
-          data={(branches ?? []).map((b) => ({ value: String(b.id), label: b.name }))}
-          value={branchId != null ? String(branchId) : null}
-          onChange={(v) => setBranchId(v ? Number(v) : null)}
-          allowDeselect={false}
-          searchable
-          size="xs"
-          w={260}
-        />
+        <Group gap="sm" align="flex-end">
+          <GrsModelHelpButton />
+          <Select
+            placeholder={t('branch')}
+            data={(branches ?? []).map((b) => ({ value: String(b.id), label: b.name }))}
+            value={branchId != null ? String(branchId) : null}
+            onChange={(v) => setBranchId(v ? Number(v) : null)}
+            allowDeselect={false}
+            searchable
+            size="xs"
+            w={260}
+          />
+        </Group>
       </Group>
 
       {status.error && (
