@@ -147,7 +147,7 @@ function withSystemUpdate(groups: GroupDef[], enabled: boolean): GroupDef[] {
 
 export function AdminPage() {
   const { user } = useUser()
-  const [activeTab, setActiveTab] = useLocalStorage({ key: 'hlv-admin-tab', defaultValue: 'users' })
+  const [activeTab, setActiveTab] = useLocalStorage({ sync: false, key: 'hlv-admin-tab', defaultValue: 'users' })
   // A tab asked for from another tab — the monitor sending somebody to the
   // enterprise card whose settings it shows but no longer edits. The request
   // is left standing until the destination has taken it, because the tab

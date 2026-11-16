@@ -105,6 +105,7 @@ export function FhpComparisonPage() {
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [hidden, setHidden] = useLocalStorage<Record<number, boolean>>({
+    sync: false,
     key: 'hlv-fhp-hidden-lines',
     defaultValue: {},
   })
@@ -241,6 +242,7 @@ export function FhpComparisonPage() {
   // thing in every line's Δ column, or the row stops being comparable across
   // the table. Kept in localStorage so the choice survives a reload.
   const [footerAgg, setFooterAgg] = useLocalStorage<Record<string, Aggregate>>({
+    sync: false,
     key: 'hlv-fhp-agg-cols',
     defaultValue: {},
   })

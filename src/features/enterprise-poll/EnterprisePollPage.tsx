@@ -195,10 +195,12 @@ export function EnterprisePollPage() {
   // Collapsed groups survive reloads; the tree is long and reopening it every
   // time would be busywork.
   const [view, setView] = useLocalStorage<'table' | 'chart'>({
+    sync: false,
     key: 'hlv-poll-view',
     defaultValue: 'table',
   })
   const [collapsed, setCollapsed] = useLocalStorage<Record<string, boolean>>({
+    sync: false,
     key: 'hlv-poll-collapsed',
     defaultValue: {},
   })
@@ -240,6 +242,7 @@ export function EnterprisePollPage() {
    * than after somebody dials again.
    */
   const [source, setSource] = useLocalStorage<'dpd' | 'gsm'>({
+    sync: false,
     key: 'enterprise-poll.source',
     defaultValue: 'dpd',
   })
@@ -255,6 +258,7 @@ export function EnterprisePollPage() {
    * much; the archive reads the database and never contacts anybody.
    */
   const [tab, setTab] = useLocalStorage<'poll' | 'archive'>({
+    sync: false,
     key: 'enterprise-poll.tab',
     defaultValue: 'archive',
   })
@@ -264,6 +268,7 @@ export function EnterprisePollPage() {
   const [gsmRun, setGsmRun] = useState(0)
   const [reportFilters, setReportFilters] = useState<UnpolledFilters>(EMPTY_UNPOLLED_FILTERS)
   const [periodType, setPeriodType] = useLocalStorage<PeriodType>({
+    sync: false,
     key: 'enterprise-poll.periodType',
     defaultValue: 'daily',
   })
@@ -911,6 +916,7 @@ export function EnterprisePollPage() {
   // them to reach the totals row was the whole problem.
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useLocalStorage({
+    sync: false,
     key: `hlv-poll-pagesize-${periodType}`,
     defaultValue: DEFAULT_PERIOD_PAGE_SIZE[periodType],
   })
@@ -939,6 +945,7 @@ export function EnterprisePollPage() {
    * cannot. Same rule, and the same picker, as the archive footer.
    */
   const [aggregates, setAggregates] = useLocalStorage<Record<string, Aggregate>>({
+    sync: false,
     key: `hlv-poll-agg-cols-${periodType}`,
     defaultValue: {},
   })

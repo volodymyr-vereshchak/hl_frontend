@@ -281,6 +281,7 @@ export function TreeView({ fill = false }: { fill?: boolean } = {}) {
 
   // Which nodes are unfolded, kept across reloads and page changes.
   const [openMap, setOpenMap] = useLocalStorage<OpenMap>({
+    sync: false,
     key: 'hlv-tree-open',
     defaultValue: {},
   })

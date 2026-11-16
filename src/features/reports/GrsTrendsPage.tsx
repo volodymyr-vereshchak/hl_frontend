@@ -81,14 +81,17 @@ export function GrsTrendsPage() {
   const [usedLines, setUsedLines] = useState<ReportLine[]>([])
   // Which series the user switched off — remembered, like the archive chart.
   const [hidden, setHidden] = useLocalStorage<Record<number, boolean>>({
+    sync: false,
     key: 'hlv-trends-hidden-lines',
     defaultValue: {},
   })
   const [view, setView] = useLocalStorage<TrendView>({
+    sync: false,
     key: 'hlv-trends-view',
     defaultValue: 'all',
   })
   const [bandSetting, setBandSetting] = useLocalStorage<string>({
+    sync: false,
     key: 'hlv-trends-band',
     defaultValue: 'auto',
   })

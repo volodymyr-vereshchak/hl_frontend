@@ -75,6 +75,7 @@ export function NightConsumptionPage() {
   // Which day the night is filed under. Remembered, unlike the min/avg variant:
   // it is how the branch reads its nights, not something switched per report.
   const [dayMode, setDayMode] = useLocalStorage<DayMode>({
+    sync: false,
     key: 'hlv-night-day-mode',
     defaultValue: 'commercial',
   })
@@ -92,6 +93,7 @@ export function NightConsumptionPage() {
   const [error, setError] = useState<string | null>(null)
   // Which series the user switched off — remembered, like the archive chart.
   const [hidden, setHidden] = useLocalStorage<Record<number, boolean>>({
+    sync: false,
     key: 'hlv-night-hidden-lines',
     defaultValue: {},
   })

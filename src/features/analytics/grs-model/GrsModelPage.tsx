@@ -39,6 +39,7 @@ export function GrsModelPage() {
   const { data: branches } = useBranches()
   useEnsureValidBranch(branches)
   const [tab, setTab] = useLocalStorage<TabKey>({
+    sync: false,
     key: 'hlv-grs-model-tab',
     defaultValue: 'analysis',
   })

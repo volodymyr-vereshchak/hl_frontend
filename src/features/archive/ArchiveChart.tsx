@@ -131,6 +131,7 @@ export function ArchiveChart({ rows, type, meta, overlay, embedded = false }: Pr
 
   // Per-archive-type curve visibility; a key missing from storage defaults to visible.
   const [hidden, setHidden] = useLocalStorage<Record<string, boolean>>({
+    sync: false,
     key: `hlv-chart-hidden-${type}`,
     defaultValue: {},
   })

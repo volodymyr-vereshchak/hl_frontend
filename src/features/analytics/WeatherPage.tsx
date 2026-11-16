@@ -131,8 +131,8 @@ export function WeatherPage() {
   const [error, setError] = useState<string | null>(null)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(50)
-  const [view, setView] = useLocalStorage<WeatherView>({ key: 'hlv-weather-view', defaultValue: 'chart' })
-  const [chart, setChart] = useLocalStorage<WeatherChart>({ key: 'hlv-weather-chart', defaultValue: 'temp' })
+  const [view, setView] = useLocalStorage<WeatherView>({ sync: false, key: 'hlv-weather-view', defaultValue: 'chart' })
+  const [chart, setChart] = useLocalStorage<WeatherChart>({ sync: false, key: 'hlv-weather-chart', defaultValue: 'temp' })
 
   // Keep a valid point selected as the branch changes.
   useEffect(() => {

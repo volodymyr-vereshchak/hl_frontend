@@ -116,12 +116,14 @@ export function LineComparisonPage() {
   // against slightly different clocks, so the hourly Δ swings even on healthy
   // lines while the daily Δ is the real number.
   const [granularity, setGranularity] = useLocalStorage<Granularity>({
+    sync: false,
     key: 'hlv-line-comparison-granularity',
     defaultValue: 'daily',
   })
   // Only ids are stored; names and units are re-resolved from the tree, so a
   // line renamed in the admin panel shows up correctly without a re-pick.
   const [selection, setSelection] = useLocalStorage<StoredSelection>({
+    sync: false,
     key: 'hlv-line-comparison-selection',
     defaultValue: EMPTY_SELECTION,
   })
@@ -137,6 +139,7 @@ export function LineComparisonPage() {
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [hidden, setHidden] = useLocalStorage<Record<number, boolean>>({
+    sync: false,
     key: 'hlv-line-comparison-hidden',
     defaultValue: {},
   })
@@ -234,6 +237,7 @@ export function LineComparisonPage() {
   const pageRows = rows.slice((page - 1) * pageSize, page * pageSize)
 
   const [footerAgg, setFooterAgg] = useLocalStorage<Record<string, Aggregate>>({
+    sync: false,
     key: 'hlv-line-comparison-agg',
     defaultValue: {},
   })

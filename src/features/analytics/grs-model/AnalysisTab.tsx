@@ -177,6 +177,7 @@ export function AnalysisTab({ branchId, status }: { branchId: number; status: Gr
   const [to, setTo] = useState(() => shiftDay(anchor, DEFAULT_AHEAD))
   const [selected, setSelected] = useState<string>(TOTAL)
   const [view, setView] = useLocalStorage<View>({
+    sync: false,
     key: 'hlv-grs-analysis-view',
     defaultValue: 'chart',
   })

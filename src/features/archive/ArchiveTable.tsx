@@ -245,6 +245,7 @@ export const ArchiveTable = memo(function ArchiveTable({
   // Per column, and kept per archive type — the daily view and the hourly view
   // get read for different things. Absent key = that column's own default.
   const [aggregates, setAggregates] = useLocalStorage<Record<string, Aggregate>>({
+    sync: false,
     key: `hlv-archive-agg-cols-${type}`,
     defaultValue: {},
   })

@@ -84,11 +84,13 @@ export function GroupVolumes({
   const { colorScheme } = useMantineColorScheme()
   const dark = colorScheme === 'dark'
   const [view, setView] = useLocalStorage<'table' | 'chart'>({
+    sync: false,
     key: `hlv-group-view-${type}`,
     defaultValue: 'table',
   })
   const [hidden, setHidden] = useState<Record<number, boolean>>({})
   const [agg, setAgg] = useLocalStorage<Record<string, Aggregate>>({
+    sync: false,
     key: 'hlv-group-agg',
     defaultValue: {},
   })

@@ -29,6 +29,7 @@ export function FhpVolumeTable({ block, granularity, page, pageSize, t }: Props)
 
   // Volumes add up, so unlike the composition columns these default to a sum.
   const [agg, setAgg] = useLocalStorage<Record<string, Aggregate>>({
+    sync: false,
     key: 'hlv-fhp-volume-agg-cols',
     defaultValue: {},
   })

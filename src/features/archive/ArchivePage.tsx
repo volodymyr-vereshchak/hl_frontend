@@ -160,6 +160,7 @@ export function ArchivePage() {
   // Table or chart in the same pane — no scrolling to reach the plot. Kept per
   // archive type: the daily view and the hourly view are used differently.
   const [view, setView] = useLocalStorage<'table' | 'chart'>({
+    sync: false,
     key: `hlv-archive-view-${archiveType}`,
     defaultValue: 'table',
   })
@@ -170,6 +171,7 @@ export function ArchivePage() {
   const clientPaged = isClientPaged(archiveType)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useLocalStorage({
+    sync: false,
     key: `hlv-archive-pagesize-${archiveType}`,
     defaultValue: DEFAULT_PAGE_SIZE[archiveType],
   })

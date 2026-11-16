@@ -152,6 +152,7 @@ export function OverviewPage() {
   const { branchId, setBranchId } = useSelectionStore()
   const { topology, data, isLoading, error } = useOverviewData(branchId)
   const [collapsed, setCollapsed] = useLocalStorage<Record<number, boolean>>({
+    sync: false,
     key: 'hlv-overview-collapsed-lumgs',
     defaultValue: {},
   })

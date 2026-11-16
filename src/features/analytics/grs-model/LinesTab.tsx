@@ -111,10 +111,12 @@ export function LinesTab({ branchId, status }: { branchId: number; status: GrsMo
   const [hidden, setHidden] = useState<Record<number, boolean>>({})
   const [focus, setFocus] = useState<string>(ALL)
   const [mode, setMode] = useLocalStorage<Mode>({
+    sync: false,
     key: 'hlv-grs-lines-mode2',
     defaultValue: 'model',
   })
   const [view, setView] = useLocalStorage<View>({
+    sync: false,
     key: 'hlv-grs-lines-view',
     defaultValue: 'chart',
   })
