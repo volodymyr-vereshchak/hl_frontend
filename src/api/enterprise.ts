@@ -11,8 +11,9 @@ import { api } from '@/lib/apiClient'
  */
 export interface EnterpriseDeviceVolume {
   serNum: number
-  mfDev: number
-  typeDev: number
+  /** null: a corrector ДПД has no codes for (Ізодром), read by modem. */
+  mfDev: number | null
+  typeDev: number | null
   chNum: number
   enterprise_name: string
   volume?: number | null
@@ -144,6 +145,8 @@ export interface VolumesParams {
   mfDev?: number
   typeDev?: number
   chNum?: number
+  /** The corrector by its id here — the way to ask about one ДПД has no codes for. */
+  deviceId?: number
   virtual?: boolean
 }
 

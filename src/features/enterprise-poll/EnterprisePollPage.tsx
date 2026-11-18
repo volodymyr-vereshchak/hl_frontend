@@ -756,6 +756,8 @@ export function EnterprisePollPage() {
           mfDev: currentDevice(selectedMapping)?.mf_dev ?? undefined,
           typeDev: currentDevice(selectedMapping)?.type_dev ?? undefined,
           chNum: currentDevice(selectedMapping)?.ch_num,
+          // The device itself: an Ізодром has no ДПД codes to be found by.
+          deviceId: currentDevice(selectedMapping)?.device_id,
           line_id: (() => {
             const id = selectedMapping.line_id ?? selectedMapping.dpd_line_id
             return id != null ? [id] : undefined
