@@ -82,6 +82,10 @@ type View = 'chart' | 'table'
 interface Row extends StationDeviation {
   /** The analysis' expected in line m³ (the 1С scale undone). */
   modelNet: (number | null)[]
+  /** `net` and `modelNet` for the days fetched before the period, so the
+   *  comparison's 7-day mean starts on the period's first day. */
+  netBefore: (number | null)[]
+  modelNetBefore: (number | null)[]
 }
 
 interface Result {
@@ -191,7 +195,13 @@ export function LinesTab({ branchId, status }: { branchId: number; status: GrsMo
       })
       const keep = analysis.days.map((d) => d >= from && d <= to)
       const cut = <T,>(xs: T[]) => xs.filter((_, i) => keep[i])
+      const before = analysis.days.map((d) => d < from)
+      // Only the six days a 7-day window needs before the first one.
+      const lead = <T,>(xs: T[]) => xs.filter((_, i) => before[i]).slice(-(WEEK_RUN_UP - 1))
       const stations: Row[] = out.stations.map((s) => {
+        const modelNet = s.model.map((m) =>
+          m == null || s.scale == null ? null : (m * 1000) / s.scale,
+        )
         return {
           ...s,
           estimate: cut(s.estimate),
@@ -199,9 +209,9 @@ export function LinesTab({ branchId, status }: { branchId: number; status: GrsMo
           deviation: cut(s.deviation),
           week: cut(s.week),
           net: cut(s.net),
-          modelNet: cut(
-            s.model.map((m) => (m == null || s.scale == null ? null : (m * 1000) / s.scale)),
-          ),
+          modelNet: cut(modelNet),
+          netBefore: lead(s.net),
+          modelNetBefore: lead(modelNet),
         }
       })
       setResult({ days: cut(analysis.days), stations, common: cut(out.common) })
@@ -257,7 +267,15 @@ export function LinesTab({ branchId, status }: { branchId: number; status: GrsMo
         v != null && v > 0 && b[i] != null && b[i]! > 0 ? Math.log(v / b[i]!) : null,
       )
     const daily = ratio(fact, model)
-    const vsModel = weekly(daily)
+    // The week before the period feeds the first days' 7-day mean, as it
+    // does in the «Модель» mode; otherwise it began on the fifth day.
+    const runUp = compared.length ? Math.min(...compared.map((s) => s.netBefore.length)) : 0
+    const pre = (pick: (s: Row) => (number | null)[]) =>
+      Array.from({ length: runUp }, (_, j) => sum((s) => pick(s)[pick(s).length - runUp + j]))
+    const vsModel = weekly([
+      ...ratio(pre((s) => s.netBefore), pre((s) => s.modelNetBefore)),
+      ...daily,
+    ]).slice(runUp)
     const round = (v: number | null, d = 0) =>
       v == null ? null : Math.round(v * 10 ** d) / 10 ** d
     return result.days.map((day, i) => ({
