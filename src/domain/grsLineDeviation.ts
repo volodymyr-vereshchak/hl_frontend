@@ -20,7 +20,9 @@ export interface LineRef {
 export interface LineDeviationInput {
   /** The analysis days, ISO. */
   days: string[]
-  /** Per station: the 1С figure and the model, thousand m³ a day, by `days`. */
+  /** Per station: the 1С figure and the analysis' expected (the model with
+   *  the day's common factor and the forecast correction), thousand m³ a
+   *  day, by `days`. */
   stations: { name: string; y: (number | null)[]; model: (number | null)[] }[]
   /** The lines of each mapped station. */
   mapped: { name: string; lines: LineRef[] }[]

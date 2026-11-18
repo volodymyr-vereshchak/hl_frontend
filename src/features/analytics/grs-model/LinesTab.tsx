@@ -80,7 +80,7 @@ const ALL = '__all__'
 type View = 'chart' | 'table'
 
 interface Row extends StationDeviation {
-  /** The model in line m³ (the 1С scale undone). */
+  /** The analysis' expected in line m³ (the 1С scale undone). */
   modelNet: (number | null)[]
 }
 
@@ -181,7 +181,10 @@ export function LinesTab({ branchId, status }: { branchId: number; status: GrsMo
       setProgress(t('phaseCalculating'))
       const out = lineDeviation({
         days: analysis.days,
-        stations: analysis.stations.map((s) => ({ name: s.name, y: s.y, model: s.model })),
+        // The analysis' own «expected» — the model times what every GRS
+        // shared that day, and past the last 1С day the branch forecast
+        // correction — so a day reads the same here as on «Аналіз».
+        stations: analysis.stations.map((s) => ({ name: s.name, y: s.y, model: s.expected })),
         mapped: mapped.map((s) => ({ name: s.name, lines: s.lines as LineRef[] })),
         archive,
         industry,
