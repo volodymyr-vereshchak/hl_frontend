@@ -147,6 +147,11 @@ export interface VolumesParams {
   chNum?: number
   /** The corrector by its id here — the way to ask about one ДПД has no codes for. */
   deviceId?: number
+  /**
+   * One point, its correctors as its history stands now on the server. Takes
+   * precedence over every other way of naming devices.
+   */
+  enterprise_id?: number
   virtual?: boolean
 }
 

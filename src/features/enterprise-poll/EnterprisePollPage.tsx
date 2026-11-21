@@ -750,18 +750,12 @@ export function EnterprisePollPage() {
           from_date: from,
           to_date: to,
           period_type: periodType,
-          // The corrector standing there now: this screen asks the meter,
-          // and the meter is whichever device is fitted today.
-          serNum: currentDevice(selectedMapping)?.ser_num,
-          mfDev: currentDevice(selectedMapping)?.mf_dev ?? undefined,
-          typeDev: currentDevice(selectedMapping)?.type_dev ?? undefined,
-          chNum: currentDevice(selectedMapping)?.ch_num,
-          // The device itself: an Ізодром has no ДПД codes to be found by.
-          deviceId: currentDevice(selectedMapping)?.device_id,
-          line_id: (() => {
-            const id = selectedMapping.line_id ?? selectedMapping.dpd_line_id
-            return id != null ? [id] : undefined
-          })(),
+          // The point, not the corrector this list remembers: the server
+          // looks up what is fitted there by the history as it stands now.
+          // Asked by serial and channel from this list, a screen opened before
+          // the history changed (in another tab) kept asking about the old
+          // device and showed an empty archive (№0696, 20.11.2026).
+          enterprise_id: selectedMapping.id,
           // Reading, not asking. This is the archive view: it answers with
           // what is stored and never contacts DPD, so a period that is
           // genuinely empty no longer looks like an API that was unreachable.
